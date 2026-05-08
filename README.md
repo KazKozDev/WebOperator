@@ -149,6 +149,12 @@ The extension includes a few simple rails:
 
 There is no telemetry. Exports happen only when the user clicks export.
 
+## Skills, schedules, and vault
+
+WebOperator has a small set of built-in skills. They are just prompt playbooks for common browser work: filling forms, extracting data, using Google Sheets, managing tabs, shopping, email, login flows, and downloads. The agent can auto-select them from the task text, or you can turn them on manually.
+
+There is also a local scheduler for recurring browser tasks, and a local credential vault for login flows. The vault is not magic: the agent can only use saved credentials through an explicit `fill_login_credentials` tool call. Passwords are masked in snapshots, traces, UI events, and exports. The agent should never invent, print, or leak credentials.
+
 ## Project layout
 
 ```text
