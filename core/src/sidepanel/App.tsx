@@ -586,11 +586,6 @@ function SkillsView({ settings, updateSetting }: {
   return (
     <section className="view active page-view skills-view">
       <div className="page-note">Skills give the agent reusable playbooks for common sites. Toggle one on and the agent will follow its rules whenever the goal matches.</div>
-      <div className="risk-legend">
-        <span className="risk-legend-item"><span className="risk-dot risk-dot--safe" />Safe — read-only or harmless</span>
-        <span className="risk-legend-item"><span className="risk-dot risk-dot--medium" />Medium — writes data, may need login</span>
-        <span className="risk-legend-item"><span className="risk-dot risk-dot--high" />High — public or irreversible action</span>
-      </div>
       <div className="ui-list skills-list">
         {BUILT_IN_SKILLS.length === 0 ? (
           <div className="page-empty">No skills installed. Custom skills coming soon.</div>
