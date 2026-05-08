@@ -1,9 +1,0 @@
-{
-  "name": "com.weboperator.hermes",
-  "description": "WebOperator ↔ Hermes Agent bridge",
-  "path": "COMPANION_PATH",
-  "type": "stdio",
-  "allowed_origins": [
-    "chrome-extension://EXTENSION_ID/"
-  ]
-}

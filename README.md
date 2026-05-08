@@ -163,6 +163,8 @@ External agents can talk to WebOperator through the optional local bridge in `we
 Agent -> http://127.0.0.1:8765 -> WebOperator bridge -> Chrome extension -> active tab
 ```
 
+Hermes and other agents can connect through this Local Agent API.
+
 Install the native host, then reload the extension:
 
 ```bash
