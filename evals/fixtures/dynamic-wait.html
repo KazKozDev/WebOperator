@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Dynamic wait fixture</title>
+    <script>
+      function startJob() {
+        const status = document.getElementById('status');
+        status.textContent = 'Status: processing';
+        setTimeout(() => {
+          status.textContent = 'Status: Queue complete. Batch token DELTA-77 is ready.';
+        }, 900);
+      }
+    </script>
+  </head>
+  <body>
+    <main>
+      <h1>Async job</h1>
+      <button type="button" onclick="startJob()">Start processing</button>
+      <p id="status">Status: idle.</p>
+    </main>
+  </body>
+</html>

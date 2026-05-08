@@ -1,0 +1,51 @@
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs/
+
+# Env / local secrets
+.env
+.env.*
+!.env.example
+
+# Node artifacts
+node_modules/
+dist/
+build/
+coverage/
+.vite/
+.next/
+test-results/
+playwright-report/
+
+# IDE / editors
+.vscode/
+.idea/
+.claude/
+.opencode/
+*.swp
+*.swo
+
+# Chrome extension temp/dev artifacts
+*.crx
+*.pem
+
+# Agent/browser local artifacts
+.cache/
+.pytest_cache/
+__pycache__/
+*.sqlite
+*.sqlite3
+*.db
+trace-*.json
+export-*.json
+evals/traces/
+evals/reports/

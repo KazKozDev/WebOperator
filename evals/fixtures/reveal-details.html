@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Reveal details fixture</title>
+    <script>
+      function revealDetails() {
+        document.getElementById('details').hidden = false;
+      }
+    </script>
+  </head>
+  <body>
+    <main>
+      <h1>Shipment record</h1>
+      <p>The confirmation code is hidden until details are revealed.</p>
+      <button type="button" onclick="revealDetails()">Reveal details</button>
+      <section id="details" hidden>
+        <h2>Visible details</h2>
+        <p>Confirmation code: SKY-481.</p>
+      </section>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Ambiguous controls fixture</title>
+    <script>
+      function saveChanges() {
+        document.getElementById('result').textContent = 'Result: saved with receipt RC-204.';
+      }
+    </script>
+  </head>
+  <body>
+    <main>
+      <h1>Profile editor</h1>
+      <button type="button" disabled>Save</button>
+      <button type="button" onclick="saveChanges()">Save changes</button>
+      <p id="result">Result: not saved.</p>
+    </main>
+  </body>
+</html>

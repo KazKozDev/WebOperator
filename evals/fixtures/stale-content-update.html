@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Stale content fixture</title>
+    <script>
+      function refreshStatus() {
+        document.getElementById('status').textContent = 'Current status: updated inventory count is 42 units.';
+      }
+    </script>
+  </head>
+  <body>
+    <main>
+      <h1>Inventory panel</h1>
+      <p id="status">Current status: old inventory count is 17 units.</p>
+      <button type="button" onclick="refreshStatus()">Refresh status</button>
+    </main>
+  </body>
+</html>
