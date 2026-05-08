@@ -13,6 +13,10 @@ The interface is natural language: describe what you want done, and the agent tu
 
 This repo is intentionally not a framework. It is a Chrome extension with the agent loop in plain TypeScript.
 
+<p align="center">
+  <img src="docs/assets/webim.png" alt="WebOperator side panel interface" />
+</p>
+
 ## Quick start
 
 ```bash
@@ -331,3 +335,7 @@ WEBOPERATOR_PROVIDER=xai WEBOPERATOR_API_KEY=xai-... npm run eval:repeat -- --ru
 By default, the local path talks to Ollama on `localhost`. Remote providers can be configured in settings. Treat any remote provider as remote execution of the prompt: page snapshots and extracted text may be sent to that provider.
 
 Passwords are masked, but do not ask the agent to operate on sensitive accounts unless you have inspected the trace behavior and trust the configured model backend.
+
+<p align="center">
+  <img src="docs/assets/futter.png" alt="WebOperator" />
+</p>
