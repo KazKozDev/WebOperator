@@ -1604,11 +1604,11 @@ button.danger {
 }
 
 .settings-note {
-  padding: 9px 10px;
-  border: 1px solid rgba(212, 162, 78, 0.18);
-  border-radius: 7px;
-  background: rgba(212, 162, 78, 0.07);
-  color: var(--text2);
+  padding: 12px 14px;
+  border: 1px solid rgba(120, 180, 220, 0.25);
+  border-radius: 6px;
+  background: rgba(120, 180, 220, 0.08);
+  color: var(--text);
   font-size: 12px;
   line-height: 1.45;
 }
