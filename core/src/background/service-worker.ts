@@ -19,7 +19,8 @@ import {
 } from '@/lib/storage';
 import { clearCache } from '@/lib/action-cache';
 import { ensureContentScript } from '@/lib/messaging';
-import type { AgentTask, ScheduledTask, SWMessage, ToolCall } from '@/lib/types';
+import { onLocalSWEvent } from '@/lib/messaging';
+import type { AgentStep, AgentTask, ScheduledTask, SWEvent, SWMessage, ToolCall } from '@/lib/types';
 
 type Pending = { allow: boolean | null; resolve: (v: boolean) => void };
 
@@ -376,6 +377,32 @@ async function waitForTabComplete(tabId: number, timeoutMs = 30_000): Promise<vo
 
 let apiBridgePort: chrome.runtime.Port | null = null;
 let apiBridgeReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+onLocalSWEvent((event) => {
+  apiBridgePort?.postMessage({ kind: 'bridge:event', event: compactBridgeEvent(event) });
+});
+
+function compactBridgeEvent(event: SWEvent): SWEvent {
+  if (event.kind === 'task:update') {
+    return { ...event, task: { ...event.task, steps: [] } };
+  }
+  if (event.kind === 'task:step') {
+    return { ...event, step: compactStepForBridge(event.step) };
+  }
+  return event;
+}
+
+function compactStepForBridge(step: AgentStep): AgentStep {
+  const {
+    snapshot: _snapshot,
+    snapshotAfter: _snapshotAfter,
+    screenshotDataUrl: _screenshotDataUrl,
+    prompt: _prompt,
+    thinking: _thinking,
+    ...compact
+  } = step;
+  return compact;
+}
 
 // ── WebOperator local HTTP API bridge via Native Messaging ──
 function connectApiBridge() {

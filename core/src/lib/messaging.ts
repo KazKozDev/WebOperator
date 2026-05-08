@@ -1,5 +1,7 @@
 import type { CSMessage, CSResponse, SWEvent, SWMessage } from './types';
 
+const localEventListeners = new Set<(evt: SWEvent) => void>();
+
 export async function sendToSW<R>(msg: SWMessage): Promise<R> {
   const res = await chrome.runtime.sendMessage(msg) as R | { error?: string };
   if (res && typeof res === 'object' && 'error' in res && typeof res.error === 'string') {
@@ -29,7 +31,15 @@ export function onSWEvent(cb: (evt: SWEvent) => void): () => void {
 }
 
 export function broadcastEvent(evt: SWEvent): void {
+  for (const listener of localEventListeners) {
+    try { listener(evt); } catch {}
+  }
   chrome.runtime.sendMessage(evt).catch(() => {});
+}
+
+export function onLocalSWEvent(cb: (evt: SWEvent) => void): () => void {
+  localEventListeners.add(cb);
+  return () => localEventListeners.delete(cb);
 }
 
 export async function ensureContentScript(tabId: number): Promise<void> {

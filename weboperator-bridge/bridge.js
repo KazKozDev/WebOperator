@@ -16,6 +16,7 @@ let extensionOnline = false;
 let inputBuffer = Buffer.alloc(0);
 let nextFrameLength = null;
 const pending = new Map();
+const eventClients = new Map();
 
 process.stdin.on('data', (chunk) => {
   inputBuffer = Buffer.concat([inputBuffer, chunk]);
@@ -64,6 +65,11 @@ function handleNativeMessage(msg) {
     return;
   }
 
+  if (msg.kind === 'bridge:event') {
+    publishTaskEvent(msg.event);
+    return;
+  }
+
   if (msg.kind === 'bridge:response') {
     const item = pending.get(msg.id);
     if (!item) return;
@@ -106,6 +112,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     const url = new URL(req.url || '/', `http://${HOST}:${PORT}`);
+    if (tryHandleEventStream(req, req.method || 'GET', url, res)) return;
+
     const body = await readJson(req);
     const result = await route(req.method || 'GET', url, body);
     sendJson(res, 200, result);
@@ -194,6 +202,7 @@ async function route(method, url, body) {
     const action = taskMatch[2] || '';
     if (method === 'GET' && !action) return requestExtension('tasks.get', { id }, 30_000);
     if (method === 'GET' && action === 'trace') return requestExtension('tasks.get', { id }, 30_000);
+    if (method === 'GET' && action === 'events') throw httpError(405, 'Use the event stream handler for this endpoint');
     if (method === 'POST' && action === 'stop') return requestExtension('tasks.stop', { id }, 30_000);
     if (method === 'POST' && action === 'pause') return requestExtension('tasks.pause', { id }, 30_000);
     if (method === 'POST' && action === 'resume') return requestExtension('tasks.resume', { id }, 30_000);
@@ -204,4 +213,75 @@ async function route(method, url, body) {
   }
 
   throw httpError(404, `Unknown endpoint: ${method} ${path}`);
+}
+
+function tryHandleEventStream(req, method, url, res) {
+  const path = url.pathname.replace(/\/+$/, '') || '/';
+  const match = path.match(/^\/v1\/tasks\/([^/]+)\/events$/);
+  if (!match) return false;
+  if (method !== 'GET') throw httpError(405, 'Task event streams require GET');
+
+  const taskId = decodeURIComponent(match[1]);
+  res.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-cache, no-transform',
+    connection: 'keep-alive',
+    'x-accel-buffering': 'no',
+  });
+  res.write(': connected\n\n');
+
+  const client = { res, taskId };
+  let clients = eventClients.get(taskId);
+  if (!clients) {
+    clients = new Set();
+    eventClients.set(taskId, clients);
+  }
+  clients.add(client);
+
+  const heartbeat = setInterval(() => {
+    writeSse(res, 'heartbeat', { at: Date.now() });
+  }, 15_000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    clients.delete(client);
+    if (clients.size === 0) eventClients.delete(taskId);
+  });
+
+  sendInitialTaskEvent(taskId, res).catch((err) => {
+    writeSse(res, 'task.error', { taskId, error: err instanceof Error ? err.message : String(err) });
+  });
+  return true;
+}
+
+async function sendInitialTaskEvent(taskId, res) {
+  if (!extensionOnline) {
+    writeSse(res, 'bridge.status', { extension: 'offline' });
+    return;
+  }
+  const task = await requestExtension('tasks.get', { id: taskId }, 30_000);
+  writeSse(res, 'task.snapshot', { taskId, task });
+}
+
+function publishTaskEvent(event) {
+  const taskId = taskIdForEvent(event);
+  if (!taskId) return;
+  const clients = eventClients.get(taskId);
+  if (!clients) return;
+  const name = String(event.kind || 'task.event').replace(/:/g, '.');
+  for (const client of clients) {
+    writeSse(client.res, name, event);
+  }
+}
+
+function taskIdForEvent(event) {
+  if (!event || typeof event !== 'object') return '';
+  if (typeof event.taskId === 'string') return event.taskId;
+  if (event.task && typeof event.task === 'object' && typeof event.task.id === 'string') return event.task.id;
+  return '';
+}
+
+function writeSse(res, event, data) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
 }

@@ -199,8 +199,15 @@ Useful endpoints:
 - `GET /v1/tasks`
 - `GET /v1/tasks/:id`
 - `GET /v1/tasks/:id/trace`
+- `GET /v1/tasks/:id/events`
 - `POST /v1/tasks/:id/wait`
 - `POST /v1/tasks/:id/stop`
+
+Task events use Server-Sent Events, so agents can subscribe without polling:
+
+```bash
+curl http://127.0.0.1:8765/v1/tasks/<task-id>/events
+```
 
 This is local-only by default. Do not expose the bridge port to a network.
 
