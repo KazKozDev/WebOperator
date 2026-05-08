@@ -157,10 +157,10 @@ There is also a local scheduler for recurring browser tasks, and a local credent
 
 ## Local agent API
 
-External agents can talk to WebOperator through the optional local bridge in `weboperator-bridge/`. The bridge exposes a localhost HTTP API and forwards requests to the Chrome extension through Native Messaging:
+External agents can talk to WebOperator through the optional local bridge in `weboperator-bridge/`. The Chrome extension starts the bridge through Native Messaging, and agents can use the bridge's framed JSON socket or compatibility HTTP API:
 
 ```text
-Agent -> http://127.0.0.1:8765 -> WebOperator bridge -> Chrome extension -> active tab
+Agent -> framed JSON socket -> WebOperator Native Messaging host -> Chrome extension -> active tab
 ```
 
 Hermes and other agents can connect through this Local Agent API.
@@ -172,7 +172,19 @@ cd weboperator-bridge
 ./install.sh
 ```
 
+For the framed socket protocol, see `docs/agent-protocol.md`. For token auth, HTTP request/response details, and SSE task events, see `docs/api.md`.
+
 The API can return browser data and run browser actions:
+
+```bash
+WEBOPERATOR_API_TOKEN=dev-token \
+  node weboperator-bridge/agent-client.js '{"type":"bridge.health"}'
+
+WEBOPERATOR_API_TOKEN=dev-token \
+  node weboperator-bridge/agent-client.js '{"type":"browser.snapshot"}'
+```
+
+Compatibility HTTP examples:
 
 ```bash
 curl http://127.0.0.1:8765/health
@@ -255,7 +267,7 @@ scripts/
   eval-repeat.mjs          repeat runner for release-gate flakiness checks
 
 weboperator-bridge/
-  bridge.js                local HTTP API bridge for external agents
+  bridge.js                local agent bridge for external agents
   install.sh               native-host installer for Chrome
 ```
 

@@ -23,7 +23,7 @@ mkdir -p "$HOST_DIR"
 cat > "$HOST_FILE" << EOF
 {
   "name": "com.weboperator.bridge",
-  "description": "WebOperator local HTTP API bridge",
+  "description": "WebOperator local agent bridge",
   "path": "$NODE_PATH",
   "type": "stdio",
   "allowed_origins": [
@@ -39,6 +39,7 @@ echo "Installed native host: $HOST_FILE"
 echo "Extension ID: $EXT_ID"
 echo "Node: $NODE_PATH"
 echo "Bridge: $BRIDGE_PATH"
+echo "Agent socket: \${WEBOPERATOR_AGENT_SOCKET:-/tmp/weboperator-bridge.sock}"
 echo "HTTP API: http://127.0.0.1:8765"
 echo ""
 echo "Reload the extension in chrome://extensions."

@@ -1,6 +1,6 @@
 {
   "name": "com.weboperator.bridge",
-  "description": "WebOperator local HTTP API bridge",
+  "description": "WebOperator local agent bridge",
   "path": "NODE_PATH",
   "type": "stdio",
   "allowed_origins": [

@@ -1,12 +1,15 @@
 #!/usr/bin/env node
-// WebOperator Bridge — local HTTP API over Chrome Native Messaging.
+// WebOperator Bridge — framed agent socket plus compatibility HTTP API over Chrome Native Messaging.
 const http = require('http');
+const net = require('net');
 const { randomUUID } = require('crypto');
 const fs = require('fs');
 
 const HOST = process.env.WEBOPERATOR_BRIDGE_HOST || '127.0.0.1';
 const PORT = Number(process.env.WEBOPERATOR_BRIDGE_PORT || 8765);
 const LOG = process.env.WEBOPERATOR_BRIDGE_LOG || '/tmp/weboperator-bridge.log';
+const API_TOKEN = process.env.WEBOPERATOR_API_TOKEN || '';
+const AGENT_SOCKET = process.env.WEBOPERATOR_AGENT_SOCKET || '/tmp/weboperator-bridge.sock';
 
 function log(line) {
   try { fs.appendFileSync(LOG, `${new Date().toISOString()} ${line}\n`); } catch {}
@@ -17,6 +20,7 @@ let inputBuffer = Buffer.alloc(0);
 let nextFrameLength = null;
 const pending = new Map();
 const eventClients = new Map();
+const agentClients = new Set();
 
 process.stdin.on('data', (chunk) => {
   inputBuffer = Buffer.concat([inputBuffer, chunk]);
@@ -67,6 +71,7 @@ function handleNativeMessage(msg) {
 
   if (msg.kind === 'bridge:event') {
     publishTaskEvent(msg.event);
+    publishAgentEvent(msg.event);
     return;
   }
 
@@ -112,6 +117,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     const url = new URL(req.url || '/', `http://${HOST}:${PORT}`);
+    enforceAuth(req, url);
     if (tryHandleEventStream(req, req.method || 'GET', url, res)) return;
 
     const body = await readJson(req);
@@ -126,10 +132,12 @@ server.listen(PORT, HOST, () => {
   log(`http listening on http://${HOST}:${PORT}`);
 });
 
+startAgentSocket();
+
 function writeCors(_req, res) {
   res.setHeader('access-control-allow-origin', 'http://127.0.0.1');
   res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
-  res.setHeader('access-control-allow-headers', 'content-type');
+  res.setHeader('access-control-allow-headers', 'authorization, content-type, x-weboperator-token');
 }
 
 async function readJson(req) {
@@ -157,11 +165,22 @@ function statusForError(err) {
   return Number(err && err.status) || 500;
 }
 
+function enforceAuth(req, url) {
+  if (!API_TOKEN) return;
+  if (url.pathname.replace(/\/+$/, '') === '/health') return;
+
+  const authorization = req.headers.authorization || '';
+  const bearer = authorization.startsWith('Bearer ') ? authorization.slice('Bearer '.length).trim() : '';
+  const headerToken = String(req.headers['x-weboperator-token'] || '').trim();
+  if (bearer === API_TOKEN || headerToken === API_TOKEN) return;
+  throw httpError(401, 'Missing or invalid WebOperator API token');
+}
+
 async function route(method, url, body) {
   const path = url.pathname.replace(/\/+$/, '') || '/';
 
   if (method === 'GET' && path === '/health') {
-    return { ok: true, bridge: 'online', extension: extensionOnline ? 'online' : 'offline' };
+    return { ok: true, bridge: 'online', extension: extensionOnline ? 'online' : 'offline', authRequired: Boolean(API_TOKEN) };
   }
 
   if (method === 'GET' && path === '/v1/browser/snapshot') {
@@ -284,4 +303,92 @@ function taskIdForEvent(event) {
 function writeSse(res, event, data) {
   res.write(`event: ${event}\n`);
   res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+function startAgentSocket() {
+  try {
+    if (fs.existsSync(AGENT_SOCKET)) fs.unlinkSync(AGENT_SOCKET);
+  } catch (err) {
+    log(`agent socket cleanup failed: ${err.message}`);
+  }
+
+  const socketServer = net.createServer((socket) => {
+    const client = { socket, buffer: Buffer.alloc(0), nextFrameLength: null };
+    agentClients.add(client);
+
+    socket.on('data', (chunk) => {
+      client.buffer = Buffer.concat([client.buffer, chunk]);
+      readAgentFrames(client);
+    });
+    socket.on('close', () => agentClients.delete(client));
+    socket.on('error', (err) => {
+      log(`agent socket error: ${err.message}`);
+      agentClients.delete(client);
+    });
+  });
+
+  socketServer.on('error', (err) => log(`agent socket server error: ${err.message}`));
+  socketServer.listen(AGENT_SOCKET, () => {
+    try { fs.chmodSync(AGENT_SOCKET, 0o600); } catch {}
+    log(`agent socket listening on ${AGENT_SOCKET}`);
+  });
+
+  process.on('exit', () => {
+    try { if (fs.existsSync(AGENT_SOCKET)) fs.unlinkSync(AGENT_SOCKET); } catch {}
+  });
+}
+
+function readAgentFrames(client) {
+  while (true) {
+    if (client.nextFrameLength === null) {
+      if (client.buffer.length < 4) return;
+      client.nextFrameLength = client.buffer.readUInt32LE(0);
+      client.buffer = client.buffer.slice(4);
+    }
+    if (client.buffer.length < client.nextFrameLength) return;
+    const payload = client.buffer.slice(0, client.nextFrameLength).toString('utf8');
+    client.buffer = client.buffer.slice(client.nextFrameLength);
+    client.nextFrameLength = null;
+    try {
+      void handleAgentMessage(client, JSON.parse(payload));
+    } catch (err) {
+      sendAgentFrame(client.socket, { id: undefined, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+}
+
+async function handleAgentMessage(client, msg) {
+  const id = msg.id || randomUUID();
+  try {
+    enforceAgentAuth(msg);
+    const type = String(msg.type || '');
+    const payload = msg.payload && typeof msg.payload === 'object' ? msg.payload : {};
+    const timeoutMs = Number(msg.timeoutMs || 60_000);
+    const result = type === 'bridge.health'
+      ? { ok: true, bridge: 'online', extension: extensionOnline ? 'online' : 'offline', authRequired: Boolean(API_TOKEN) }
+      : await requestExtension(type, payload, timeoutMs);
+    sendAgentFrame(client.socket, { id, result });
+  } catch (err) {
+    sendAgentFrame(client.socket, { id, error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+function enforceAgentAuth(msg) {
+  if (!API_TOKEN) return;
+  if (msg.token === API_TOKEN) return;
+  throw new Error('Missing or invalid WebOperator API token');
+}
+
+function publishAgentEvent(event) {
+  for (const client of agentClients) {
+    sendAgentFrame(client.socket, { kind: 'event', event });
+  }
+}
+
+function sendAgentFrame(socket, obj) {
+  if (socket.destroyed) return;
+  const body = Buffer.from(JSON.stringify(obj), 'utf8');
+  const header = Buffer.alloc(4);
+  header.writeUInt32LE(body.length, 0);
+  socket.write(Buffer.concat([header, body]));
 }

@@ -1,0 +1,469 @@
+openapi: 3.1.0
+info:
+  title: WebOperator Local Agent API
+  version: 1.0.0
+  description: Compatibility HTTP API exposed by weboperator-bridge for browser data, browser actions, and WebOperator tasks. The primary agent protocol is the framed JSON socket documented in docs/agent-protocol.md.
+servers:
+  - url: http://127.0.0.1:8765
+security:
+  - bearerAuth: []
+  - webOperatorToken: []
+paths:
+  /health:
+    get:
+      summary: Bridge and extension health
+      security: []
+      responses:
+        "200":
+          description: Bridge health
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /v1/browser/snapshot:
+    get:
+      summary: Get current page accessibility snapshot
+      responses:
+        "200":
+          description: Snapshot result from the extension
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /v1/browser/screenshot:
+    get:
+      summary: Capture current visible tab
+      responses:
+        "200":
+          description: Screenshot data URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kind:
+                    type: string
+                    const: screenshot
+                  dataUrl:
+                    type: string
+  /v1/browser/navigate:
+    post:
+      summary: Navigate a tab to a URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NavigateRequest"
+      responses:
+        "200":
+          description: Navigation result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /v1/browser/click:
+    post:
+      summary: Click an element by WebOperator ref
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefActionRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/ActionResult"
+  /v1/browser/type:
+    post:
+      summary: Type text into an element by WebOperator ref
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TypeRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/ActionResult"
+  /v1/browser/press:
+    post:
+      summary: Press a keyboard key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PressRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/ActionResult"
+  /v1/browser/scroll:
+    post:
+      summary: Scroll the page or an element
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScrollRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/ActionResult"
+  /v1/browser/extract:
+    post:
+      summary: Extract visible page data
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExtractRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/ActionResult"
+  /v1/tasks:
+    get:
+      summary: List recent WebOperator tasks
+      responses:
+        "200":
+          description: Task list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AgentTask"
+    post:
+      summary: Start a WebOperator task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartTaskRequest"
+      responses:
+        "200":
+          description: Created task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentTask"
+  /v1/tasks/{id}:
+    get:
+      summary: Get a task with its stored steps
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Task or null if not found
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/AgentTask"
+                  - type: "null"
+  /v1/tasks/{id}/trace:
+    get:
+      summary: Get a task trace
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Full task trace
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/AgentTask"
+                  - type: "null"
+  /v1/tasks/{id}/events:
+    get:
+      summary: Stream task events with Server-Sent Events
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+  /v1/tasks/{id}/wait:
+    post:
+      summary: Wait for a task to stop running
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                timeoutMs:
+                  type: integer
+                  minimum: 1
+      responses:
+        "200":
+          description: Task state after waiting
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/AgentTask"
+                  - type: "null"
+  /v1/tasks/{id}/stop:
+    post:
+      summary: Stop a running task
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+  /v1/tasks/{id}/pause:
+    post:
+      summary: Pause a running task
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+  /v1/tasks/{id}/resume:
+    post:
+      summary: Resume a paused task
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+  /v1/tasks/{id}/confirm:
+    post:
+      summary: Confirm or reject a pending critical action
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - allow
+              properties:
+                allow:
+                  type: boolean
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+    webOperatorToken:
+      type: apiKey
+      in: header
+      name: X-WebOperator-Token
+  parameters:
+    TaskId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    Ok:
+      description: OK
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              ok:
+                type: boolean
+    ActionResult:
+      description: Browser action result
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: true
+  schemas:
+    Health:
+      type: object
+      required:
+        - ok
+        - bridge
+        - extension
+        - authRequired
+      properties:
+        ok:
+          type: boolean
+        bridge:
+          type: string
+          enum:
+            - online
+        extension:
+          type: string
+          enum:
+            - online
+            - offline
+        authRequired:
+          type: boolean
+    TabTarget:
+      type: object
+      properties:
+        tabId:
+          type: integer
+    NavigateRequest:
+      allOf:
+        - $ref: "#/components/schemas/TabTarget"
+        - type: object
+          required:
+            - url
+          properties:
+            url:
+              type: string
+              format: uri
+    RefActionRequest:
+      allOf:
+        - $ref: "#/components/schemas/TabTarget"
+        - type: object
+          required:
+            - ref
+          properties:
+            ref:
+              type: string
+              examples:
+                - "@e12"
+            reason:
+              type: string
+    TypeRequest:
+      allOf:
+        - $ref: "#/components/schemas/RefActionRequest"
+        - type: object
+          required:
+            - ref
+            - text
+          properties:
+            text:
+              type: string
+            mode:
+              type: string
+              enum:
+                - replace
+                - append
+              default: replace
+            submit:
+              type: string
+              enum:
+                - "true"
+                - "false"
+              default: "false"
+    PressRequest:
+      allOf:
+        - $ref: "#/components/schemas/TabTarget"
+        - type: object
+          required:
+            - key
+          properties:
+            key:
+              type: string
+              examples:
+                - Enter
+            modifiers:
+              type: string
+            ref:
+              type: string
+    ScrollRequest:
+      allOf:
+        - $ref: "#/components/schemas/TabTarget"
+        - type: object
+          properties:
+            direction:
+              type: string
+              enum:
+                - up
+                - down
+              default: down
+            amountPx:
+              type: integer
+              default: 500
+            amount:
+              type: integer
+              deprecated: true
+            ref:
+              type: string
+    ExtractRequest:
+      allOf:
+        - $ref: "#/components/schemas/TabTarget"
+        - type: object
+          properties:
+            refs:
+              type: string
+    StartTaskRequest:
+      type: object
+      required:
+        - goal
+      properties:
+        goal:
+          type: string
+        startUrl:
+          type: string
+          format: uri
+        tabId:
+          type: integer
+        autoConfirm:
+          type: boolean
+          default: false
+        timeoutMs:
+          type: integer
+          minimum: 1
+    AgentTask:
+      type: object
+      required:
+        - id
+        - goal
+        - tabId
+        - status
+        - steps
+        - createdAt
+        - updatedAt
+        - profile
+      properties:
+        id:
+          type: string
+        goal:
+          type: string
+        tabId:
+          type: integer
+        status:
+          type: string
+          enum:
+            - idle
+            - planning
+            - running
+            - paused
+            - done
+            - failed
+            - awaiting_confirm
+        steps:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        createdAt:
+          type: integer
+        updatedAt:
+          type: integer
+        profile:
+          type: string
+        provider:
+          type: string
+        modelUsed:
+          type: string
+        error:
+          type: string
