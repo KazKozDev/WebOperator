@@ -1,0 +1,207 @@
+#!/usr/bin/env node
+// WebOperator Bridge — local HTTP API over Chrome Native Messaging.
+const http = require('http');
+const { randomUUID } = require('crypto');
+const fs = require('fs');
+
+const HOST = process.env.WEBOPERATOR_BRIDGE_HOST || '127.0.0.1';
+const PORT = Number(process.env.WEBOPERATOR_BRIDGE_PORT || 8765);
+const LOG = process.env.WEBOPERATOR_BRIDGE_LOG || '/tmp/weboperator-bridge.log';
+
+function log(line) {
+  try { fs.appendFileSync(LOG, `${new Date().toISOString()} ${line}\n`); } catch {}
+}
+
+let extensionOnline = false;
+let inputBuffer = Buffer.alloc(0);
+let nextFrameLength = null;
+const pending = new Map();
+
+process.stdin.on('data', (chunk) => {
+  inputBuffer = Buffer.concat([inputBuffer, chunk]);
+  readFrames();
+});
+process.stdin.on('end', () => {
+  extensionOnline = false;
+  rejectAll(new Error('Extension native messaging stream closed'));
+});
+process.stdin.on('error', (err) => {
+  extensionOnline = false;
+  rejectAll(err);
+});
+
+function readFrames() {
+  while (true) {
+    if (nextFrameLength === null) {
+      if (inputBuffer.length < 4) return;
+      nextFrameLength = inputBuffer.readUInt32LE(0);
+      inputBuffer = inputBuffer.slice(4);
+    }
+    if (inputBuffer.length < nextFrameLength) return;
+    const payload = inputBuffer.slice(0, nextFrameLength).toString('utf8');
+    inputBuffer = inputBuffer.slice(nextFrameLength);
+    nextFrameLength = null;
+    try {
+      handleNativeMessage(JSON.parse(payload));
+    } catch (err) {
+      log(`bad native message: ${err.message}`);
+    }
+  }
+}
+
+function sendNative(obj) {
+  const json = JSON.stringify(obj);
+  const body = Buffer.from(json, 'utf8');
+  const header = Buffer.alloc(4);
+  header.writeUInt32LE(body.length, 0);
+  process.stdout.write(Buffer.concat([header, body]));
+}
+
+function handleNativeMessage(msg) {
+  if (msg.kind === 'bridge:hello') {
+    extensionOnline = true;
+    log('extension online');
+    return;
+  }
+
+  if (msg.kind === 'bridge:response') {
+    const item = pending.get(msg.id);
+    if (!item) return;
+    pending.delete(msg.id);
+    clearTimeout(item.timeout);
+    if (msg.error) item.reject(new Error(msg.error));
+    else item.resolve(msg.result);
+  }
+}
+
+function rejectAll(err) {
+  for (const [id, item] of pending) {
+    clearTimeout(item.timeout);
+    item.reject(err);
+    pending.delete(id);
+  }
+}
+
+function requestExtension(type, payload = {}, timeoutMs = 60_000) {
+  if (!extensionOnline) throw new Error('WebOperator extension is not connected to the bridge');
+  const id = randomUUID();
+  const promise = new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      pending.delete(id);
+      reject(new Error(`Bridge request timed out: ${type}`));
+    }, timeoutMs);
+    pending.set(id, { resolve, reject, timeout });
+  });
+  sendNative({ kind: 'bridge:request', id, type, payload });
+  return promise;
+}
+
+const server = http.createServer(async (req, res) => {
+  try {
+    writeCors(req, res);
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    const url = new URL(req.url || '/', `http://${HOST}:${PORT}`);
+    const body = await readJson(req);
+    const result = await route(req.method || 'GET', url, body);
+    sendJson(res, 200, result);
+  } catch (err) {
+    sendJson(res, statusForError(err), { error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+server.listen(PORT, HOST, () => {
+  log(`http listening on http://${HOST}:${PORT}`);
+});
+
+function writeCors(_req, res) {
+  res.setHeader('access-control-allow-origin', 'http://127.0.0.1');
+  res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
+  res.setHeader('access-control-allow-headers', 'content-type');
+}
+
+async function readJson(req) {
+  if (req.method === 'GET' || req.method === 'HEAD') return {};
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  const text = Buffer.concat(chunks).toString('utf8').trim();
+  if (!text) return {};
+  try { return JSON.parse(text); } catch { throw httpError(400, 'Request body must be JSON'); }
+}
+
+function sendJson(res, status, value) {
+  const body = JSON.stringify(value, null, 2);
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
+  res.end(body);
+}
+
+function httpError(status, message) {
+  const err = new Error(message);
+  err.status = status;
+  return err;
+}
+
+function statusForError(err) {
+  return Number(err && err.status) || 500;
+}
+
+async function route(method, url, body) {
+  const path = url.pathname.replace(/\/+$/, '') || '/';
+
+  if (method === 'GET' && path === '/health') {
+    return { ok: true, bridge: 'online', extension: extensionOnline ? 'online' : 'offline' };
+  }
+
+  if (method === 'GET' && path === '/v1/browser/snapshot') {
+    return requestExtension('browser.snapshot', {}, 30_000);
+  }
+  if (method === 'GET' && path === '/v1/browser/screenshot') {
+    return requestExtension('browser.screenshot', {}, 30_000);
+  }
+  if (method === 'POST' && path === '/v1/browser/navigate') {
+    return requestExtension('browser.navigate', body, 60_000);
+  }
+  if (method === 'POST' && path === '/v1/browser/click') {
+    return requestExtension('browser.click', body, 30_000);
+  }
+  if (method === 'POST' && path === '/v1/browser/type') {
+    return requestExtension('browser.type', body, 30_000);
+  }
+  if (method === 'POST' && path === '/v1/browser/press') {
+    return requestExtension('browser.press', body, 30_000);
+  }
+  if (method === 'POST' && path === '/v1/browser/scroll') {
+    return requestExtension('browser.scroll', body, 30_000);
+  }
+  if (method === 'POST' && path === '/v1/browser/extract') {
+    return requestExtension('browser.extract', body, 30_000);
+  }
+
+  if (method === 'GET' && path === '/v1/tasks') {
+    return requestExtension('tasks.list', {}, 30_000);
+  }
+  if (method === 'POST' && path === '/v1/tasks') {
+    return requestExtension('tasks.start', body, Number(body.timeoutMs || 60_000));
+  }
+
+  const taskMatch = path.match(/^\/v1\/tasks\/([^/]+)(?:\/([^/]+))?$/);
+  if (taskMatch) {
+    const id = decodeURIComponent(taskMatch[1]);
+    const action = taskMatch[2] || '';
+    if (method === 'GET' && !action) return requestExtension('tasks.get', { id }, 30_000);
+    if (method === 'GET' && action === 'trace') return requestExtension('tasks.get', { id }, 30_000);
+    if (method === 'POST' && action === 'stop') return requestExtension('tasks.stop', { id }, 30_000);
+    if (method === 'POST' && action === 'pause') return requestExtension('tasks.pause', { id }, 30_000);
+    if (method === 'POST' && action === 'resume') return requestExtension('tasks.resume', { id }, 30_000);
+    if (method === 'POST' && action === 'confirm') return requestExtension('tasks.confirm', { id, allow: body.allow }, 30_000);
+    if (method === 'POST' && action === 'wait') {
+      return requestExtension('tasks.wait', { id, timeoutMs: body.timeoutMs }, Number(body.timeoutMs || 120_000) + 5_000);
+    }
+  }
+
+  throw httpError(404, `Unknown endpoint: ${method} ${path}`);
+}

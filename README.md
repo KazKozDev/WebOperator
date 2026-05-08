@@ -155,6 +155,53 @@ WebOperator has a small set of built-in skills. They are just prompt playbooks f
 
 There is also a local scheduler for recurring browser tasks, and a local credential vault for login flows. The vault is not magic: the agent can only use saved credentials through an explicit `fill_login_credentials` tool call. Passwords are masked in snapshots, traces, UI events, and exports. The agent should never invent, print, or leak credentials.
 
+## Local agent API
+
+External agents can talk to WebOperator through the optional local bridge in `weboperator-bridge/`. The bridge exposes a localhost HTTP API and forwards requests to the Chrome extension through Native Messaging:
+
+```text
+Agent -> http://127.0.0.1:8765 -> WebOperator bridge -> Chrome extension -> active tab
+```
+
+Install the native host, then reload the extension:
+
+```bash
+cd weboperator-bridge
+./install.sh
+```
+
+The API can return browser data and run browser actions:
+
+```bash
+curl http://127.0.0.1:8765/health
+curl http://127.0.0.1:8765/v1/browser/snapshot
+curl -X POST http://127.0.0.1:8765/v1/browser/navigate \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://example.com"}'
+curl -X POST http://127.0.0.1:8765/v1/tasks \
+  -H 'content-type: application/json' \
+  -d '{"goal":"Extract the visible invoice total","autoConfirm":true}'
+```
+
+Useful endpoints:
+
+- `GET /v1/browser/snapshot`
+- `GET /v1/browser/screenshot`
+- `POST /v1/browser/navigate`
+- `POST /v1/browser/click`
+- `POST /v1/browser/type`
+- `POST /v1/browser/press`
+- `POST /v1/browser/scroll`
+- `POST /v1/browser/extract`
+- `POST /v1/tasks`
+- `GET /v1/tasks`
+- `GET /v1/tasks/:id`
+- `GET /v1/tasks/:id/trace`
+- `POST /v1/tasks/:id/wait`
+- `POST /v1/tasks/:id/stop`
+
+This is local-only by default. Do not expose the bridge port to a network.
+
 ## Project layout
 
 ```text
@@ -196,6 +243,11 @@ scripts/
   check.sh                 local verification
   eval-fixtures.mjs        eval fixture validator
   eval-extension.mjs       optional end-to-end extension eval runner
+  eval-repeat.mjs          repeat runner for release-gate flakiness checks
+
+weboperator-bridge/
+  bridge.js                local HTTP API bridge for external agents
+  install.sh               native-host installer for Chrome
 ```
 
 ## Useful commands

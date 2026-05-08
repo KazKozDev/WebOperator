@@ -377,6 +377,8 @@ async function waitForTabComplete(tabId: number, timeoutMs = 30_000): Promise<vo
 // ── Hermes Bridge via Native Messaging ──
 let hermesPort: chrome.runtime.Port | null = null;
 let hermesReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let apiBridgePort: chrome.runtime.Port | null = null;
+let apiBridgeReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 function connectHermesBridge() {
   if (hermesPort) return;
@@ -513,6 +515,208 @@ async function executeHermesTool(tabId: number, tool: string, args: Record<strin
 
 // Auto-connect Hermes bridge on startup
 setTimeout(connectHermesBridge, 1000);
+
+// ── WebOperator local HTTP API bridge via Native Messaging ──
+function connectApiBridge() {
+  if (apiBridgePort) return;
+
+  try {
+    apiBridgePort = chrome.runtime.connectNative('com.weboperator.bridge');
+    console.log('[bridge] connected to local API bridge');
+    apiBridgePort.postMessage({ kind: 'bridge:hello' });
+
+    apiBridgePort.onMessage.addListener(async (msg: any) => {
+      if (msg.kind !== 'bridge:request') return;
+      try {
+        const result = await executeBridgeRequest(String(msg.type), msg.payload ?? {});
+        apiBridgePort?.postMessage({ kind: 'bridge:response', id: msg.id, result });
+      } catch (err: any) {
+        apiBridgePort?.postMessage({ kind: 'bridge:response', id: msg.id, error: err instanceof Error ? err.message : String(err) });
+      }
+    });
+
+    apiBridgePort.onDisconnect.addListener(() => {
+      const lastError = chrome.runtime.lastError;
+      console.log('[bridge] disconnected:', lastError?.message || 'no error');
+      apiBridgePort = null;
+      if (apiBridgeReconnectTimer) clearTimeout(apiBridgeReconnectTimer);
+      apiBridgeReconnectTimer = setTimeout(connectApiBridge, 5000);
+    });
+  } catch (err: any) {
+    console.warn('[bridge] local API bridge not found:', err.message);
+    apiBridgePort = null;
+    if (apiBridgeReconnectTimer) clearTimeout(apiBridgeReconnectTimer);
+    apiBridgeReconnectTimer = setTimeout(connectApiBridge, 10000);
+  }
+}
+
+async function executeBridgeRequest(type: string, payload: Record<string, unknown>) {
+  switch (type) {
+    case 'browser.snapshot': {
+      const tabId = await activeTabIdFromPayload(payload);
+      await ensureContentScript(tabId);
+      const resp = await chrome.tabs.sendMessage(tabId, { kind: 'snapshot:take', options: { allElements: payload.allElements === true } });
+      return resp;
+    }
+    case 'browser.screenshot': {
+      const tab = await activeTabFromPayload(payload);
+      if (!tab.id || tab.windowId === undefined) throw new Error('No active tab');
+      const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 80 });
+      return { kind: 'screenshot', dataUrl };
+    }
+    case 'browser.navigate': {
+      const tabId = await activeTabIdFromPayload(payload);
+      const url = String(payload.url ?? '');
+      if (!url) throw new Error('Missing url');
+      await chrome.tabs.update(tabId, { url });
+      await waitForTabComplete(tabId);
+      return { ok: true, tabId, url };
+    }
+    case 'browser.click':
+    case 'browser.type':
+    case 'browser.press':
+    case 'browser.scroll':
+    case 'browser.extract': {
+      const tabId = await activeTabIdFromPayload(payload);
+      await ensureContentScript(tabId);
+      const action = bridgePayloadToToolCall(type, payload);
+      const resp = await chrome.tabs.sendMessage(tabId, { kind: 'action:run', action });
+      return resp;
+    }
+    case 'tasks.list':
+      return listTasks();
+    case 'tasks.get': {
+      const id = String(payload.id ?? '');
+      if (!id) throw new Error('Missing task id');
+      const task = await getTask(id);
+      if (!task) return null;
+      task.steps = await loadSteps(id);
+      return task;
+    }
+    case 'tasks.start': {
+      const goal = String(payload.goal ?? '');
+      if (!goal) throw new Error('Missing goal');
+      let tabId = payload.tabId ? Number(payload.tabId) : undefined;
+      const startUrl = payload.startUrl ? String(payload.startUrl) : '';
+      if (!tabId && startUrl) {
+        const tab = await chrome.tabs.create({ url: startUrl, active: true });
+        if (!tab.id) throw new Error('Chrome did not return a tabId');
+        tabId = tab.id;
+        await waitForTabComplete(tabId);
+      }
+      if (!tabId) tabId = await activeTabIdFromPayload(payload);
+      return startTask(goal, tabId, { autoConfirm: payload.autoConfirm === true });
+    }
+    case 'tasks.stop': {
+      const id = String(payload.id ?? '');
+      if (!id) throw new Error('Missing task id');
+      state.stopped.add(id);
+      state.pendingConfirms.get(id)?.resolve(false);
+      return { ok: true };
+    }
+    case 'tasks.pause': {
+      const id = String(payload.id ?? '');
+      if (!id) throw new Error('Missing task id');
+      state.paused.add(id);
+      return { ok: true };
+    }
+    case 'tasks.resume': {
+      const id = String(payload.id ?? '');
+      if (!id) throw new Error('Missing task id');
+      state.paused.delete(id);
+      return { ok: true };
+    }
+    case 'tasks.confirm': {
+      const id = String(payload.id ?? '');
+      if (!id) throw new Error('Missing task id');
+      state.pendingConfirms.get(id)?.resolve(payload.allow === true);
+      return { ok: true };
+    }
+    case 'tasks.wait': {
+      const id = String(payload.id ?? '');
+      if (!id) throw new Error('Missing task id');
+      return waitForTask(id, Number(payload.timeoutMs ?? 120_000));
+    }
+    default:
+      throw new Error(`Unknown bridge request: ${type}`);
+  }
+}
+
+async function activeTabFromPayload(payload: Record<string, unknown>): Promise<chrome.tabs.Tab> {
+  if (payload.tabId !== undefined) {
+    const tab = await chrome.tabs.get(Number(payload.tabId));
+    if (!tab?.id) throw new Error(`Tab not found: ${payload.tabId}`);
+    return tab;
+  }
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) throw new Error('No active tab');
+  return tab;
+}
+
+async function activeTabIdFromPayload(payload: Record<string, unknown>): Promise<number> {
+  const tab = await activeTabFromPayload(payload);
+  if (!tab.id) throw new Error('No active tab');
+  return tab.id;
+}
+
+function bridgePayloadToToolCall(type: string, payload: Record<string, unknown>): ToolCall {
+  if (type === 'browser.click') {
+    return { name: 'click', arguments: { ref: String(payload.ref ?? ''), reason: String(payload.reason ?? 'external api') } };
+  }
+  if (type === 'browser.type') {
+    return {
+      name: 'type',
+      arguments: {
+        ref: String(payload.ref ?? ''),
+        text: String(payload.text ?? ''),
+        mode: String(payload.mode ?? 'replace'),
+        submit: String(payload.submit ?? 'false'),
+      },
+    };
+  }
+  if (type === 'browser.press') {
+    return {
+      name: 'press',
+      arguments: {
+        key: String(payload.key ?? 'Enter'),
+        modifiers: String(payload.modifiers ?? ''),
+        ...(payload.ref ? { ref: String(payload.ref) } : {}),
+      },
+    };
+  }
+  if (type === 'browser.scroll') {
+    return {
+      name: 'scroll',
+      arguments: {
+        direction: String(payload.direction ?? 'down'),
+        amountPx: typeof payload.amountPx === 'number' ? payload.amountPx : Number(payload.amount ?? 500),
+        ...(payload.ref ? { ref: String(payload.ref) } : {}),
+      },
+    };
+  }
+  if (type === 'browser.extract') {
+    return { name: 'extract', arguments: { refs: String(payload.refs ?? '') } };
+  }
+  throw new Error(`Unsupported browser action: ${type}`);
+}
+
+async function waitForTask(id: string, timeoutMs: number): Promise<AgentTask | null> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const task = await getTask(id);
+    if (!task) return null;
+    if (task.status === 'done' || task.status === 'failed' || task.status === 'paused' || task.status === 'awaiting_confirm') {
+      task.steps = await loadSteps(id);
+      return task;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  const task = await getTask(id);
+  if (task) task.steps = await loadSteps(id);
+  return task ?? null;
+}
+
+setTimeout(connectApiBridge, 1500);
 
 chrome.alarms?.create?.('agent-heartbeat', { periodInMinutes: 0.5 });
 chrome.alarms?.onAlarm.addListener(() => {});

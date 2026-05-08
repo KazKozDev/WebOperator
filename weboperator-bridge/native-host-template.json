@@ -1,0 +1,10 @@
+{
+  "name": "com.weboperator.bridge",
+  "description": "WebOperator local HTTP API bridge",
+  "path": "NODE_PATH",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://EXTENSION_ID/"
+  ],
+  "args": ["BRIDGE_PATH"]
+}
