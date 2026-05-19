@@ -9,6 +9,7 @@ const HOST = process.env.WEBOPERATOR_BRIDGE_HOST || '127.0.0.1';
 const PORT = Number(process.env.WEBOPERATOR_BRIDGE_PORT || 8765);
 const LOG = process.env.WEBOPERATOR_BRIDGE_LOG || '/tmp/weboperator-bridge.log';
 const API_TOKEN = process.env.WEBOPERATOR_API_TOKEN || '';
+const ALLOW_UNAUTHENTICATED = process.env.WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE === '1';
 const AGENT_SOCKET = process.env.WEBOPERATOR_AGENT_SOCKET || '/tmp/weboperator-bridge.sock';
 
 function log(line) {
@@ -188,8 +189,9 @@ function statusForError(err) {
 }
 
 function enforceAuth(req, url) {
-  if (!API_TOKEN) return;
   if (url.pathname.replace(/\/+$/, '') === '/health') return;
+  if (!API_TOKEN && ALLOW_UNAUTHENTICATED) return;
+  if (!API_TOKEN) throw httpError(401, 'WEBOPERATOR_API_TOKEN is required unless WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE=1');
 
   const authorization = req.headers.authorization || '';
   const bearer = authorization.startsWith('Bearer ') ? authorization.slice('Bearer '.length).trim() : '';
@@ -396,7 +398,8 @@ async function handleAgentMessage(client, msg) {
 }
 
 function enforceAgentAuth(msg) {
-  if (!API_TOKEN) return;
+  if (!API_TOKEN && ALLOW_UNAUTHENTICATED) return;
+  if (!API_TOKEN) throw new Error('WEBOPERATOR_API_TOKEN is required unless WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE=1');
   if (msg.token === API_TOKEN) return;
   throw new Error('Missing or invalid WebOperator API token');
 }
