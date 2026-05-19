@@ -377,6 +377,7 @@ async function waitForTabComplete(tabId: number, timeoutMs = 30_000): Promise<vo
 
 let apiBridgePort: chrome.runtime.Port | null = null;
 let apiBridgeReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let apiBridgeKeepAliveTimer: ReturnType<typeof setInterval> | null = null;
 
 onLocalSWEvent((event) => {
   apiBridgePort?.postMessage({ kind: 'bridge:event', event: compactBridgeEvent(event) });
@@ -405,12 +406,28 @@ function compactStepForBridge(step: AgentStep): AgentStep {
 }
 
 // ── WebOperator local HTTP API bridge via Native Messaging ──
+function startApiBridgeKeepAlive() {
+  if (apiBridgeKeepAliveTimer) return;
+  apiBridgeKeepAliveTimer = setInterval(() => {
+    chrome.runtime.getPlatformInfo(() => {
+      void chrome.runtime.lastError;
+    });
+  }, 20_000);
+}
+
+function stopApiBridgeKeepAlive() {
+  if (!apiBridgeKeepAliveTimer) return;
+  clearInterval(apiBridgeKeepAliveTimer);
+  apiBridgeKeepAliveTimer = null;
+}
+
 function connectApiBridge() {
   if (apiBridgePort) return;
 
   try {
     apiBridgePort = chrome.runtime.connectNative('com.weboperator.bridge');
     console.log('[bridge] connected to local API bridge');
+    startApiBridgeKeepAlive();
     apiBridgePort.postMessage({ kind: 'bridge:hello' });
 
     apiBridgePort.onMessage.addListener(async (msg: any) => {
@@ -426,12 +443,14 @@ function connectApiBridge() {
     apiBridgePort.onDisconnect.addListener(() => {
       const lastError = chrome.runtime.lastError;
       console.log('[bridge] disconnected:', lastError?.message || 'no error');
+      stopApiBridgeKeepAlive();
       apiBridgePort = null;
       if (apiBridgeReconnectTimer) clearTimeout(apiBridgeReconnectTimer);
       apiBridgeReconnectTimer = setTimeout(connectApiBridge, 5000);
     });
   } catch (err: any) {
     console.warn('[bridge] local API bridge not found:', err.message);
+    stopApiBridgeKeepAlive();
     apiBridgePort = null;
     if (apiBridgeReconnectTimer) clearTimeout(apiBridgeReconnectTimer);
     apiBridgeReconnectTimer = setTimeout(connectApiBridge, 10000);
@@ -604,6 +623,7 @@ async function waitForTask(id: string, timeoutMs: number): Promise<AgentTask | n
   return task ?? null;
 }
 
+connectApiBridge();
 setTimeout(connectApiBridge, 1500);
 
 chrome.alarms?.create?.('agent-heartbeat', { periodInMinutes: 0.5 });

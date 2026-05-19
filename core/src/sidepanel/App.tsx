@@ -337,14 +337,16 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills }: {
   const awaitingConfirm = task?.status === 'awaiting_confirm';
   const selectedStep = task?.steps.find((s) => s.id === selectedStepId) ?? null;
   const finalAnswer = getTaskAnswer(task);
+  const taskId = task?.id;
+  const taskStatus = task?.status;
 
   useEffect(() => {
-    if (!task) {
+    if (!taskStatus) {
       setTraceOpen(true);
       return;
     }
-    setTraceOpen(task.status === 'running' || task.status === 'planning' || task.status === 'awaiting_confirm');
-  }, [task?.id, task?.status]);
+    setTraceOpen(taskStatus === 'running' || taskStatus === 'planning' || taskStatus === 'awaiting_confirm');
+  }, [taskId, taskStatus]);
 
   return (
     <section className="view active task-view">
@@ -1128,17 +1130,14 @@ function describeToolCall(call: AgentStep['toolCall'] | undefined): string {
   }
 }
 
-function renderMarkdown(text: string): string {
-  let html = normalizeAnswerText(text)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+export function renderMarkdown(text: string): string {
+  let html = escapeHtml(normalizeAnswerText(text));
   html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
   html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<em><strong>$1</strong></em>');
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label: string, rawHref: string) => renderSafeLink(label, rawHref));
   html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
   html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
   html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
@@ -1150,6 +1149,41 @@ function renderMarkdown(text: string): string {
   html = html.replace(/>\n</g, '><');
   html = html.replace(/\n/g, '<br>');
   return html;
+}
+
+function renderSafeLink(label: string, rawHref: string): string {
+  const href = normalizeSafeLinkHref(rawHref);
+  if (!href) return label;
+  return `<a href="${escapeHtmlAttribute(href)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+}
+
+function normalizeSafeLinkHref(rawHref: string): string | null {
+  const href = rawHref.trim();
+  if (!href) return null;
+
+  try {
+    const url = new URL(href);
+    if (url.protocol === 'http:' || url.protocol === 'https:' || url.protocol === 'mailto:') {
+      return url.href;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return escapeHtml(value)
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function normalizeAnswerText(text: string): string {

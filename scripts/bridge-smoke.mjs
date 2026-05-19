@@ -8,6 +8,22 @@ const port = 19000 + Math.floor(Math.random() * 1000);
 const token = 'test-token';
 const base = `http://127.0.0.1:${port}`;
 const socketPath = `/tmp/weboperator-bridge-smoke-${process.pid}.sock`;
+const unauthPort = port + 2000;
+const unauthBase = `http://127.0.0.1:${unauthPort}`;
+const unauthSocketPath = `/tmp/weboperator-bridge-smoke-unauth-${process.pid}.sock`;
+
+const unauthChild = spawn(process.execPath, ['weboperator-bridge/bridge.js'], {
+  cwd: new URL('..', import.meta.url),
+  env: {
+    ...process.env,
+    WEBOPERATOR_BRIDGE_PORT: String(unauthPort),
+    WEBOPERATOR_AGENT_SOCKET: unauthSocketPath,
+    WEBOPERATOR_BRIDGE_LOG: '/tmp/weboperator-bridge-smoke-unauth.log',
+    WEBOPERATOR_API_TOKEN: '',
+    WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE: '',
+  },
+  stdio: ['ignore', 'ignore', 'inherit'],
+});
 
 const child = spawn(process.execPath, ['weboperator-bridge/bridge.js'], {
   cwd: new URL('..', import.meta.url),
@@ -22,6 +38,10 @@ const child = spawn(process.execPath, ['weboperator-bridge/bridge.js'], {
 });
 
 try {
+  await waitForServer(`${unauthBase}/health`);
+  const unauthDenied = await fetch(`${unauthBase}/v1/browser/snapshot`);
+  assert.equal(unauthDenied.status, 401);
+
   await waitForServer(`${base}/health`);
 
   const health = await getJson(`${base}/health`);
@@ -63,8 +83,8 @@ try {
 
   console.log('Bridge smoke tests passed');
 } finally {
-  child.kill('SIGTERM');
-  await once(child, 'exit').catch(() => {});
+  await stopChild(child);
+  await stopChild(unauthChild);
 }
 
 async function waitForServer(url) {
@@ -115,4 +135,11 @@ function sendFrame(socket, obj) {
   const header = Buffer.alloc(4);
   header.writeUInt32LE(body.length, 0);
   socket.write(Buffer.concat([header, body]));
+}
+
+async function stopChild(childProcess) {
+  if (childProcess.exitCode !== null || childProcess.signalCode !== null) return;
+  const exited = once(childProcess, 'exit').catch(() => {});
+  childProcess.kill('SIGTERM');
+  await exited;
 }

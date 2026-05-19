@@ -139,6 +139,7 @@ scripts/
 weboperator-bridge/
   bridge.js                local agent bridge for external agents
   install.sh               native-host installer for Chrome
+  native-host.sh           portable native-host wrapper
 ```
 
 ## Useful commands
@@ -152,9 +153,14 @@ Or run the core commands directly:
 ```bash
 cd core
 npm run typecheck
+npm run lint
 npm test
+npm run deadcode
+npm run shellcheck
 npm run build
 ```
+
+`npm run shellcheck` expects the `shellcheck` binary to be installed on the host.
 
 The build output is `core/dist/`.
 

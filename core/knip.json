@@ -1,0 +1,17 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "entry": [
+    "src/background/service-worker.ts",
+    "src/content/content-script.ts",
+    "src/sidepanel/main.tsx",
+    "../scripts/*.mjs",
+    "../weboperator-bridge/*.js"
+  ],
+  "project": [
+    "src/**/*.{ts,tsx}",
+    "../scripts/*.mjs",
+    "../weboperator-bridge/*.js"
+  ],
+  "ignoreBinaries": ["core.bin/eslint", "shellcheck"],
+  "ignoreDependencies": ["playwright"]
+}

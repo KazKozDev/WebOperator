@@ -28,11 +28,12 @@ Environment variables:
 - `WEBOPERATOR_BRIDGE_PORT`: bind port, default `8765`
 - `WEBOPERATOR_BRIDGE_LOG`: log file, default `/tmp/weboperator-bridge.log`
 - `WEBOPERATOR_AGENT_SOCKET`: framed JSON socket path, default `/tmp/weboperator-bridge.sock`
-- `WEBOPERATOR_API_TOKEN`: optional bearer token for `/v1/*`
+- `WEBOPERATOR_API_TOKEN`: bearer token for `/v1/*`
+- `WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE=1`: explicit development-only bypass when no token is set
 
 ## Auth
 
-If `WEBOPERATOR_API_TOKEN` is set, every HTTP `/v1/*` request must include one of:
+Every HTTP `/v1/*` request must include one of:
 
 ```bash
 Authorization: Bearer <token>
@@ -41,7 +42,8 @@ X-WebOperator-Token: <token>
 
 Query-string tokens are not supported because URLs are commonly logged.
 `GET /health` does not require auth and returns `authRequired`.
-Socket requests must include `"token":"<token>"` when auth is enabled.
+Socket requests must include `"token":"<token>"`.
+If no token is configured, `/v1/*` and socket requests are rejected unless `WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE=1` is set.
 
 For a machine-readable contract, see `docs/openapi.yaml`.
 
@@ -284,3 +286,4 @@ Use `GET /v1/tasks/:id/trace` for the full stored trace.
 
 Keep the bridge bound to `127.0.0.1`. Do not expose the port to a network.
 Set `WEBOPERATOR_API_TOKEN` when another local process will control WebOperator.
+Use `WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE=1` only for local development smoke tests.

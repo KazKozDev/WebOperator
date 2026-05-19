@@ -36,7 +36,7 @@ UTF-8 JSON payload
 
 ## Auth
 
-If `WEBOPERATOR_API_TOKEN` is set when the bridge starts, every agent request must include:
+Every agent request must include `WEBOPERATOR_API_TOKEN` when the bridge starts:
 
 ```json
 {
@@ -45,6 +45,7 @@ If `WEBOPERATOR_API_TOKEN` is set when the bridge starts, every agent request mu
 ```
 
 Events do not require a token after the socket is connected.
+If no token is configured, requests are rejected unless `WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE=1` is set for development.
 
 ## Request
 
