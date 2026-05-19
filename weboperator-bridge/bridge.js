@@ -16,7 +16,7 @@ function log(line) {
   try { fs.appendFileSync(LOG, `${new Date().toISOString()} ${line}\n`); } catch {}
 }
 
-log(`process start pid=${process.pid} ppid=${process.ppid} argv=${JSON.stringify(process.argv)} cwd=${process.cwd()}`);
+log(`process start pid=${process.pid} ppid=${process.ppid} argv=${JSON.stringify(redactArgv(process.argv))} cwd=${process.cwd()}`);
 process.on('beforeExit', (code) => log(`beforeExit code=${code}`));
 process.on('exit', (code) => log(`exit code=${code}`));
 process.on('uncaughtException', (err) => log(`uncaughtException ${err && err.stack ? err.stack : err}`));
@@ -31,6 +31,25 @@ process.on('SIGINT', () => {
 });
 process.stdout.on('error', (err) => log(`stdout error: ${err.message}`));
 process.stderr.on('error', (err) => log(`stderr error: ${err.message}`));
+
+function redactArgv(argv) {
+  const redacted = [];
+  let redactNext = false;
+  for (const arg of argv) {
+    if (redactNext) {
+      redacted.push('[REDACTED]');
+      redactNext = false;
+      continue;
+    }
+    if (/^(--?(?:api[-_]?token|token|secret|password|key))$/i.test(arg)) {
+      redacted.push(arg);
+      redactNext = true;
+      continue;
+    }
+    redacted.push(arg.replace(/^(--?(?:api[-_]?token|token|secret|password|key)=).+/i, '$1[REDACTED]'));
+  }
+  return redacted;
+}
 
 let extensionOnline = false;
 let inputBuffer = Buffer.alloc(0);

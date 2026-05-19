@@ -8,7 +8,7 @@ Scope: TypeScript React Chrome extension, Node.js native messaging bridge, local
 
 The project already has several good controls: the local bridge binds to `127.0.0.1` by default, query-string API tokens are rejected, Chrome Native Messaging restricts allowed extension origins, credentials are stored in `chrome.storage.session`, and the new verification gate passes `npm audit`, ESLint, tests, Knip, ShellCheck, and build.
 
-The original high and medium findings are fixed in the current working tree and covered by regression/smoke tests. The remaining finding is low-severity hardening around metadata logging.
+All findings in this report are fixed in the current working tree and covered by regression/smoke checks where applicable.
 
 ## High Severity
 
@@ -93,12 +93,21 @@ function enforceAgentAuth(msg) {
 
 - Rule: general secret/logging hygiene
 - Severity: Low
+- Status: Fixed in `weboperator-bridge/bridge.js`; argv logging now redacts common token/secret/password/key flags
 - Location: `weboperator-bridge/bridge.js`, lines 10 and 18-22
 - Evidence:
+
+Original pattern:
 
 ```js
 const LOG = process.env.WEBOPERATOR_BRIDGE_LOG || '/tmp/weboperator-bridge.log';
 log(`process start pid=${process.pid} ppid=${process.ppid} argv=${JSON.stringify(process.argv)} cwd=${process.cwd()}`);
+```
+
+Fixed pattern:
+
+```js
+log(`process start pid=${process.pid} ppid=${process.ppid} argv=${JSON.stringify(redactArgv(process.argv))} cwd=${process.cwd()}`);
 ```
 
 - Impact: The current default log does not include environment variables, so `WEBOPERATOR_API_TOKEN` is not logged. However, if future launch modes pass sensitive values through CLI args, `argv` logging would persist them to a predictable temp path.
