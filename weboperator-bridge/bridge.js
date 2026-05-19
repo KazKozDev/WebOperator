@@ -15,6 +15,22 @@ function log(line) {
   try { fs.appendFileSync(LOG, `${new Date().toISOString()} ${line}\n`); } catch {}
 }
 
+log(`process start pid=${process.pid} ppid=${process.ppid} argv=${JSON.stringify(process.argv)} cwd=${process.cwd()}`);
+process.on('beforeExit', (code) => log(`beforeExit code=${code}`));
+process.on('exit', (code) => log(`exit code=${code}`));
+process.on('uncaughtException', (err) => log(`uncaughtException ${err && err.stack ? err.stack : err}`));
+process.on('unhandledRejection', (err) => log(`unhandledRejection ${err && err.stack ? err.stack : err}`));
+process.on('SIGTERM', () => {
+  log('SIGTERM received');
+  process.exit(0);
+});
+process.on('SIGINT', () => {
+  log('SIGINT received');
+  process.exit(130);
+});
+process.stdout.on('error', (err) => log(`stdout error: ${err.message}`));
+process.stderr.on('error', (err) => log(`stderr error: ${err.message}`));
+
 let extensionOnline = false;
 let inputBuffer = Buffer.alloc(0);
 let nextFrameLength = null;
@@ -27,10 +43,15 @@ process.stdin.on('data', (chunk) => {
   readFrames();
 });
 process.stdin.on('end', () => {
+  log('stdin end');
   extensionOnline = false;
   rejectAll(new Error('Extension native messaging stream closed'));
 });
+process.stdin.on('close', () => {
+  log('stdin close');
+});
 process.stdin.on('error', (err) => {
+  log(`stdin error: ${err.message}`);
   extensionOnline = false;
   rejectAll(err);
 });
@@ -128,6 +149,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+server.on('error', (err) => log(`http server error: ${err.message}`));
 server.listen(PORT, HOST, () => {
   log(`http listening on http://${HOST}:${PORT}`);
 });

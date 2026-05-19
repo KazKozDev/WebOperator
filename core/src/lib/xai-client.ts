@@ -113,7 +113,7 @@ async function readStreamingResponseXai(res: Response, opts: OllamaChatOptions, 
   const decoder = new TextDecoder();
   let buffer = '';
   let content = '';
-  let lastToolCalls: Array<{ id?: string; function: { name?: string; arguments: string } }> = [];
+  const lastToolCalls: Array<{ id?: string; function: { name?: string; arguments: string } }> = [];
 
   while (true) {
     const { done, value } = await reader.read();

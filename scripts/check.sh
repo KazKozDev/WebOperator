@@ -8,5 +8,8 @@ node "$ROOT/scripts/bridge-smoke.mjs"
 
 cd "$ROOT/core"
 npm run typecheck
+npm run lint
 npm test
+npm run deadcode
+npm run shellcheck
 npm run build

@@ -11,7 +11,10 @@ Use this before tagging a release.
 This must pass:
 
 - TypeScript typecheck
+- ESLint
 - unit tests
+- Knip dependency/dead-code gate
+- ShellCheck for shell scripts
 - eval fixture validation
 - production build
 

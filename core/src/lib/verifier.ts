@@ -135,7 +135,7 @@ function verifyFailedAction(
   const popup = detectPopup(snapshotBefore, snapshotAfter);
 
   const suggestions: string[] = [`Action failed: ${errorText}`];
-  let strategy: RetryStrategy = 'retry_same';
+  let strategy: RetryStrategy;
 
   if (popup.detected) {
     suggestions.push(`Popup detected (${popup.refs?.join(', ')}) — it may have intercepted the action`);

@@ -337,14 +337,16 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills }: {
   const awaitingConfirm = task?.status === 'awaiting_confirm';
   const selectedStep = task?.steps.find((s) => s.id === selectedStepId) ?? null;
   const finalAnswer = getTaskAnswer(task);
+  const taskId = task?.id;
+  const taskStatus = task?.status;
 
   useEffect(() => {
-    if (!task) {
+    if (!taskStatus) {
       setTraceOpen(true);
       return;
     }
-    setTraceOpen(task.status === 'running' || task.status === 'planning' || task.status === 'awaiting_confirm');
-  }, [task?.id, task?.status]);
+    setTraceOpen(taskStatus === 'running' || taskStatus === 'planning' || taskStatus === 'awaiting_confirm');
+  }, [taskId, taskStatus]);
 
   return (
     <section className="view active task-view">
