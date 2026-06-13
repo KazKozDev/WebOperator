@@ -23,6 +23,7 @@ import { onLocalSWEvent } from '@/lib/messaging';
 import type { AgentStep, AgentTask, ScheduledTask, SWEvent, SWMessage, ToolCall } from '@/lib/types';
 
 type Pending = { allow: boolean | null; resolve: (v: boolean) => void };
+type BridgeRequestMessage = { kind?: unknown; type?: unknown; payload?: unknown; id?: unknown };
 
 const state = {
   stopped: new Set<string>(),
@@ -135,7 +136,7 @@ async function startTask(goal: string, tabId: number, options: { autoConfirm?: b
 
   runTask(task, {
     settings,
-    shouldConfirm: (t: AgentTask, _call: ToolCall) => options.autoConfirm
+    shouldConfirm: (t: AgentTask) => options.autoConfirm
       ? Promise.resolve(true)
       : new Promise<boolean>((resolve) => {
         state.pendingConfirms.set(t.id, { allow: null, resolve });
@@ -350,8 +351,10 @@ function createAgentTask(goal: string, tabId: number, settings: Awaited<ReturnTy
 
 function modelUsedFromSettings(settings: Awaited<ReturnType<typeof getSettings>>): string | undefined {
   if (settings.provider === 'openai') return settings.openaiModel;
+  if (settings.provider === 'gemini') return settings.geminiModel;
   if (settings.provider === 'xai') return settings.xaiModel;
   if (settings.provider === 'openrouter') return settings.openRouterModel;
+  if (settings.provider === 'siliconflow') return settings.siliconFlowModel;
   if (settings.provider === 'mlx') return settings.mlxModel;
   return undefined;
 }
@@ -394,14 +397,12 @@ function compactBridgeEvent(event: SWEvent): SWEvent {
 }
 
 function compactStepForBridge(step: AgentStep): AgentStep {
-  const {
-    snapshot: _snapshot,
-    snapshotAfter: _snapshotAfter,
-    screenshotDataUrl: _screenshotDataUrl,
-    prompt: _prompt,
-    thinking: _thinking,
-    ...compact
-  } = step;
+  const compact = { ...step };
+  delete compact.snapshot;
+  delete compact.snapshotAfter;
+  delete compact.screenshotDataUrl;
+  delete compact.prompt;
+  delete compact.thinking;
   return compact;
 }
 
@@ -430,12 +431,13 @@ function connectApiBridge() {
     startApiBridgeKeepAlive();
     apiBridgePort.postMessage({ kind: 'bridge:hello' });
 
-    apiBridgePort.onMessage.addListener(async (msg: any) => {
+    apiBridgePort.onMessage.addListener(async (rawMsg: unknown) => {
+      const msg = rawMsg as BridgeRequestMessage;
       if (msg.kind !== 'bridge:request') return;
       try {
-        const result = await executeBridgeRequest(String(msg.type), msg.payload ?? {});
+        const result = await executeBridgeRequest(String(msg.type), isRecord(msg.payload) ? msg.payload : {});
         apiBridgePort?.postMessage({ kind: 'bridge:response', id: msg.id, result });
-      } catch (err: any) {
+      } catch (err: unknown) {
         apiBridgePort?.postMessage({ kind: 'bridge:response', id: msg.id, error: err instanceof Error ? err.message : String(err) });
       }
     });
@@ -448,13 +450,17 @@ function connectApiBridge() {
       if (apiBridgeReconnectTimer) clearTimeout(apiBridgeReconnectTimer);
       apiBridgeReconnectTimer = setTimeout(connectApiBridge, 5000);
     });
-  } catch (err: any) {
-    console.warn('[bridge] local API bridge not found:', err.message);
+  } catch (err: unknown) {
+    console.warn('[bridge] local API bridge not found:', err instanceof Error ? err.message : String(err));
     stopApiBridgeKeepAlive();
     apiBridgePort = null;
     if (apiBridgeReconnectTimer) clearTimeout(apiBridgeReconnectTimer);
     apiBridgeReconnectTimer = setTimeout(connectApiBridge, 10000);
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 async function executeBridgeRequest(type: string, payload: Record<string, unknown>) {

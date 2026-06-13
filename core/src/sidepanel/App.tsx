@@ -332,6 +332,7 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills }: {
 }) {
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [traceOpen, setTraceOpen] = useState(true);
+  const [planOpen, setPlanOpen] = useState(true);
   const running = isStarting || task?.status === 'running' || task?.status === 'planning';
   const paused = task?.status === 'paused';
   const awaitingConfirm = task?.status === 'awaiting_confirm';
@@ -343,10 +344,12 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills }: {
   useEffect(() => {
     if (!taskStatus) {
       setTraceOpen(true);
+      setPlanOpen(true);
       return;
     }
     setTraceOpen(taskStatus === 'running' || taskStatus === 'planning' || taskStatus === 'awaiting_confirm');
-  }, [taskId, taskStatus]);
+    setPlanOpen(!(finalAnswer && (taskStatus === 'done' || taskStatus === 'failed')));
+  }, [finalAnswer, taskId, taskStatus]);
 
   return (
     <section className="view active task-view">
@@ -365,7 +368,7 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills }: {
         ) : (
           <>
             <AnswerPanel answer={finalAnswer} task={task} />
-            <PlanPanel task={task} />
+            <PlanPanel task={task} open={planOpen} onToggle={setPlanOpen} />
             {detectedSkills.length > 0 && (
               <div className="detected-skills">
                 {detectedSkills.map((ds) => {
@@ -437,7 +440,7 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills }: {
   );
 }
 
-function PlanPanel({ task }: { task: AgentTask }) {
+function PlanPanel({ task, open, onToggle }: { task: AgentTask; open: boolean; onToggle: (open: boolean) => void }) {
   const plan = task.plan;
   const orchestration = task.orchestration;
   const lastTool = task.steps.slice().reverse().find((step) => step.toolCall)?.toolCall;
@@ -448,58 +451,60 @@ function PlanPanel({ task }: { task: AgentTask }) {
   const active = plan?.steps.find((step) => step.status === 'active');
 
   return (
-    <section className="plan-panel">
-      <div className="plan-head">
+    <details className="plan-panel plan-collapse" open={open} onToggle={(e) => onToggle(e.currentTarget.open)}>
+      <summary className="plan-head">
         <span className="plan-title">Plan</span>
         {plan && <span className="plan-meta">{done}/{total} done</span>}
+      </summary>
+      <div className="plan-content">
+        {active ? (
+          <div className="plan-current">
+            <span>Current</span>
+            <strong>{active.description}</strong>
+          </div>
+        ) : plan && total > 0 ? (
+          <div className="plan-current">
+            <span>Status</span>
+            <strong>{done === total ? 'Complete' : 'No active step'}</strong>
+          </div>
+        ) : null}
+        {plan?.intent && (
+          <div className="plan-current">
+            <span>Intent</span>
+            <strong>{plan.intent}</strong>
+          </div>
+        )}
+        {lastTool && (
+          <div className="plan-current plan-action">
+            <span>Last action</span>
+            <strong>{lastTool.name}</strong>
+          </div>
+        )}
+        {plan && (
+          <ol className="plan-list">
+            {plan.steps.map((step) => (
+              <li key={`${step.index}-${step.description}`} className={`plan-step ${step.status}`}>
+                <span className="plan-step-index">{step.index}</span>
+                <span className="plan-step-text">{step.description}</span>
+                <span className="plan-step-status">{step.status}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+        {orchestration && orchestration.managed && orchestration.subtasks.length > 0 && (
+          <div className="subtask-block">
+            <div className="subtask-title">Subtasks</div>
+            {orchestration.subtasks.map((subtask) => (
+              <div key={subtask.id} className={`subtask-row ${subtask.status}`}>
+                <span className="plan-step-index">{subtask.index}</span>
+                <span className="plan-step-text">{subtask.description}</span>
+                <span className="plan-step-status">{subtask.status}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-      {active ? (
-        <div className="plan-current">
-          <span>Current</span>
-          <strong>{active.description}</strong>
-        </div>
-      ) : plan && total > 0 ? (
-        <div className="plan-current">
-          <span>Status</span>
-          <strong>{done === total ? 'Complete' : 'No active step'}</strong>
-        </div>
-      ) : null}
-      {plan?.intent && (
-        <div className="plan-current">
-          <span>Intent</span>
-          <strong>{plan.intent}</strong>
-        </div>
-      )}
-      {lastTool && (
-        <div className="plan-current plan-action">
-          <span>Last action</span>
-          <strong>{lastTool.name}</strong>
-        </div>
-      )}
-      {plan && (
-        <ol className="plan-list">
-          {plan.steps.map((step) => (
-            <li key={`${step.index}-${step.description}`} className={`plan-step ${step.status}`}>
-              <span className="plan-step-index">{step.index}</span>
-              <span className="plan-step-text">{step.description}</span>
-              <span className="plan-step-status">{step.status}</span>
-            </li>
-          ))}
-        </ol>
-      )}
-      {orchestration && orchestration.subtasks.length > 0 && (
-        <div className="subtask-block">
-          <div className="subtask-title">Subtasks</div>
-          {orchestration.subtasks.map((subtask) => (
-            <div key={subtask.id} className={`subtask-row ${subtask.status}`}>
-              <span className="plan-step-index">{subtask.index}</span>
-              <span className="plan-step-text">{subtask.description}</span>
-              <span className="plan-step-status">{subtask.status}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
+    </details>
   );
 }
 
@@ -734,8 +739,10 @@ function SettingsPanel({ settings, updateSetting }: {
           <option value="ollama">Ollama (Local)</option>
           <option value="mlx">MLX (Local)</option>
           <option value="openai">OpenAI</option>
+          <option value="gemini">Google Gemini</option>
           <option value="xai">xAI</option>
           <option value="openrouter">OpenRouter</option>
+          <option value="siliconflow">SiliconFlow</option>
         </select>
       </label>
       <div className="settings-note">
@@ -770,6 +777,22 @@ function SettingsPanel({ settings, updateSetting }: {
         </>
       )}
 
+      {settings.provider === 'gemini' && (
+        <>
+          <label>
+            Gemini API Key
+            <input type="password" value={settings.geminiApiKey} onChange={(e) => updateSetting('geminiApiKey', e.target.value)} placeholder="AI..." />
+          </label>
+          <label>
+            Gemini Model
+            <input value={settings.geminiModel} onChange={(e) => updateSetting('geminiModel', e.target.value)} placeholder="e.g. gemini-2.5-flash" />
+          </label>
+          <div className="settings-note">
+            Get a key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">aistudio.google.com/apikey</a>. Uses Gemini's OpenAI-compatible chat completions endpoint.
+          </div>
+        </>
+      )}
+
       {settings.provider === 'xai' && (
         <>
           <label>
@@ -798,6 +821,22 @@ function SettingsPanel({ settings, updateSetting }: {
           </label>
           <div className="settings-note">
             Get a key at <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">openrouter.ai/keys</a>. Free endpoints can be entered manually if available.
+          </div>
+        </>
+      )}
+
+      {settings.provider === 'siliconflow' && (
+        <>
+          <label>
+            SiliconFlow API Key
+            <input type="password" value={settings.siliconFlowApiKey} onChange={(e) => updateSetting('siliconFlowApiKey', e.target.value)} placeholder="sk-..." />
+          </label>
+          <label>
+            SiliconFlow Model
+            <input value={settings.siliconFlowModel} onChange={(e) => updateSetting('siliconFlowModel', e.target.value)} placeholder="e.g. Qwen/Qwen2.5-VL-72B-Instruct" />
+          </label>
+          <div className="settings-note">
+            Get a key at <a href="https://cloud.siliconflow.com/account/ak" target="_blank" rel="noreferrer">cloud.siliconflow.com</a>. Model must support vision + function calling.
           </div>
         </>
       )}
@@ -896,6 +935,10 @@ function SettingsPanel({ settings, updateSetting }: {
           <input type="checkbox" checked={settings.useActionCache} onChange={(e) => updateSetting('useActionCache', e.target.checked)} />
         </label>
         <label>
+          Reload page before task
+          <input type="checkbox" checked={settings.resetPageOnStart} onChange={(e) => updateSetting('resetPageOnStart', e.target.checked)} />
+        </label>
+        <label>
           Cache TTL, days
           <input type="number" min={1} max={365} value={settings.cacheTtlDays} onChange={(e) => updateSetting('cacheTtlDays', Number(e.target.value))} />
         </label>
@@ -969,8 +1012,10 @@ function formatAnswer(value: unknown): string {
 
 function currentModelLabel(settings: Settings): string {
   if (settings.provider === 'openai') return settings.openaiModel;
+  if (settings.provider === 'gemini') return settings.geminiModel;
   if (settings.provider === 'xai') return settings.xaiModel;
   if (settings.provider === 'openrouter') return settings.openRouterModel;
+  if (settings.provider === 'siliconflow') return settings.siliconFlowModel;
   if (settings.provider === 'mlx') return settings.mlxModel;
   return PROFILE_TO_MODEL[settings.profile];
 }
@@ -978,6 +1023,7 @@ function currentModelLabel(settings: Settings): string {
 function compactModelLabel(value: string): string {
   const cleaned = value
     .replace(/^google\//, '')
+    .replace(/^gemini /i, 'Gemini ')
     .replace(/^mlx-community\//, '')
     .replace(/-/g, ' ')
     .replace(/\bnon reasoning\b/i, '')
@@ -1132,23 +1178,95 @@ function describeToolCall(call: AgentStep['toolCall'] | undefined): string {
 
 export function renderMarkdown(text: string): string {
   let html = escapeHtml(normalizeAnswerText(text));
-  html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+  const codeBlocks: string[] = [];
+  html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_match, _language: string, body: string) => {
+    const token = `@@WEBOPERATOR_CODE_BLOCK_${codeBlocks.length}@@`;
+    codeBlocks.push(`<pre><code>${body}</code></pre>`);
+    return token;
+  });
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
   html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<em><strong>$1</strong></em>');
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label: string, rawHref: string) => renderSafeLink(label, rawHref));
+  html = renderMarkdownTables(html);
   html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
   html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
   html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-  html = html.replace(/^\s*(\d+)\.\s+(.+)$/gm, '<li data-list="ol"><span class="answer-list-index">$1.</span> $2</li>');
+  html = html.replace(
+    /^\s*(\d+)\.\s+(.+)$/gm,
+    '<li data-list="ol"><span class="answer-list-index">$1.</span><span class="answer-list-body">$2</span></li>',
+  );
   html = html.replace(/^[*-] (.+)$/gm, '<li>$1</li>');
   html = html.replace(/((?:<li data-list="ol">.*<\/li>\n?)+)/g, '<ol>$1</ol>');
   html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
   html = html.replace(/ data-list="ol"/g, '');
   html = html.replace(/>\n</g, '><');
   html = html.replace(/\n/g, '<br>');
+  html = codeBlocks.reduce((rendered, block, index) => rendered.replace(`@@WEBOPERATOR_CODE_BLOCK_${index}@@`, block), html);
   return html;
+}
+
+function renderMarkdownTables(markdown: string): string {
+  const lines = markdown.split('\n');
+  const rendered: string[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const headerLine = lines[index];
+    const separatorLine = lines[index + 1];
+
+    if (isMarkdownTableRow(headerLine) && separatorLine && isMarkdownTableSeparator(separatorLine)) {
+      const headers = splitMarkdownTableRow(headerLine);
+      const rows: string[][] = [];
+      index += 2;
+
+      while (index < lines.length && isMarkdownTableRow(lines[index]) && !isMarkdownTableSeparator(lines[index])) {
+        rows.push(normalizeTableCells(splitMarkdownTableRow(lines[index]), headers.length));
+        index += 1;
+      }
+
+      index -= 1;
+      rendered.push(renderMarkdownTable(headers, rows));
+      continue;
+    }
+
+    rendered.push(headerLine);
+  }
+
+  return rendered.join('\n');
+}
+
+function renderMarkdownTable(headers: string[], rows: string[][]): string {
+  const safeHeaders = normalizeTableCells(headers, headers.length);
+  const headerHtml = safeHeaders.map((cell) => `<th>${cell}</th>`).join('');
+  const bodyHtml = rows
+    .map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join('')}</tr>`)
+    .join('');
+
+  return `<div class="answer-table-fit"><table><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`;
+}
+
+function normalizeTableCells(cells: string[], targetLength: number): string[] {
+  return Array.from({ length: targetLength }, (_unused, index) => cells[index] ?? '');
+}
+
+function isMarkdownTableRow(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed.includes('|') && splitMarkdownTableRow(trimmed).length > 1;
+}
+
+function isMarkdownTableSeparator(line: string): boolean {
+  const cells = splitMarkdownTableRow(line);
+  return cells.length > 1 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
+}
+
+function splitMarkdownTableRow(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => cell.trim());
 }
 
 function renderSafeLink(label: string, rawHref: string): string {

@@ -200,7 +200,7 @@ export interface ClassifiedSkill {
   auto: boolean;    // was auto-detected vs manually enabled
 }
 
-export function classifyTask(goal: string, _settings?: { autoSkills?: boolean }): ClassifiedSkill[] {
+export function classifyTask(goal: string): ClassifiedSkill[] {
   const lower = goal.toLowerCase();
   const results: ClassifiedSkill[] = [];
 

@@ -23,13 +23,21 @@ export interface Settings {
   confirmKeywords: string[];
   useActionCache: boolean;
   cacheTtlDays: number;
-  provider: 'ollama' | 'openai' | 'xai' | 'openrouter' | 'mlx';
+  // Reload the active tab before starting a task. Off by default: a reload
+  // destroys SPA state, filled forms, and scroll position the user may want
+  // the agent to act on.
+  resetPageOnStart: boolean;
+  provider: 'ollama' | 'openai' | 'gemini' | 'xai' | 'openrouter' | 'siliconflow' | 'mlx';
   openaiApiKey: string;
   openaiModel: string;
+  geminiApiKey: string;
+  geminiModel: string;
   xaiApiKey: string;
   xaiModel: string;
   openRouterApiKey: string;
   openRouterModel: string;
+  siliconFlowApiKey: string;
+  siliconFlowModel: string;
   mlxApiKey: string;
   mlxModel: string;
   enabledSkills: SkillId[];
@@ -60,13 +68,18 @@ export const DEFAULT_SETTINGS: Settings = {
   ],
   useActionCache: true,
   cacheTtlDays: 30,
+  resetPageOnStart: false,
   provider: 'ollama',
   openaiApiKey: '',
   openaiModel: '',
+  geminiApiKey: '',
+  geminiModel: 'gemini-2.5-flash',
   xaiApiKey: '',
   xaiModel: 'grok-4-1-fast-non-reasoning',
   openRouterApiKey: '',
   openRouterModel: '',
+  siliconFlowApiKey: '',
+  siliconFlowModel: '',
   mlxApiKey: '',
   mlxModel: '',
   enabledSkills: [],
@@ -74,7 +87,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoResumeTimeoutMs: 30_000,
 };
 
-export const SETTINGS_VERSION = 10;
+export const SETTINGS_VERSION = 12;
 
 export type A11yRole =
   | 'button' | 'link' | 'textbox' | 'searchbox' | 'combobox'
@@ -268,6 +281,7 @@ export type CSMessage =
   | { kind: 'action:run'; action: ToolCall }
   | { kind: 'overlay:show'; refs: string[] }
   | { kind: 'overlay:hide' }
+  | { kind: 'agent-glow:set'; active: boolean }
   | { kind: 'som:render'; snapshot: A11ySnapshot }
   | { kind: 'som:clear' };
 
@@ -307,6 +321,9 @@ export interface AgentOrchestrationState {
   status: 'planning' | 'running' | 'paused' | 'done' | 'failed';
   subtasks: AgentOrchestrationSubtask[];
   updatedAt: number;
+  // True only when the model explicitly drove subtasks. When false the
+  // subtasks merely mirror the plan steps, so the UI hides them as duplicates.
+  managed: boolean;
 }
 
 // ── Verifier types ──

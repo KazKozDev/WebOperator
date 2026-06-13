@@ -291,7 +291,12 @@ function extractVisibleText(maxItems = 80): ExtractedItem[] {
   return candidates
     .sort((a, b) => b.score - a.score || a.top - b.top)
     .slice(0, maxItems)
-    .map(({ score: _score, top: _top, ...item }) => item);
+    .map((item) => ({
+      ref: item.ref,
+      text: item.text,
+      ...(item.value ? { value: item.value } : {}),
+      ...(item.href ? { href: item.href } : {}),
+    }));
 }
 
 function isVisibleElement(el: HTMLElement): boolean {
