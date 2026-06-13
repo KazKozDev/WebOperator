@@ -46,12 +46,18 @@ async function handle(msg: CSMessage): Promise<CSResponse> {
       hideOverlay();
       return { kind: 'ok' };
     }
+    case 'agent-glow:set': {
+      setAgentGlow(msg.active);
+      return { kind: 'ok' };
+    }
     default:
       return { kind: 'error', error: 'Unknown message' };
   }
 }
 
 const OVERLAY_ID = '__gemma4_agent_overlay__';
+const AGENT_GLOW_ID = '__weboperator_agent_glow__';
+const AGENT_GLOW_STYLE_ID = '__weboperator_agent_glow_style__';
 
 function showOverlay(refs: string[]): void {
   hideOverlay();
@@ -87,4 +93,67 @@ function showOverlay(refs: string[]): void {
 
 function hideOverlay(): void {
   document.getElementById(OVERLAY_ID)?.remove();
+}
+
+function setAgentGlow(active: boolean): void {
+  if (!active) {
+    document.getElementById(AGENT_GLOW_ID)?.remove();
+    return;
+  }
+
+  ensureAgentGlowStyle();
+  if (document.getElementById(AGENT_GLOW_ID)) return;
+
+  const glow = document.createElement('div');
+  glow.id = AGENT_GLOW_ID;
+  glow.setAttribute('aria-hidden', 'true');
+  document.documentElement.appendChild(glow);
+}
+
+function ensureAgentGlowStyle(): void {
+  if (document.getElementById(AGENT_GLOW_STYLE_ID)) return;
+
+  const style = document.createElement('style');
+  style.id = AGENT_GLOW_STYLE_ID;
+  style.textContent = `
+    #${AGENT_GLOW_ID} {
+      position: fixed;
+      inset: 0;
+      z-index: 2147483646;
+      pointer-events: none;
+      border: 1px solid rgba(212, 162, 78, 0.34);
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 226, 168, 0.08),
+        inset 0 0 26px rgba(212, 162, 78, 0.16),
+        0 0 22px rgba(212, 162, 78, 0.18);
+      animation: weboperator-agent-edge-pulse 2.8s ease-in-out infinite;
+    }
+
+    #${AGENT_GLOW_ID}::after {
+      content: "";
+      position: absolute;
+      inset: 1px;
+      background:
+        linear-gradient(90deg, rgba(212, 162, 78, 0.16), transparent 18%, transparent 82%, rgba(212, 162, 78, 0.16)),
+        linear-gradient(180deg, rgba(255, 226, 168, 0.11), transparent 16%, transparent 84%, rgba(132, 145, 118, 0.12));
+      filter: blur(12px);
+      opacity: 0.9;
+    }
+
+    @keyframes weboperator-agent-edge-pulse {
+      0%, 100% {
+        box-shadow:
+          inset 0 0 0 1px rgba(255, 226, 168, 0.06),
+          inset 0 0 20px rgba(212, 162, 78, 0.12),
+          0 0 16px rgba(212, 162, 78, 0.14);
+      }
+      50% {
+        box-shadow:
+          inset 0 0 0 1px rgba(255, 226, 168, 0.1),
+          inset 0 0 32px rgba(212, 162, 78, 0.18),
+          0 0 28px rgba(212, 162, 78, 0.22);
+      }
+    }
+  `;
+  document.documentElement.appendChild(style);
 }

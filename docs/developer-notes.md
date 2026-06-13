@@ -6,8 +6,10 @@ WebOperator can talk to local and remote model backends. The current code has cl
 
 - Ollama
 - OpenAI-compatible APIs
+- Google Gemini
 - xAI
 - OpenRouter
+- SiliconFlow
 - MLX
 
 The original local path is Ollama:
@@ -24,6 +26,8 @@ OLLAMA_ORIGINS="chrome-extension://*,http://localhost:*" ollama serve
 ```
 
 On macOS, quit the Ollama menu bar app first if it is already running.
+
+Google Gemini uses Google AI Studio API keys through Gemini's OpenAI-compatible chat completions endpoint. In the extension settings choose `Google Gemini`, paste the API key, and set a tool/vision-capable model such as `gemini-2.5-flash`.
 
 ## Local agent API
 

@@ -41,14 +41,14 @@ describe('planner', () => {
     const plan = parsePlanSteps('- [ ] Step 1: Open the page\n- [ ] 2) Extract data - verify: all rows present', 'check result');
 
     expect(plan.steps.map((step) => step.description)).toEqual(['Open the page', 'Extract data']);
-    expect(hasStructuredPlan(plan, 'check result')).toBe(true);
+    expect(hasStructuredPlan(plan)).toBe(true);
   });
 
   it('does not infer a fallback plan when no model plan is available', () => {
     const plan = parsePlanSteps('', 'check result');
 
     expect(plan.steps).toHaveLength(0);
-    expect(hasStructuredPlan(plan, 'check result')).toBe(false);
+    expect(hasStructuredPlan(plan)).toBe(false);
   });
 
   it('does not infer domain-specific steps from the user goal', () => {

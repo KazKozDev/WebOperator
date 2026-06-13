@@ -313,6 +313,15 @@ function settingsPatchFromArgs(args, ollamaProxy) {
     };
   }
 
+  if (provider === 'gemini') {
+    if (!apiKey) throw new Error('Gemini evals require WEBOPERATOR_API_KEY or --api-key');
+    return {
+      provider: 'gemini',
+      geminiApiKey: apiKey,
+      geminiModel: model ?? 'gemini-2.5-flash',
+    };
+  }
+
   if (provider === 'openrouter') {
     if (!apiKey) throw new Error('OpenRouter evals require WEBOPERATOR_API_KEY or --api-key');
     if (!model) throw new Error('OpenRouter evals require WEBOPERATOR_MODEL or --model');
@@ -320,6 +329,16 @@ function settingsPatchFromArgs(args, ollamaProxy) {
       provider: 'openrouter',
       openRouterApiKey: apiKey,
       openRouterModel: model,
+    };
+  }
+
+  if (provider === 'siliconflow') {
+    if (!apiKey) throw new Error('SiliconFlow evals require WEBOPERATOR_API_KEY or --api-key');
+    if (!model) throw new Error('SiliconFlow evals require WEBOPERATOR_MODEL or --model');
+    return {
+      provider: 'siliconflow',
+      siliconFlowApiKey: apiKey,
+      siliconFlowModel: model,
     };
   }
 

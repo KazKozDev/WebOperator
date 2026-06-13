@@ -1,6 +1,22 @@
 import { AGENT_TOOLS } from './tools';
+import { fetchWithRetry } from './http-retry';
 import type { ToolCall } from './types';
 import type { OllamaChatOptions, OllamaChatResult } from './ollama-client';
+
+type ChatCompletionChunk = {
+  choices?: Array<{
+    delta?: {
+      content?: unknown;
+      tool_calls?: Array<{
+        index: number;
+        id?: string;
+        function?: { name?: string; arguments?: string };
+      }>;
+    };
+  }>;
+};
+
+let syntheticToolCallIdSeq = 0;
 
 export async function chatXai(opts: OllamaChatOptions, apiKey: string, xaiModel: string): Promise<OllamaChatResult> {
   if (!apiKey.trim()) throw new Error('xAI API key is empty');
@@ -58,15 +74,14 @@ export async function chatXai(opts: OllamaChatOptions, apiKey: string, xaiModel:
   const signal = opts.signal ? AbortSignal.any([opts.signal, timeoutController.signal]) : timeoutController.signal;
 
   try {
-    const res = await fetch('https://api.x.ai/v1/chat/completions', {
+    const res = await fetchWithRetry('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
-      headers: { 
+      headers: {
         'content-type': 'application/json',
         'authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify(body),
-      signal,
-    });
+    }, signal);
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -84,7 +99,7 @@ export async function chatXai(opts: OllamaChatOptions, apiKey: string, xaiModel:
       toolCall = {
         name: func.name as ToolCall['name'],
         arguments: safeJson(func.arguments),
-        id: msg.tool_calls[0].id
+        id: normalizeToolCallId(msg.tool_calls[0].id, func.name)
       };
     }
 
@@ -128,8 +143,7 @@ async function readStreamingResponseXai(res: Response, opts: OllamaChatOptions, 
       if (!trimmed || !trimmed.startsWith('data: ')) continue;
       if (trimmed === 'data: [DONE]') continue;
       
-      const chunkStr = trimmed.slice(6);
-      const chunk = safeJsonAny(chunkStr) as any;
+      const chunk = safeJsonAny(trimmed.slice(6)) as ChatCompletionChunk | undefined;
       if (!chunk || !chunk.choices || chunk.choices.length === 0) continue;
       
       const delta = chunk.choices[0].delta;
@@ -158,7 +172,7 @@ async function readStreamingResponseXai(res: Response, opts: OllamaChatOptions, 
     toolCall = {
       name: func.name as ToolCall['name'],
       arguments: safeJson(func.arguments),
-      id: lastToolCalls[0].id
+      id: normalizeToolCallId(lastToolCalls[0].id, func.name)
     };
   }
 
@@ -206,8 +220,23 @@ function parseToolCallFromText(text: string): ToolCall | undefined {
   return undefined;
 }
 
-function safeJson(raw: string): Record<string, unknown> {
-  try { return JSON.parse(raw); } catch { return {}; }
+function normalizeToolCallId(id: unknown, name: unknown): string {
+  const rawId = typeof id === 'string' ? id.trim() : '';
+  if (rawId) return rawId;
+  const rawName = typeof name === 'string' && name.trim() ? name.trim() : 'tool';
+  syntheticToolCallIdSeq += 1;
+  return `call_${rawName}_${syntheticToolCallIdSeq}`;
+}
+
+function safeJson(raw: unknown): Record<string, unknown> {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, unknown>;
+  if (typeof raw !== 'string') return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
 }
 
 function safeJsonAny(raw: string): unknown {

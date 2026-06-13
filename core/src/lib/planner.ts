@@ -39,7 +39,7 @@ export function parsePlanSteps(thinkingText: string, goal: string): AgentPlan {
   };
 }
 
-export function hasStructuredPlan(plan: AgentPlan, _goal: string): boolean {
+export function hasStructuredPlan(plan: AgentPlan): boolean {
   return plan.steps.length > 0;
 }
 
@@ -108,7 +108,7 @@ function cleanPlanDescription(text: string): string {
     .trim();
 }
 
-export function markPlanStepFailed(plan: AgentPlan, _stepDescription: string): AgentPlan {
+export function markPlanStepFailed(plan: AgentPlan): AgentPlan {
   const activeStep = plan.steps.find((s) => s.status === 'active');
   if (activeStep) {
     activeStep.status = 'failed';

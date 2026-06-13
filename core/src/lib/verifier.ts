@@ -23,6 +23,10 @@ const POPUP_PATTERNS = [
 
 const POPUP_ROLES = new Set(['dialog', 'alertdialog', 'alert', 'modal']);
 
+// Roles whose text is semantically a notice/error message — safe to match
+// error patterns against even when the text is not new.
+const ALERT_ROLES = new Set(['alert', 'alertdialog', 'status', 'dialog']);
+
 export function verify(
   snapshotBefore: A11ySnapshot,
   snapshotAfter: A11ySnapshot | undefined,
@@ -40,13 +44,13 @@ export function verify(
   }
 
   if (!action.ok) {
-    return verifyFailedAction(snapshotBefore, snapshotAfter, action, toolName);
+    return verifyFailedAction(snapshotBefore, snapshotAfter, action);
   }
 
   const domChanged = snapshotBefore.domHash !== snapshotAfter.domHash;
   const urlChanged = snapshotBefore.url !== snapshotAfter.url;
 
-  const errorDetected = detectErrors(snapshotAfter);
+  const errorDetected = detectErrors(snapshotAfter, snapshotBefore);
   const popup = detectPopup(snapshotBefore, snapshotAfter);
 
   if (errorDetected) {
@@ -127,7 +131,6 @@ function verifyFailedAction(
   snapshotBefore: A11ySnapshot,
   snapshotAfter: A11ySnapshot,
   action: ActionResult,
-  _toolName: string,
 ): VerificationResult {
   const domChanged = snapshotBefore.domHash !== snapshotAfter.domHash;
   const urlChanged = snapshotBefore.url !== snapshotAfter.url;
@@ -170,23 +173,37 @@ function verifyFailedAction(
   };
 }
 
-function detectErrors(snapshot: A11ySnapshot): string | undefined {
-  const fullText = [
-    snapshot.title,
-    ...(snapshot.textSnippets ?? []),
-    ...snapshot.nodes.map((n) => n.name),
-  ].join(' | ').toLowerCase();
+// Error patterns are matched only against text that is semantically a notice
+// or appeared after the action: the page title, alert/status/dialog nodes,
+// new headings, and new text snippets. Text that was already on the page
+// before the action (articles, docs mentioning "error" or "blocked") must
+// not flag the step as failed.
+function detectErrors(snapshotAfter: A11ySnapshot, snapshotBefore: A11ySnapshot): string | undefined {
+  const beforeNames = new Set(snapshotBefore.nodes.map((n) => n.name.toLowerCase()));
+  const beforeSnippets = new Set((snapshotBefore.textSnippets ?? []).map((t) => t.toLowerCase()));
+  const candidates: string[] = [snapshotAfter.title];
+  for (const n of snapshotAfter.nodes) {
+    if (ALERT_ROLES.has(n.role)) {
+      candidates.push(n.name);
+    } else if (n.role === 'heading' && !beforeNames.has(n.name.toLowerCase())) {
+      candidates.push(n.name);
+    }
+  }
+  for (const t of snapshotAfter.textSnippets ?? []) {
+    if (!beforeSnippets.has(t.toLowerCase())) candidates.push(t);
+  }
+  const noticeText = candidates.join(' | ').toLowerCase();
 
   for (const pattern of ERROR_PATTERNS) {
     // Multi-word patterns use includes; single words use word boundary
     const rx = pattern.includes(' ')
       ? new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
       : new RegExp(`\\b${pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-    if (rx.test(fullText)) return `detected "${pattern}" on page`;
+    if (rx.test(noticeText)) return `detected "${pattern}" on page`;
   }
 
   // Check for HTTP error codes in title
-  const errorCodeMatch = snapshot.title.match(/\b(4\d\d|5\d\d)\b/);
+  const errorCodeMatch = snapshotAfter.title.match(/\b(4\d\d|5\d\d)\b/);
   if (errorCodeMatch) return `HTTP ${errorCodeMatch[0]} error in page title`;
 
   return undefined;

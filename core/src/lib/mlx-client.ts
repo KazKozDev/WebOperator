@@ -1,6 +1,9 @@
 import { AGENT_TOOLS } from './tools';
+import { fetchWithRetry } from './http-retry';
 import type { ToolCall } from './types';
 import type { OllamaChatOptions, OllamaChatResult } from './ollama-client';
+
+let syntheticToolCallIdSeq = 0;
 
 export async function chatMlx(opts: OllamaChatOptions, apiKey: string, model: string): Promise<OllamaChatResult> {
   if (!model.trim()) throw new Error('MLX model is empty');
@@ -52,7 +55,7 @@ export async function chatMlx(opts: OllamaChatOptions, apiKey: string, model: st
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (apiKey.trim()) headers.authorization = `Bearer ${apiKey}`;
 
-    const res = await fetch('http://127.0.0.1:8000/v1/chat/completions', {
+    const res = await fetchWithRetry('http://127.0.0.1:8000/v1/chat/completions', {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -62,8 +65,7 @@ export async function chatMlx(opts: OllamaChatOptions, apiKey: string, model: st
         tools: AGENT_TOOLS.map((t) => ({ type: 'function', function: t.function })),
         temperature: 0.2,
       }),
-      signal,
-    });
+    }, signal);
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -78,7 +80,7 @@ export async function chatMlx(opts: OllamaChatOptions, apiKey: string, model: st
       toolCall = {
         name: func.name as ToolCall['name'],
         arguments: safeJson(func.arguments),
-        id: msg.tool_calls[0].id,
+        id: normalizeToolCallId(msg.tool_calls[0].id, func.name),
       };
     }
 
@@ -99,6 +101,21 @@ export async function chatMlx(opts: OllamaChatOptions, apiKey: string, model: st
   }
 }
 
-function safeJson(raw: string): Record<string, unknown> {
-  try { return JSON.parse(raw); } catch { return {}; }
+function normalizeToolCallId(id: unknown, name: unknown): string {
+  const rawId = typeof id === 'string' ? id.trim() : '';
+  if (rawId) return rawId;
+  const rawName = typeof name === 'string' && name.trim() ? name.trim() : 'tool';
+  syntheticToolCallIdSeq += 1;
+  return `call_${rawName}_${syntheticToolCallIdSeq}`;
+}
+
+function safeJson(raw: unknown): Record<string, unknown> {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, unknown>;
+  if (typeof raw !== 'string') return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
 }

@@ -36,6 +36,7 @@ export const db = new AgentDB();
 export async function getSettings(): Promise<Settings> {
   const stored = await chrome.storage.local.get(['settings', 'settingsVersion']);
   const s = stored?.settings ?? {};
+  const storedSettings = s as Partial<Settings> & Record<string, unknown>;
   const next = { ...DEFAULT_SETTINGS, ...s };
   const version = stored?.settingsVersion ?? 0;
   let migrated = false;
@@ -71,8 +72,18 @@ export async function getSettings(): Promise<Settings> {
   }
   if (version < 8) migrated = true;
   if (version < 9) {
-    next.mlxApiKey = typeof (next as any).mlxApiKey === 'string' ? (next as any).mlxApiKey : '';
-    next.mlxModel = typeof (next as any).mlxModel === 'string' ? (next as any).mlxModel : DEFAULT_SETTINGS.mlxModel;
+    next.mlxApiKey = typeof storedSettings.mlxApiKey === 'string' ? storedSettings.mlxApiKey : '';
+    next.mlxModel = typeof storedSettings.mlxModel === 'string' ? storedSettings.mlxModel : DEFAULT_SETTINGS.mlxModel;
+    migrated = true;
+  }
+  if (version < 11) {
+    next.geminiApiKey = typeof storedSettings.geminiApiKey === 'string' ? storedSettings.geminiApiKey : '';
+    next.geminiModel = typeof storedSettings.geminiModel === 'string' ? storedSettings.geminiModel : DEFAULT_SETTINGS.geminiModel;
+    migrated = true;
+  }
+  if (version < 12) {
+    next.siliconFlowApiKey = typeof storedSettings.siliconFlowApiKey === 'string' ? storedSettings.siliconFlowApiKey : '';
+    next.siliconFlowModel = typeof storedSettings.siliconFlowModel === 'string' ? storedSettings.siliconFlowModel : DEFAULT_SETTINGS.siliconFlowModel;
     migrated = true;
   }
   if (migrated) {
@@ -106,14 +117,25 @@ export async function getTask(id: string): Promise<AgentTask | undefined> {
 
 export async function loadSteps(taskId: string): Promise<AgentStep[]> {
   const rows = await db.steps.where('taskId').equals(taskId).sortBy('index');
-  return rows.map(({ taskId: _t, ...rest }) => rest);
+  return rows.map((row) => {
+    const { taskId: storedTaskId, ...rest } = row;
+    void storedTaskId;
+    return rest;
+  });
 }
 
 const CREDENTIALS_KEY = 'credentialVault';
 
 export async function listCredentials(): Promise<CredentialSummary[]> {
   const entries = await loadCredentialEntries();
-  return entries.map(({ password: _password, ...summary }) => summary);
+  return entries.map((entry) => ({
+    id: entry.id,
+    origin: entry.origin,
+    username: entry.username,
+    label: entry.label,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+  }));
 }
 
 export async function saveCredential(entry: Omit<CredentialEntry, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<CredentialSummary[]> {

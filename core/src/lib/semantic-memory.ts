@@ -10,7 +10,6 @@ export async function getSitePattern(snapshot: A11ySnapshot): Promise<SitePatter
 export async function learnFromSuccess(
   snapshot: A11ySnapshot,
   toolCalls: ToolCall[],
-  _intent: string,
 ): Promise<void> {
   const pat = urlPattern(snapshot.url);
   const existing = await db.sitePatterns.get(pat);

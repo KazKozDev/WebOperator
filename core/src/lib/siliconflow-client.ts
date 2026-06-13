@@ -19,31 +19,9 @@ type ChatCompletionChunk = {
 
 let syntheticToolCallIdSeq = 0;
 
-export async function chatOpenAI(opts: OllamaChatOptions, apiKey: string, model: string): Promise<OllamaChatResult> {
-  return chatOpenAICompatible({
-    opts,
-    apiKey,
-    model,
-    label: 'OpenAI',
-    url: 'https://api.openai.com/v1/chat/completions',
-  });
-}
-
-export async function chatOpenAICompatible({
-  opts,
-  apiKey,
-  model,
-  label,
-  url,
-}: {
-  opts: OllamaChatOptions;
-  apiKey: string;
-  model: string;
-  label: string;
-  url: string;
-}): Promise<OllamaChatResult> {
-  if (!apiKey.trim()) throw new Error(`${label} API key is empty`);
-  if (!model.trim()) throw new Error(`${label} model is empty`);
+export async function chatSiliconFlow(opts: OllamaChatOptions, apiKey: string, model: string): Promise<OllamaChatResult> {
+  if (!apiKey.trim()) throw new Error('SiliconFlow API key is empty');
+  if (!model.trim()) throw new Error('SiliconFlow model is empty');
 
   const startedAt = Date.now();
   const messages = opts.messages.map((m) => {
@@ -55,12 +33,17 @@ export async function chatOpenAICompatible({
       return {
         role: 'assistant',
         content: m.content || null,
+        ...(m.reasoning_content ? { reasoning_content: m.reasoning_content } : {}),
         tool_calls: m.tool_calls.map((tc) => ({
           id: tc.id || tc.function.name,
           type: 'function',
           function: { name: tc.function.name, arguments: JSON.stringify(tc.function.arguments) },
         })),
       };
+    }
+
+    if (m.role === 'assistant' && m.reasoning_content) {
+      return { role: 'assistant', content: m.content, reasoning_content: m.reasoning_content };
     }
 
     if (opts.images && opts.images.length > 0 && m === opts.messages[opts.messages.length - 1] && m.role === 'user') {
@@ -84,36 +67,27 @@ export async function chatOpenAICompatible({
   const signal = opts.signal ? AbortSignal.any([opts.signal, timeoutController.signal]) : timeoutController.signal;
 
   try {
-    const body = {
-      model,
-      messages,
-      stream: Boolean(opts.onUpdate),
-      tools: AGENT_TOOLS.map((t) => ({ type: 'function', function: t.function })),
-      temperature: 0.2,
-    };
-    let res = await requestChatCompletions(url, apiKey, body, signal);
-
-    if (!res.ok && res.status === 400) {
-      const text = await res.text().catch(() => '');
-      if (/temperature/i.test(text)) {
-        const fallbackBody = {
-          model,
-          messages,
-          stream: Boolean(opts.onUpdate),
-          tools: AGENT_TOOLS.map((t) => ({ type: 'function', function: t.function })),
-        };
-        res = await requestChatCompletions(url, apiKey, fallbackBody, signal);
-      } else {
-        throw new Error(`${label} ${res.status}: ${text || res.statusText}`);
-      }
-    }
+    const res = await fetchWithRetry('https://api.siliconflow.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        stream: Boolean(opts.onUpdate),
+        tools: AGENT_TOOLS.map((t) => ({ type: 'function', function: t.function })),
+        temperature: 0.2,
+      }),
+    }, signal);
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`${label} ${res.status}: ${text || res.statusText}`);
+      throw new Error(`SiliconFlow ${res.status}: ${text || res.statusText}`);
     }
 
-    if (opts.onUpdate) return readStreamingResponseOpenAICompatible(res, opts, startedAt, model, label);
+    if (opts.onUpdate) return readStreamingResponseSiliconFlow(res, opts, startedAt, model);
 
     const data = await res.json();
     const msg = data.choices?.[0]?.message ?? {};
@@ -145,19 +119,8 @@ export async function chatOpenAICompatible({
   }
 }
 
-function requestChatCompletions(url: string, apiKey: string, body: unknown, signal: AbortSignal): Promise<Response> {
-  return fetchWithRetry(url, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(body),
-  }, signal);
-}
-
-async function readStreamingResponseOpenAICompatible(res: Response, opts: OllamaChatOptions, startedAt: number, model: string, label: string): Promise<OllamaChatResult> {
-  if (!res.body) throw new Error(`${label} stream response has no body`);
+async function readStreamingResponseSiliconFlow(res: Response, opts: OllamaChatOptions, startedAt: number, model: string): Promise<OllamaChatResult> {
+  if (!res.body) throw new Error('SiliconFlow stream response has no body');
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
