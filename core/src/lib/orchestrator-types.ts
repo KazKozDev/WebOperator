@@ -24,6 +24,10 @@ export interface OrchestrationPlan {
   status: 'planning' | 'running' | 'paused' | 'done' | 'failed';
   createdAt: number;
   updatedAt: number;
+  // True once the model explicitly drives subtasks (start/finish/fail_subtask).
+  // Until then subtasks are a passive 1:1 mirror of the plan steps and carry no
+  // information the plan view does not already show.
+  managed: boolean;
 }
 
 export interface Checkpoint {

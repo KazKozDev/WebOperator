@@ -3,6 +3,7 @@ import { chatOpenAI } from '@/lib/openai-client';
 import { chatGemini } from '@/lib/gemini-client';
 import { chatXai } from '@/lib/xai-client';
 import { chatOpenRouter } from '@/lib/openrouter-client';
+import { chatSiliconFlow } from '@/lib/siliconflow-client';
 import { chatMlx } from '@/lib/mlx-client';
 import { chatDeepSeek } from '@/lib/deepseek-client';
 import { chatAnthropic } from '@/lib/anthropic-client';
@@ -44,6 +45,13 @@ async function saveStep(taskId: string, step: AgentStep): Promise<void> {
 import { isDomainAllowed, shouldAttachScreenshot } from '@/lib/vision-policy';
 import { captureViewport, stripDataUrlPrefix } from '@/lib/screenshot';
 import { parseHints } from '@/lib/hints';
+import {
+  createLoopGuardState,
+  detectLoopGuardCycle,
+  isLoopGuardEligible,
+  recordLoopGuardOutcome,
+  toolCallSignature,
+} from '@/lib/loop-guard';
 import { maskStepForStorage, maskTaskForLog } from '@/lib/masking';
 import { runCdpAction } from './cdp-actions';
 import {
@@ -76,8 +84,8 @@ import { readLatestDownload } from '@/lib/file-reader';
 import {
   CheckpointManager,
   TabManager,
-  parseDecomposition,
-  buildOrchestrationPlan,
+  buildOrchestrationPlanFromPlan,
+  mirrorPlanProgress,
   planSummary as orchPlanSummary,
   allSubtasksComplete,
   advanceOrchPlan,
@@ -154,6 +162,13 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
 
   const intent = computeIntentHash(task.goal);
 
+  // Optionally reset page to clean state before starting a new task
+  if (settings.resetPageOnStart && tab.url && !tab.url.startsWith('chrome://')) {
+    await chrome.tabs.update(task.tabId, { url: tab.url });
+    await waitForTabComplete(task.tabId);
+    await sleep(500);
+  }
+
   task.status = 'running';
   task.updatedAt = Date.now();
   await saveTask(task);
@@ -203,6 +218,8 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
   let stepIndex = 0;
   let stepSerial = 0;
   let consecutiveFailures = 0;
+  // Loop guard: repeated no-effect calls, including short A-B-A-B cycles.
+  const loopGuard = createLoopGuardState();
   let cachedRemaining: ToolCall[] | null = null;
   let cachedExpectedDomHash: string | null = null;
   const loop: LoopState = { lastStepFailed: false, modelRequestedVision: false, modelRequestedReasoning: false };
@@ -216,8 +233,11 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
 
   // ── Orchestrator state ──
   let orchPlan: OrchestrationPlan | null = null;
-  let orchPlanParsed = false;
   let stepsSinceCheckpoint = 0;
+  // True once the model explicitly manages subtasks (start/finish/fail_subtask).
+  // Only then does subtask bookkeeping gate the final done call; otherwise the
+  // task plan alone governs completion.
+  let subtaskToolsUsed = false;
 
   // ── Multi-tab support ──
   let activeTabId = task.tabId;
@@ -241,7 +261,6 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
     const ckpt = await checkpointMgr.load(task.id);
     if (ckpt) {
       orchPlan = ckpt.plan;
-      orchPlanParsed = true;
       syncVisiblePlans(task, plan, orchPlan);
       history.push({
         role: 'user',
@@ -281,6 +300,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       }
       const compactedHistory = compactHistoryForResume(history, task, plan, orchPlan, resumeCount, MAX_RESUMES);
       history.splice(0, history.length, ...compactedHistory);
+      observationRefs.length = 0;
       task.updatedAt = Date.now();
       await saveTask(task);
       broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
@@ -390,7 +410,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
 
         // ── Build observation with plan + memory hints ──
         const planBlock = plan ? `\n${planContext(plan)}` : '';
-        const orchPlanBlock = orchPlan
+        const orchPlanBlock = orchPlan && subtaskToolsUsed
           ? `\n${orchPlanSummary(orchPlan)}\nStay on the running subtask until it is finished. Before moving to another subtask, call finish_subtask or fail_subtask.`
           : '';
         const memoryBlock = memoryHints.length > 0 ? `\n[MEMORY HINTS]\n${memoryHints.join('\n')}` : '';
@@ -411,6 +431,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         if (settings.provider === 'gemini') step.modelUsed = settings.geminiModel;
         if (settings.provider === 'xai') step.modelUsed = settings.xaiModel;
         if (settings.provider === 'openrouter') step.modelUsed = settings.openRouterModel;
+        if (settings.provider === 'siliconflow') step.modelUsed = settings.siliconFlowModel;
         if (settings.provider === 'mlx') step.modelUsed = settings.mlxModel;
         if (settings.provider === 'deepseek') step.modelUsed = settings.deepseekModel;
 
@@ -432,23 +453,6 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         let resp = await requestModelResponse(settings, chatOpts);
         llmMs = performance.now() - llmT0;
         step.thinking = resp.thinking;
-
-        // ── Parse orchestrator plan from thinking ──
-        const orchPlanSource = resp.thinking || extractPlanTextFromContent(resp.content);
-        if (hasOrchestrator && !orchPlanParsed && orchPlanSource) {
-          const decomp = parseDecomposition(orchPlanSource, task.goal);
-          if (decomp.subtasks.length > 1) {
-            orchPlan = buildOrchestrationPlan(task.id, task.goal, decomp);
-            orchPlanParsed = true;
-            if (orchPlan.subtasks[0]) {
-              orchPlan.subtasks[0].status = 'running';
-              orchPlan.status = 'running';
-            }
-            syncVisiblePlans(task, plan, orchPlan);
-            await saveTask(task);
-            broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
-          }
-        }
 
         if (!resp.toolCall) {
           step.note = `Repairing missing tool call: ${truncate(resp.content, 160)}`;
@@ -476,23 +480,6 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
           step.note = resp.toolCall
             ? `Repaired missing tool call from: ${truncate(step.note ?? '', 180)}`
             : step.note;
-
-          const repairPlanSource = resp.thinking || extractPlanTextFromContent(resp.content);
-
-          if (hasOrchestrator && !orchPlanParsed && repairPlanSource) {
-            const decomp = parseDecomposition(repairPlanSource, task.goal);
-            if (decomp.subtasks.length > 1) {
-              orchPlan = buildOrchestrationPlan(task.id, task.goal, decomp);
-              orchPlanParsed = true;
-              if (orchPlan.subtasks[0]) {
-                orchPlan.subtasks[0].status = 'running';
-                orchPlan.status = 'running';
-              }
-              syncVisiblePlans(task, plan, orchPlan);
-              await saveTask(task);
-              broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
-            }
-          }
         }
 
         if (!resp.toolCall) throw new Error('Model did not return a tool call after repair. Response: ' + truncate(resp.content, 200));
@@ -543,8 +530,88 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
 
       // ── Pre-action sanity check: ref must exist in snapshot ──
       const actionRef = String(toolCall.arguments.ref ?? '');
-      if (actionRef && !snapshot.nodes.some(n => n.ref === actionRef) && toolCall.name !== 'navigate' && toolCall.name !== 'done' && toolCall.name !== 'open_tab' && toolCall.name !== 'switch_tab') {
-        step.note = `⚠️ Ref ${actionRef} not in snapshot — model hallucinated? Proceeding anyway.`;
+      const refExempt = toolCall.name === 'navigate' || toolCall.name === 'done' || toolCall.name === 'open_tab' || toolCall.name === 'switch_tab';
+      if (actionRef && !refExempt && !snapshot.nodes.some(n => n.ref === actionRef)) {
+        if (step.cached) {
+          // Cached call references an element that no longer exists — the page
+          // diverged from the recorded trace. Invalidate and fall back to LLM.
+          cachedRemaining = null;
+          cachedExpectedDomHash = null;
+          await invalidateCache(makeKey(computeUrlPattern(snapshot.url), intent, startSnapshotHash ?? snapshot.domHash));
+          step.status = 'skipped';
+          step.note = `cached ref ${actionRef} not in snapshot — cache invalidated, falling back to LLM`;
+          step.finishedAt = Date.now();
+          step.timings = finalizeTimings(stepStart, { snapshotMs, screenshotMs, llmMs });
+          await saveStep(task.id, step);
+          broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
+          advanceStepCounters();
+          task.updatedAt = Date.now();
+          await saveTask(task);
+          continue;
+        }
+
+        const msg = `Ref ${actionRef} does not exist in the latest snapshot. Refs change between steps; re-read the most recent observation and use only refs listed there.`;
+        step.result = { ok: true, durationMs: 0, extracted: msg };
+        step.status = 'ok';
+        step.note = `Blocked hallucinated ref ${actionRef}`;
+        step.finishedAt = Date.now();
+        step.timings = finalizeTimings(stepStart, { snapshotMs, screenshotMs, llmMs });
+        await saveStep(task.id, step);
+        broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
+        history.push(toolCallSource === 'content'
+          ? { role: 'user', content: `[TOOL RESULT: ${toolCall.name}] ${msg}` }
+          : { role: 'tool', content: msg, tool_call_id: toolCall.id ?? toolCall.name });
+        history.push({ role: 'user', content: `[INVALID REF] ${msg}` });
+        loop.lastStepFailed = true;
+        advanceStepCounters();
+        task.updatedAt = Date.now();
+        await saveTask(task);
+        continue;
+      }
+
+      // ── Loop guard: repeated calls/cycles with no observable effect ──
+      const actionSignature = toolCallSignature(toolCall);
+      const loopGuardEligible = isLoopGuardEligible(toolCall);
+      const loopDecision = loopGuardEligible && !step.cached
+        ? detectLoopGuardCycle(loopGuard, actionSignature)
+        : { blocked: false, cycleLength: 0, noEffectActions: 0 };
+      if (loopDecision.blocked) {
+        const actionLabel = `${toolCall.name}(${actionRef || formatCompactArgs(toolCall.arguments)})`;
+        const msg = loopDecision.cycleLength === 1
+          ? `Loop detected: ${actionLabel} was already tried ${loopDecision.noEffectActions - 1} times and the page did not change. This element does not respond to this action. Do something different: for dropdowns use select(ref, value) instead of click; otherwise try press, scroll, a different element, or navigate with URL parameters.`
+          : `Loop detected: ${actionLabel} would repeat a ${loopDecision.cycleLength}-step no-effect cycle (${loopDecision.noEffectActions} actions total). The page did not change after this pattern. Do something different: try a different element, press, scroll, select(ref, value), extract visible evidence, or navigate with URL parameters.`;
+        step.result = { ok: true, durationMs: 0, extracted: msg };
+        step.status = 'ok';
+        step.note = loopDecision.cycleLength === 1
+          ? `Blocked repeated no-effect action (${loopDecision.noEffectActions - 1}x)`
+          : `Blocked repeated no-effect cycle (${loopDecision.cycleLength} steps)`;
+        step.finishedAt = Date.now();
+        step.timings = finalizeTimings(stepStart, { snapshotMs, screenshotMs, llmMs });
+        await saveStep(task.id, step);
+        broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
+        history.push(toolCallSource === 'content'
+          ? { role: 'user', content: `[TOOL RESULT: ${toolCall.name}] ${msg}` }
+          : { role: 'tool', content: msg, tool_call_id: toolCall.id ?? toolCall.name });
+        history.push({ role: 'user', content: `[LOOP GUARD] ${msg}` });
+        loop.lastStepFailed = true;
+        loop.modelRequestedVision = true;
+        consecutiveFailures++;
+        advanceStepCounters();
+        task.updatedAt = Date.now();
+        await saveTask(task);
+        if (consecutiveFailures >= MAX_STEP_RETRIES) {
+          deps.requestPause?.(task.id);
+          task.status = 'paused';
+          await saveTask(task);
+          broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
+          await waitUntilResumedOrStopped(task.id, deps, settings.autoResumeTimeoutMs);
+          if (deps.isStopped(task.id)) { task.status = 'failed'; break; }
+          consecutiveFailures = 0;
+          stepRetryCount = 0;
+          task.status = 'running';
+          broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
+        }
+        continue;
       }
 
       // ── Critical action confirmation ──
@@ -564,6 +631,68 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         }
         task.status = 'running';
         broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
+      }
+
+      if (planWasSetByModel && !step.cached && toolCall.name === 'set_task_plan') {
+        const msg = 'Plan is already accepted. Do not call set_task_plan again; execute the current plan with browser tools such as click, type, press, wait, extract, navigate, or done.';
+        step.note = 'Repairing duplicate task plan';
+        broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
+
+        history.push(toolCallSource === 'content'
+          ? { role: 'user', content: `[TOOL RESULT: ${toolCall.name}] ${msg}` }
+          : { role: 'tool', content: msg, tool_call_id: toolCall.id ?? toolCall.name });
+        const repairPrompt: OllamaMessage = {
+          role: 'user',
+          content: `[PLAN ALREADY SET] ${msg}\nUse the latest page snapshot and return exactly one non-planning tool call for the next active step.`,
+        };
+        history.push(repairPrompt);
+
+        const duplicateRepairT0 = performance.now();
+        if (!chatOpts) throw new Error('Duplicate plan repair missing chat context');
+        const repairedResp = await requestModelResponse(settings, {
+          ...chatOpts,
+          thinking: false,
+          messages: history,
+          onUpdate: (partial) => {
+            step.thinking = partial.thinking;
+            step.note = partial.content ? `Duplicate plan repair: ${truncate(partial.content, 200)}` : step.note;
+            broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
+          },
+        });
+        llmMs += performance.now() - duplicateRepairT0;
+
+        if (!repairedResp.toolCall || repairedResp.toolCall.name === 'set_task_plan') {
+          throw new Error(`Model repeated set_task_plan after plan was accepted. Response: ${truncate(repairedResp.content, 200)}`);
+        }
+
+        toolCall = repairedResp.toolCall;
+        toolCallSource = repairedResp.toolCallSource;
+        step.toolCall = toolCall;
+        step.thinking = repairedResp.thinking ?? step.thinking;
+        step.note = 'Repaired duplicate task plan with browser tool call';
+
+        const repairedHints = parseHints(toolCall, repairedResp.thinking);
+        step.needReasoningNext = repairedHints.needReasoning;
+        loop.modelRequestedReasoning = repairedHints.needReasoning;
+        loop.modelRequestedVision = repairedHints.needVision;
+
+        if (toolCallSource === 'content') {
+          history.push({
+            role: 'assistant',
+            content: repairedResp.content || JSON.stringify({ name: toolCall.name, arguments: toolCall.arguments }),
+            ...(repairedResp.thinking ? { reasoning_content: repairedResp.thinking } : {}),
+          });
+        } else {
+          history.push({
+            role: 'assistant',
+            content: '',
+            tool_calls: [{
+              id: toolCall.id ?? toolCall.name,
+              function: { name: toolCall.name, arguments: toolCall.arguments },
+            }],
+            ...(repairedResp.thinking ? { reasoning_content: repairedResp.thinking } : {}),
+          });
+        }
       }
 
       // ── Execute action ──
@@ -602,6 +731,15 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
 
         plan = planResult.plan;
         planWasSetByModel = true;
+        if (!orchPlan) {
+          // Checkpoint-restored tasks keep their restored orchestration plan.
+          orchPlan = buildOrchestrationPlanFromPlan(task.id, plan);
+          if (orchPlan.subtasks[0]) {
+            orchPlan.subtasks[0].status = 'running';
+            orchPlan.status = 'running';
+          }
+          syncVisiblePlans(task, plan, orchPlan);
+        }
         step.result = {
           ok: true,
           durationMs: 0,
@@ -725,6 +863,8 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         step.note = `Ungrouped tabs: ${tabIds.join(', ')}`;
       } else if (toolCall.name === 'start_subtask') {
         if (!orchPlan) throw new Error('start_subtask called before an orchestrator plan exists');
+        subtaskToolsUsed = true;
+        orchPlan.managed = true;
         const subtaskId = String(toolCall.arguments.subtaskId ?? '');
         const st = startSubtask(orchPlan, subtaskId);
         if (!st) throw new Error(`Unknown subtask: ${subtaskId}`);
@@ -738,6 +878,8 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         await checkpointMgr.save(task.id, orchPlan, tabMgr.getWorkerTabs());
       } else if (toolCall.name === 'finish_subtask') {
         if (!orchPlan) throw new Error('finish_subtask called before an orchestrator plan exists');
+        subtaskToolsUsed = true;
+        orchPlan.managed = true;
         const subtaskId = String(toolCall.arguments.subtaskId ?? '');
         const result = String(toolCall.arguments.result ?? '');
         const st = findSubtask(orchPlan, subtaskId);
@@ -758,6 +900,8 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         await checkpointMgr.save(task.id, orchPlan, tabMgr.getWorkerTabs());
       } else if (toolCall.name === 'fail_subtask') {
         if (!orchPlan) throw new Error('fail_subtask called before an orchestrator plan exists');
+        subtaskToolsUsed = true;
+        orchPlan.managed = true;
         const subtaskId = String(toolCall.arguments.subtaskId ?? '');
         const error = String(toolCall.arguments.error ?? '');
         const st = findSubtask(orchPlan, subtaskId);
@@ -960,7 +1104,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
           continue;
         }
 
-        if (hasOrchestrator && success && orchPlan && !allSubtasksComplete(orchPlan)) {
+        if (hasOrchestrator && success && orchPlan && subtaskToolsUsed && !allSubtasksComplete(orchPlan)) {
           const msg = `Cannot finish: orchestrator still has pending/running subtasks.\n${orchPlanSummary(orchPlan)}`;
           step.result = { ok: true, durationMs: 0, extracted: msg };
           step.status = 'ok';
@@ -1016,6 +1160,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         step.timings = finalizeTimings(stepStart, { snapshotMs, screenshotMs, llmMs, actionMs: performance.now() - actionT0 });
         if (success && plan) {
           completePlan(plan);
+          if (orchPlan && !subtaskToolsUsed) mirrorPlanProgress(plan, orchPlan);
           syncVisiblePlans(task, plan, orchPlan);
         }
         await saveStep(task.id, step);
@@ -1145,6 +1290,11 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         if (actionHistory.length > 20) actionHistory.shift();
       }
 
+      // ── Track repeated no-effect calls for the loop guard ──
+      if (loopGuardEligible && !step.cached) {
+        recordLoopGuardOutcome(loopGuard, actionSignature, Boolean(step.result?.ok && verification.status === 'success'));
+      }
+
       // ── Decide on retry ──
       if (step.result?.ok && verification.status === 'success') {
         // Success — advance plan and reset retries
@@ -1154,6 +1304,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         stepRetryCount = 0;
         if (plan && shouldAdvancePlanAfterTool(plan, toolCall.name)) {
           advancePlan(plan);
+          if (orchPlan && !subtaskToolsUsed) mirrorPlanProgress(plan, orchPlan);
           syncVisiblePlans(task, plan, orchPlan);
           await saveTask(task);
           broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
@@ -1295,6 +1446,15 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       await saveStep(task.id, step);
       broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
       broadcastEvent({ kind: 'task:error', taskId: task.id, error: msg });
+
+      // Auth/billing/quota errors will not go away on retry — fail fast
+      // instead of burning the remaining step budget on the same error.
+      if (isFatalProviderError(msg)) {
+        task.status = 'failed';
+        task.error = msg;
+        break;
+      }
+
       if (toolCall) {
         history.push({ role: 'tool', content: `error: ${msg}`, tool_call_id: toolCall.id ?? toolCall.name });
       }
@@ -1534,6 +1694,7 @@ function serializeOrchestration(plan: OrchestrationPlan): AgentOrchestrationStat
     goal: plan.goal,
     status: plan.status,
     updatedAt: plan.updatedAt,
+    managed: plan.managed,
     subtasks: plan.subtasks.map((subtask) => ({
       id: subtask.id,
       index: subtask.index,
@@ -1561,6 +1722,9 @@ async function requestModelResponse(settings: Settings, opts: OllamaChatOptions)
   }
   if (settings.provider === 'openrouter') {
     return chatOpenRouter(opts, settings.openRouterApiKey, settings.openRouterModel);
+  }
+  if (settings.provider === 'siliconflow') {
+    return chatSiliconFlow(opts, settings.siliconFlowApiKey, settings.siliconFlowModel);
   }
   if (settings.provider === 'mlx') {
     return chatMlx(opts, settings.mlxApiKey, settings.mlxModel);
@@ -1608,12 +1772,12 @@ function formatObservation(s: A11ySnapshot, visionReason: string, withScreenshot
   return `${header}${UNTRUSTED_CONTENT_OPEN}${formatSnapshot(s)}${UNTRUSTED_CONTENT_CLOSE}`;
 }
 
-function extractPlanTextFromContent(content: string): string | undefined {
-  const trimmed = content.trim();
-  if (!trimmed) return undefined;
-  if (trimmed.startsWith('{') && trimmed.endsWith('}')) return undefined;
-  if (!/^\s*(?:[-*]\s*)?(?:\[[ xX]\]\s*)?(?:step\s*)?\d+[.):]\s+/im.test(trimmed)) return undefined;
-  return trimmed;
+// Provider errors that retrying cannot fix: bad/missing API key, exhausted
+// credits, spending limits, quota. Requires both an auth-ish status code and
+// a billing/auth keyword so page-level "403" text never matches.
+function isFatalProviderError(message: string): boolean {
+  if (!/\b40[123]\b|insufficient_quota/i.test(message)) return false;
+  return /credit|spending|quota|billing|api key|unauthorized|permission.denied|forbidden/i.test(message);
 }
 
 function doneEvidenceBlockReason(summary: string, task: AgentTask, currentSnapshot: A11ySnapshot): string | undefined {
@@ -1889,6 +2053,7 @@ function providerModel(settings: Settings, ollamaModel: string): string {
   if (settings.provider === 'gemini') return settings.geminiModel;
   if (settings.provider === 'xai') return settings.xaiModel;
   if (settings.provider === 'openrouter') return settings.openRouterModel;
+  if (settings.provider === 'siliconflow') return settings.siliconFlowModel;
   if (settings.provider === 'mlx') return settings.mlxModel;
   if (settings.provider === 'deepseek') return settings.deepseekModel;
   return ollamaModel;
@@ -1969,3 +2134,13 @@ function isTabGroupColor(value: string): value is chrome.tabGroups.ColorEnum {
   return ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan'].includes(value);
 }
 
+async function waitUntilResumedOrStopped(taskId: string, deps: AgentDeps, timeoutMs?: number): Promise<void> {
+  const deadline = timeoutMs ? Date.now() + timeoutMs : null;
+  while (deps.isPaused(taskId) && !deps.isStopped(taskId)) {
+    if (deadline && Date.now() >= deadline) {
+      deps.requestResume?.(taskId);
+      return;
+    }
+    await sleep(500);
+  }
+}

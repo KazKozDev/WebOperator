@@ -6,7 +6,7 @@ import type {
   Subtask,
   TabContext,
 } from './orchestrator-types';
-import type { SkillId } from './types';
+import type { AgentPlan, SkillId } from './types';
 import { classifyTask, getSkill } from './skills';
 
 // ── Tab Manager ───────────────────────────────────────────────────────
@@ -183,71 +183,47 @@ export class CheckpointManager {
 
 // ── Task Decomposer ────────────────────────────────────────────────────
 
-export function parseDecomposition(
-  thinkingText: string,
-  goal: string,
-): DecompositionResult {
-  const subtasks: DecompositionResult['subtasks'] = [];
-  const explicitBlock = extractExplicitSubtaskBlock(thinkingText);
-
-  if (!explicitBlock) {
-    return {
-      subtasks: [{
-        index: 1,
-        description: goal,
-        dependsOn: [],
-      }],
-      reasoning: thinkingText.slice(0, 500),
-    };
-  }
-
-  // Only explicit orchestrator blocks may create blocking subtasks. Do not infer
-  // them from arbitrary model reasoning or page text.
-  const lines = explicitBlock.split(/\n/);
-  for (const line of lines) {
-    const match = line.match(/^\s*(\d+)[.)]\s+(.+)/);
-    if (match) {
-      const desc = match[2].trim();
-      if (desc.length < 5) continue;
-      const classified = classifyTask(desc);
-      subtasks.push({
-        index: parseInt(match[1], 10),
-        description: desc,
+// The orchestration plan is derived from the accepted set_task_plan tool call,
+// never parsed out of free-form model reasoning: plan steps and subtasks are
+// 1:1 by index, so there is a single source of truth for task structure.
+export function buildOrchestrationPlanFromPlan(taskId: string, plan: AgentPlan): OrchestrationPlan {
+  const decomposition: DecompositionResult = {
+    subtasks: plan.steps.map((step) => {
+      const classified = classifyTask(step.description);
+      return {
+        index: step.index,
+        description: step.description,
         skillId: classified.length > 0 ? classified[0].id : undefined,
         dependsOn: [],
-      });
+      };
+    }),
+    reasoning: plan.intent ?? '',
+  };
+  return buildOrchestrationPlan(taskId, plan.goal, decomposition);
+}
+
+// Mirror plan-step progress into the derived subtasks. Only moves subtasks
+// forward (pending/running -> done); explicit finish_subtask/fail_subtask
+// calls from the model are never overridden.
+export function mirrorPlanProgress(plan: AgentPlan, orch: OrchestrationPlan): void {
+  for (const step of plan.steps) {
+    if (step.status !== 'done') continue;
+    const st = orch.subtasks.find((s) => s.index === step.index);
+    if (st && (st.status === 'pending' || st.status === 'running')) {
+      st.status = 'done';
+      st.finishedAt = Date.now();
     }
   }
 
-  if (subtasks.length === 0) {
-    subtasks.push({
-      index: 1,
-      description: goal,
-      dependsOn: [],
-    });
+  const hasRunning = orch.subtasks.some((s) => s.status === 'running');
+  if (!hasRunning) {
+    const active = plan.steps.find((s) => s.status === 'active');
+    const st = active ? orch.subtasks.find((s) => s.index === active.index) : undefined;
+    if (st && st.status === 'pending') st.status = 'running';
   }
 
-  return {
-    subtasks,
-    reasoning: thinkingText.slice(0, 500),
-  };
-}
-
-function extractExplicitSubtaskBlock(text: string): string | null {
-  const marker = text.match(/^\s*(?:\[?ORCHESTRATOR SUBTASKS\]?|ORCHESTRATOR PLAN|SUBTASKS)\s*:?\s*$/im);
-  if (!marker || marker.index === undefined) return null;
-
-  const afterMarker = text.slice(marker.index + marker[0].length);
-  const lines = afterMarker.split(/\n/);
-  const blockLines: string[] = [];
-
-  for (const line of lines) {
-    if (/^\s*(?:\[?END ORCHESTRATOR SUBTASKS\]?|END ORCHESTRATOR PLAN)\s*:?\s*$/i.test(line)) break;
-    if (blockLines.length > 0 && /^\s*[A-Z][A-Z _-]{2,}\s*:?\s*$/.test(line) && !/^\s*\d+[.)]\s+/.test(line)) break;
-    blockLines.push(line);
-  }
-
-  return blockLines.join('\n').trim() || null;
+  if (allSubtasksComplete(orch)) orch.status = 'done';
+  orch.updatedAt = Date.now();
 }
 
 export function buildOrchestrationPlan(
@@ -275,6 +251,7 @@ export function buildOrchestrationPlan(
     status: 'planning',
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    managed: false,
   };
 }
 

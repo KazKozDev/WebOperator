@@ -9,6 +9,7 @@ WebOperator can talk to local and remote model backends. The current code has cl
 - Google Gemini
 - xAI
 - OpenRouter
+- SiliconFlow
 - DeepSeek
 - MLX
 

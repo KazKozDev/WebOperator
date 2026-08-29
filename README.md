@@ -20,13 +20,13 @@ The build writes the unpacked extension to `core/dist`.
 
 ```text
 vite v8.0.11 building client environment for production...
-✓ 98 modules transformed.
-✓ built in 197ms
+✓ 101 modules transformed.
+✓ built in 189ms
 ```
 
 Open `chrome://extensions`, enable Developer mode, click **Load unpacked**, and select `core/dist`. Press `Cmd+Shift+K` (`Ctrl+Shift+K` on Linux) to open the side panel, pick a provider under **Settings**, and type a goal.
 
-The default provider is Ollama at `http://127.0.0.1:11434`, so a tool-capable local model needs to be running before the first task. Any of the six remote providers works instead once you paste a key.
+The default provider is Ollama at `http://127.0.0.1:11434`, so a tool-capable local model needs to be running before the first task. Any of the seven remote providers works instead once you paste a key.
 
 ## Automate a multi-step task in the active Chrome tab
 
@@ -76,7 +76,7 @@ The manifest requests `<all_urls>` and `activeTab`/`tabs`/`scripting` to read an
 
 | Option | Default | What it does |
 |---|---|---|
-| Provider | `ollama` | Selects Ollama, Anthropic, DeepSeek, Gemini, MLX, OpenAI, OpenRouter, or xAI |
+| Provider | `ollama` | Selects Ollama, Anthropic, DeepSeek, Gemini, MLX, OpenAI, OpenRouter, SiliconFlow, or xAI |
 | Ollama URL | `http://127.0.0.1:11434` | Sets the local Ollama endpoint |
 | Model profile | `fast` | Maps to the default Ollama model unless a model override is set |
 | Screenshot policy | `auto` | Controls automatic, always-on, or disabled vision |
@@ -101,7 +101,7 @@ The manifest requests `<all_urls>` and `activeTab`/`tabs`/`scripting` to read an
 
 - Chrome 120 or newer, or a Chromium browser of equivalent version
 - Node.js and npm, to install dependencies and build the extension
-- A tool-capable model served by Ollama or MLX, or an API key for Anthropic, DeepSeek, Gemini, OpenAI, OpenRouter, or xAI
+- A tool-capable model served by Ollama or MLX, or an API key for Anthropic, DeepSeek, Gemini, OpenAI, OpenRouter, SiliconFlow, or xAI
 - The unpacked extension loaded from `core/dist`; it is not on the Chrome Web Store
 - macOS or Linux for the MCP bridge installer
 - `shellcheck`, only to run the full local check gate

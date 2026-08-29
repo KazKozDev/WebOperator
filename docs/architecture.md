@@ -8,7 +8,7 @@ WebOperator is a Chrome extension with one main idea: keep the agent loop small 
 side panel       user task, settings, plan, answer, trace
 service worker   task lifecycle, model calls, tool loop, storage
 content script   page snapshot, element refs, DOM actions, overlays
-model clients    Ollama / OpenAI-compatible / Gemini / xAI / OpenRouter / DeepSeek / MLX
+model clients    Ollama / OpenAI-compatible / Anthropic / Gemini / xAI / OpenRouter / SiliconFlow / DeepSeek / MLX
 ```
 
 ## step lifecycle

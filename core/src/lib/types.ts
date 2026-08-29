@@ -32,7 +32,11 @@ export interface Settings {
   confirmKeywords: string[];
   useActionCache: boolean;
   cacheTtlDays: number;
-  provider: 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'xai' | 'openrouter' | 'mlx' | 'deepseek';
+  // Reload the active tab before starting a task. Off by default: a reload
+  // destroys SPA state, filled forms, and scroll position the user may want
+  // the agent to act on.
+  resetPageOnStart: boolean;
+  provider: 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'xai' | 'openrouter' | 'siliconflow' | 'mlx' | 'deepseek';
   openaiApiKey: string;
   openaiModel: string;
   anthropicApiKey: string;
@@ -43,6 +47,8 @@ export interface Settings {
   xaiModel: string;
   openRouterApiKey: string;
   openRouterModel: string;
+  siliconFlowApiKey: string;
+  siliconFlowModel: string;
   mlxApiKey: string;
   mlxModel: string;
   deepseekApiKey: string;
@@ -91,6 +97,7 @@ export const DEFAULT_SETTINGS: Settings = {
 
   useActionCache: true,
   cacheTtlDays: 30,
+  resetPageOnStart: false,
   provider: 'ollama',
   openaiApiKey: '',
   openaiModel: '',
@@ -102,6 +109,8 @@ export const DEFAULT_SETTINGS: Settings = {
   xaiModel: 'grok-4-1-fast-non-reasoning',
   openRouterApiKey: '',
   openRouterModel: '',
+  siliconFlowApiKey: '',
+  siliconFlowModel: '',
   mlxApiKey: '',
   mlxModel: '',
   deepseekApiKey: '',
@@ -113,7 +122,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 
-export const SETTINGS_VERSION = 15;
+export const SETTINGS_VERSION = 16;
 
 
 export type A11yRole =
@@ -360,6 +369,9 @@ export interface AgentOrchestrationState {
   status: 'planning' | 'running' | 'paused' | 'done' | 'failed';
   subtasks: AgentOrchestrationSubtask[];
   updatedAt: number;
+  // True only when the model explicitly drove subtasks. When false the
+  // subtasks merely mirror the plan steps, so the UI hides them as duplicates.
+  managed: boolean;
 }
 
 // ── Verifier types ──

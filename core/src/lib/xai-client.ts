@@ -1,4 +1,5 @@
 import { AGENT_TOOLS } from './tools';
+import { fetchWithRetry } from './http-retry';
 import type { ToolCall } from './types';
 import type { OllamaChatOptions, OllamaChatResult } from './ollama-client';
 
@@ -73,15 +74,14 @@ export async function chatXai(opts: OllamaChatOptions, apiKey: string, xaiModel:
   const signal = opts.signal ? AbortSignal.any([opts.signal, timeoutController.signal]) : timeoutController.signal;
 
   try {
-    const res = await fetch('https://api.x.ai/v1/chat/completions', {
+    const res = await fetchWithRetry('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
-      headers: { 
+      headers: {
         'content-type': 'application/json',
         'authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify(body),
-      signal,
-    });
+    }, signal);
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');

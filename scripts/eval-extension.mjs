@@ -345,6 +345,16 @@ function providerPatchFromArgs(args, ollamaProxy) {
     };
   }
 
+  if (provider === 'siliconflow') {
+    if (!apiKey) throw new Error('SiliconFlow evals require WEBOPERATOR_API_KEY or --api-key');
+    if (!model) throw new Error('SiliconFlow evals require WEBOPERATOR_MODEL or --model');
+    return {
+      provider: 'siliconflow',
+      siliconFlowApiKey: apiKey,
+      siliconFlowModel: model,
+    };
+  }
+
   if (provider === 'mlx') {
     return {
       provider: 'mlx',

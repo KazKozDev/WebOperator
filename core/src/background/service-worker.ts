@@ -438,6 +438,7 @@ function modelUsedFromSettings(settings: Awaited<ReturnType<typeof getSettings>>
   if (settings.provider === 'gemini') return settings.geminiModel;
   if (settings.provider === 'xai') return settings.xaiModel;
   if (settings.provider === 'openrouter') return settings.openRouterModel;
+  if (settings.provider === 'siliconflow') return settings.siliconFlowModel;
   if (settings.provider === 'mlx') return settings.mlxModel;
   if (settings.provider === 'deepseek') return settings.deepseekModel;
   return undefined;

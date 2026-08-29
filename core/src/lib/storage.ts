@@ -102,6 +102,12 @@ export async function getSettings(): Promise<Settings> {
     next.anthropicModel = typeof storedSettings.anthropicModel === 'string' ? storedSettings.anthropicModel : DEFAULT_SETTINGS.anthropicModel;
     migrated = true;
   }
+  if (version < 16) {
+    next.siliconFlowApiKey = typeof storedSettings.siliconFlowApiKey === 'string' ? storedSettings.siliconFlowApiKey : '';
+    next.siliconFlowModel = typeof storedSettings.siliconFlowModel === 'string' ? storedSettings.siliconFlowModel : DEFAULT_SETTINGS.siliconFlowModel;
+    next.resetPageOnStart = typeof storedSettings.resetPageOnStart === 'boolean' ? storedSettings.resetPageOnStart : DEFAULT_SETTINGS.resetPageOnStart;
+    migrated = true;
+  }
   if (migrated) {
     await chrome.storage.local.set({ settings: next, settingsVersion: SETTINGS_VERSION });
   }

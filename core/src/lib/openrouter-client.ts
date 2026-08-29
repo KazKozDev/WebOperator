@@ -1,4 +1,5 @@
 import { AGENT_TOOLS } from './tools';
+import { fetchWithRetry } from './http-retry';
 import type { ToolCall } from './types';
 import type { OllamaChatOptions, OllamaChatResult } from './ollama-client';
 
@@ -66,7 +67,7 @@ export async function chatOpenRouter(opts: OllamaChatOptions, apiKey: string, mo
   const signal = opts.signal ? AbortSignal.any([opts.signal, timeoutController.signal]) : timeoutController.signal;
 
   try {
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const res = await fetchWithRetry('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -81,8 +82,7 @@ export async function chatOpenRouter(opts: OllamaChatOptions, apiKey: string, mo
         tools: AGENT_TOOLS.map((t) => ({ type: 'function', function: t.function })),
         temperature: 0.2,
       }),
-      signal,
-    });
+    }, signal);
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');

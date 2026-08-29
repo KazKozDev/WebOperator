@@ -1,4 +1,5 @@
 import { AGENT_TOOLS } from './tools';
+import { fetchWithRetry } from './http-retry';
 import type { ToolCall } from './types';
 import type { OllamaChatOptions, OllamaChatResult } from './ollama-client';
 
@@ -54,7 +55,7 @@ export async function chatMlx(opts: OllamaChatOptions, apiKey: string, model: st
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (apiKey.trim()) headers.authorization = `Bearer ${apiKey}`;
 
-    const res = await fetch('http://127.0.0.1:8000/v1/chat/completions', {
+    const res = await fetchWithRetry('http://127.0.0.1:8000/v1/chat/completions', {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -64,8 +65,7 @@ export async function chatMlx(opts: OllamaChatOptions, apiKey: string, model: st
         tools: AGENT_TOOLS.map((t) => ({ type: 'function', function: t.function })),
         temperature: 0.2,
       }),
-      signal,
-    });
+    }, signal);
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');

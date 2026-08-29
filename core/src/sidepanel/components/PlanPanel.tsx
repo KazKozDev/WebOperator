@@ -51,7 +51,7 @@ export function PlanPanel({ task, open, onToggle }: { task: AgentTask; open: boo
             ))}
           </ol>
         )}
-        {orchestration && orchestration.subtasks.length > 0 && (
+        {orchestration && orchestration.managed && orchestration.subtasks.length > 0 && (
           <div className="subtask-block">
             <div className="subtask-title">Subtasks</div>
             {orchestration.subtasks.map((subtask) => (

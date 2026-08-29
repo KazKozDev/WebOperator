@@ -31,6 +31,7 @@ export default defineManifest({
     'http://localhost:11434/*',
     'http://127.0.0.1:11434/*',
     'https://openrouter.ai/*',
+    'https://api.siliconflow.com/*',
     'https://api.deepseek.com/*',
     'https://api.anthropic.com/*',
     'https://api.openai.com/*',

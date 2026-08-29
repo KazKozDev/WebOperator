@@ -948,6 +948,7 @@ function SettingsPanel({ settings, updateSetting }: {
         <option value="ollama">Provider: Ollama (Local)</option>
         <option value="openai">Provider: OpenAI</option>
         <option value="openrouter">Provider: OpenRouter</option>
+        <option value="siliconflow">Provider: SiliconFlow</option>
         <option value="xai">Provider: xAI</option>
       </select>
 
@@ -986,6 +987,22 @@ function SettingsPanel({ settings, updateSetting }: {
         </>
       )}
 
+      {settings.provider === 'gemini' && (
+        <>
+          <label>
+            Gemini API Key
+            <input type="password" value={settings.geminiApiKey} onChange={(e) => updateSetting('geminiApiKey', e.target.value)} placeholder="AI..." />
+          </label>
+          <label>
+            Gemini Model
+            <input value={settings.geminiModel} onChange={(e) => updateSetting('geminiModel', e.target.value)} placeholder="e.g. gemini-2.5-flash" />
+          </label>
+          <div className="settings-note">
+            Get a key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">aistudio.google.com/apikey</a>. Uses Gemini's OpenAI-compatible chat completions endpoint.
+          </div>
+        </>
+      )}
+
       {settings.provider === 'xai' && (
         <>
           <input type="password" value={settings.xaiApiKey} onChange={(e) => updateSetting('xaiApiKey', e.target.value)} placeholder="xAI API Key" />
@@ -1004,6 +1021,22 @@ function SettingsPanel({ settings, updateSetting }: {
         <>
           <input type="password" value={settings.deepseekApiKey} onChange={(e) => updateSetting('deepseekApiKey', e.target.value)} placeholder="DeepSeek API Key" />
           <input value={settings.deepseekModel} onChange={(e) => updateSetting('deepseekModel', e.target.value)} placeholder="DeepSeek Model (e.g. deepseek-v4-flash)" />
+        </>
+      )}
+
+      {settings.provider === 'siliconflow' && (
+        <>
+          <label>
+            SiliconFlow API Key
+            <input type="password" value={settings.siliconFlowApiKey} onChange={(e) => updateSetting('siliconFlowApiKey', e.target.value)} placeholder="sk-..." />
+          </label>
+          <label>
+            SiliconFlow Model
+            <input value={settings.siliconFlowModel} onChange={(e) => updateSetting('siliconFlowModel', e.target.value)} placeholder="e.g. Qwen/Qwen2.5-VL-72B-Instruct" />
+          </label>
+          <div className="settings-note">
+            Get a key at <a href="https://cloud.siliconflow.com/account/ak" target="_blank" rel="noreferrer">cloud.siliconflow.com</a>. Model must support vision + function calling.
+          </div>
         </>
       )}
 
@@ -1061,6 +1094,15 @@ function SettingsPanel({ settings, updateSetting }: {
               style={{ width: '16px', height: '16px', cursor: 'pointer' }}
               checked={settings.useActionCache}
               onChange={(e) => updateSetting('useActionCache', e.target.checked)}
+            />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 2px' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text2)' }}>Reload page before task</span>
+            <input
+              type="checkbox"
+              style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+              checked={settings.resetPageOnStart}
+              onChange={(e) => updateSetting('resetPageOnStart', e.target.checked)}
             />
           </div>
           <input
@@ -1147,6 +1189,7 @@ function currentModelLabel(settings: Settings): string {
   if (settings.provider === 'gemini') return settings.geminiModel;
   if (settings.provider === 'xai') return settings.xaiModel;
   if (settings.provider === 'openrouter') return settings.openRouterModel;
+  if (settings.provider === 'siliconflow') return settings.siliconFlowModel;
   if (settings.provider === 'mlx') return settings.mlxModel;
   if (settings.provider === 'deepseek') return settings.deepseekModel;
   return ollamaModelName(settings);
