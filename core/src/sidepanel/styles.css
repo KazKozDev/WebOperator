@@ -1518,7 +1518,7 @@ button.danger {
   border: none;
   border-bottom: 1px solid rgba(223, 206, 179, 0.08);
   border-radius: 0;
-  padding: 8px 0 9px;
+  padding: 11px 0 11px;
   box-shadow: none;
 }
 
@@ -1534,9 +1534,10 @@ button.danger {
 .history-item .controls {
   display: flex;
   align-items: center;
-  margin-top: 5px;
+  margin-top: 6px;
   gap: 4px;
 }
+
 
 .history-item .controls button {
   padding: 3px 8px;
