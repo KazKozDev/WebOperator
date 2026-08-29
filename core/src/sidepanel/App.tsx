@@ -295,11 +295,11 @@ function ScheduleView({ onOpenTask }: { onOpenTask: (task: AgentTask) => void })
       <div className="ui-form schedule-form">
         <label className="inset-field">
           <span className="inset-label">Task name</span>
-          <input value={name} placeholder="Daily pricing check" onChange={(e) => setName(e.target.value)} />
+          <input value={name} placeholder="Task name" onChange={(e) => setName(e.target.value)} />
         </label>
         <label className="inset-field">
           <span className="inset-label">Start URL</span>
-          <input value={startUrl} placeholder="https://example.com" onChange={(e) => setStartUrl(e.target.value)} />
+          <input value={startUrl} placeholder="Start URL" onChange={(e) => setStartUrl(e.target.value)} />
         </label>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
           <label className="inset-field">
@@ -318,8 +318,9 @@ function ScheduleView({ onOpenTask }: { onOpenTask: (task: AgentTask) => void })
         </div>
         <label className="inset-field schedule-goal-label">
           <span className="inset-label">Goal</span>
-          <textarea value={goal} placeholder="What should the agent do when this runs?" onChange={(e) => setGoal(e.target.value)} />
+          <textarea value={goal} placeholder="Goal" onChange={(e) => setGoal(e.target.value)} />
         </label>
+
         <div className="action-row controls">
           <button className="secondary" onClick={saveSchedule}>Save scheduled task</button>
           <button className="secondary" onClick={refreshSchedules}>Refresh</button>
@@ -770,7 +771,7 @@ function SkillsView({ settings, updateSetting }: {
           <label className="inset-field">
             <span className="inset-label">Skill Name *</span>
             <input
-              placeholder="e.g., Company CRM Assistant"
+              placeholder="Skill Name"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
@@ -778,23 +779,23 @@ function SkillsView({ settings, updateSetting }: {
           <label className="inset-field">
             <span className="inset-label">Summary / Short Description</span>
             <input
-              placeholder="e.g., Automatically fills lead forms in CRM"
+              placeholder="Summary / Short Description"
               value={summary}
               onChange={(e) => setSummary(e.target.value)}
             />
           </label>
           <label className="inset-field">
-            <span className="inset-label">Target Domains (comma separated)</span>
+            <span className="inset-label">Target Domains</span>
             <input
-              placeholder="e.g., crm.company.com, hubspot.com"
+              placeholder="Target Domains (comma separated)"
               value={domainPattern}
               onChange={(e) => setDomainPattern(e.target.value)}
             />
           </label>
           <label className="inset-field">
-            <span className="inset-label">Trigger Keywords (comma separated)</span>
+            <span className="inset-label">Trigger Keywords</span>
             <input
-              placeholder="e.g., crm, лид, сделка, клиент"
+              placeholder="Trigger Keywords (comma separated)"
               value={keywords}
               onChange={(e) => setKeywords(e.target.value)}
             />
@@ -803,11 +804,12 @@ function SkillsView({ settings, updateSetting }: {
             <span className="inset-label">Agent Instructions / Prompt *</span>
             <textarea
               style={{ minHeight: '80px', fontFamily: 'var(--font-mono)' }}
-              placeholder="Detailed guidelines the agent should follow when this skill activates..."
+              placeholder="Agent Instructions / Prompt"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
             />
           </label>
+
           <div className="action-row controls" style={{ justifyContent: 'flex-end', marginTop: '6px' }}>
             <button type="button" className="secondary" onClick={() => setIsCreating(false)}>Cancel</button>
             <button type="submit" className="primary">Save Skill</button>
@@ -909,21 +911,21 @@ function VaultView() {
         </div>
       </div>
       <div className="ui-form settings">
-        <label>
-          Site origin
-          <input value={origin} placeholder="https://example.com" onChange={(e) => setOrigin(e.target.value)} />
+        <label className="inset-field">
+          <span className="inset-label">Site origin</span>
+          <input value={origin} placeholder="Site origin" onChange={(e) => setOrigin(e.target.value)} />
         </label>
-        <label>
-          Username / email
-          <input value={username} autoComplete="username" onChange={(e) => setUsername(e.target.value)} />
+        <label className="inset-field">
+          <span className="inset-label">Username / email</span>
+          <input value={username} placeholder="Username / email" autoComplete="username" onChange={(e) => setUsername(e.target.value)} />
         </label>
-        <label>
-          Password
-          <input type="password" value={password} autoComplete="current-password" onChange={(e) => setPassword(e.target.value)} />
+        <label className="inset-field">
+          <span className="inset-label">Password</span>
+          <input type="password" value={password} placeholder="Password" autoComplete="current-password" onChange={(e) => setPassword(e.target.value)} />
         </label>
-        <label>
-          Label
-          <input value={label} placeholder="optional" onChange={(e) => setLabel(e.target.value)} />
+        <label className="inset-field">
+          <span className="inset-label">Label (optional)</span>
+          <input value={label} placeholder="Label (optional)" onChange={(e) => setLabel(e.target.value)} />
         </label>
         <div className="action-row controls">
           <button className="secondary" onClick={save}>Save session credential</button>
@@ -931,6 +933,7 @@ function VaultView() {
         </div>
         {message && <div className="settings-note">{message}</div>}
       </div>
+
 
       <div className="ui-list history-list">
         {entries.length === 0 ? (
@@ -960,8 +963,8 @@ function SettingsPanel({ settings, updateSetting }: {
   return (
     <section className="view active page-view settings-view">
       <div className="ui-form settings">
-      <label>
-        Provider
+      <label className="inset-field">
+        <span className="inset-label">Provider</span>
         <select value={settings.provider} onChange={(e) => updateSetting('provider', e.target.value as Settings['provider'])}>
           <option value="anthropic">Anthropic (Claude)</option>
           <option value="ollama">Ollama (Local)</option>
@@ -979,13 +982,13 @@ function SettingsPanel({ settings, updateSetting }: {
 
       {settings.provider === 'anthropic' && (
         <>
-          <label>
-            Anthropic API Key
-            <input type="password" value={settings.anthropicApiKey} onChange={(e) => updateSetting('anthropicApiKey', e.target.value)} placeholder="sk-ant-..." />
+          <label className="inset-field">
+            <span className="inset-label">Anthropic API Key</span>
+            <input type="password" value={settings.anthropicApiKey} onChange={(e) => updateSetting('anthropicApiKey', e.target.value)} placeholder="Anthropic API Key" />
           </label>
-          <label>
-            Claude Model
-            <input value={settings.anthropicModel} onChange={(e) => updateSetting('anthropicModel', e.target.value)} placeholder="e.g. claude-3-7-sonnet-20250219" />
+          <label className="inset-field">
+            <span className="inset-label">Claude Model</span>
+            <input value={settings.anthropicModel} onChange={(e) => updateSetting('anthropicModel', e.target.value)} placeholder="Claude Model" />
           </label>
           <div className="settings-note">
             Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">console.anthropic.com</a>. Native Claude Messages API with vision and tool calling.
@@ -996,9 +999,9 @@ function SettingsPanel({ settings, updateSetting }: {
 
       {settings.provider === 'ollama' && (
         <>
-          <label>
-            Ollama URL
-            <input value={settings.ollamaUrl} onChange={(e) => updateSetting('ollamaUrl', e.target.value)} />
+          <label className="inset-field">
+            <span className="inset-label">Ollama URL</span>
+            <input value={settings.ollamaUrl} onChange={(e) => updateSetting('ollamaUrl', e.target.value)} placeholder="Ollama URL" />
           </label>
           <div className="settings-note">
             If you see <code>403 Forbidden</code>, restart Ollama with <code>OLLAMA_ORIGINS="chrome-extension://*,http://localhost:*" ollama serve</code>. On macOS quit the menu-bar Ollama first.
@@ -1008,13 +1011,13 @@ function SettingsPanel({ settings, updateSetting }: {
 
       {settings.provider === 'openai' && (
         <>
-          <label>
-            OpenAI API Key
-            <input type="password" value={settings.openaiApiKey} onChange={(e) => updateSetting('openaiApiKey', e.target.value)} placeholder="sk-..." />
+          <label className="inset-field">
+            <span className="inset-label">OpenAI API Key</span>
+            <input type="password" value={settings.openaiApiKey} onChange={(e) => updateSetting('openaiApiKey', e.target.value)} placeholder="OpenAI API Key" />
           </label>
-          <label>
-            OpenAI Model
-            <input value={settings.openaiModel} onChange={(e) => updateSetting('openaiModel', e.target.value)} placeholder="e.g. gpt-5-mini" />
+          <label className="inset-field">
+            <span className="inset-label">OpenAI Model</span>
+            <input value={settings.openaiModel} onChange={(e) => updateSetting('openaiModel', e.target.value)} placeholder="OpenAI Model" />
           </label>
           <div className="settings-note">
             Get a key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">platform.openai.com/api-keys</a>. Model must support vision + function calling.
@@ -1024,13 +1027,13 @@ function SettingsPanel({ settings, updateSetting }: {
 
       {settings.provider === 'gemini' && (
         <>
-          <label>
-            Gemini API Key
-            <input type="password" value={settings.geminiApiKey} onChange={(e) => updateSetting('geminiApiKey', e.target.value)} placeholder="AI..." />
+          <label className="inset-field">
+            <span className="inset-label">Gemini API Key</span>
+            <input type="password" value={settings.geminiApiKey} onChange={(e) => updateSetting('geminiApiKey', e.target.value)} placeholder="Gemini API Key" />
           </label>
-          <label>
-            Gemini Model
-            <input value={settings.geminiModel} onChange={(e) => updateSetting('geminiModel', e.target.value)} placeholder="e.g. gemini-2.5-flash" />
+          <label className="inset-field">
+            <span className="inset-label">Gemini Model</span>
+            <input value={settings.geminiModel} onChange={(e) => updateSetting('geminiModel', e.target.value)} placeholder="Gemini Model" />
           </label>
           <div className="settings-note">
             Get a key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">aistudio.google.com/apikey</a>. Uses Gemini's OpenAI-compatible chat completions endpoint.
@@ -1040,13 +1043,13 @@ function SettingsPanel({ settings, updateSetting }: {
 
       {settings.provider === 'xai' && (
         <>
-          <label>
-            xAI API Key
-            <input type="password" value={settings.xaiApiKey} onChange={(e) => updateSetting('xaiApiKey', e.target.value)} placeholder="xai-..." />
+          <label className="inset-field">
+            <span className="inset-label">xAI API Key</span>
+            <input type="password" value={settings.xaiApiKey} onChange={(e) => updateSetting('xaiApiKey', e.target.value)} placeholder="xAI API Key" />
           </label>
-          <label>
-            xAI Model
-            <input value={settings.xaiModel} onChange={(e) => updateSetting('xaiModel', e.target.value)} placeholder="e.g. grok-4-1-fast-non-reasoning" />
+          <label className="inset-field">
+            <span className="inset-label">xAI Model</span>
+            <input value={settings.xaiModel} onChange={(e) => updateSetting('xaiModel', e.target.value)} placeholder="xAI Model" />
           </label>
           <div className="settings-note">
             Get a key at <a href="https://console.x.ai" target="_blank" rel="noreferrer">console.x.ai</a>.
@@ -1056,13 +1059,13 @@ function SettingsPanel({ settings, updateSetting }: {
 
       {settings.provider === 'openrouter' && (
         <>
-          <label>
-            OpenRouter API Key
-            <input type="password" value={settings.openRouterApiKey} onChange={(e) => updateSetting('openRouterApiKey', e.target.value)} placeholder="sk-or-..." />
+          <label className="inset-field">
+            <span className="inset-label">OpenRouter API Key</span>
+            <input type="password" value={settings.openRouterApiKey} onChange={(e) => updateSetting('openRouterApiKey', e.target.value)} placeholder="OpenRouter API Key" />
           </label>
-          <label>
-            OpenRouter Model
-            <input value={settings.openRouterModel} onChange={(e) => updateSetting('openRouterModel', e.target.value)} placeholder="e.g. google/gemma-4-31b-it" />
+          <label className="inset-field">
+            <span className="inset-label">OpenRouter Model</span>
+            <input value={settings.openRouterModel} onChange={(e) => updateSetting('openRouterModel', e.target.value)} placeholder="OpenRouter Model" />
           </label>
           <div className="settings-note">
             Get a key at <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">openrouter.ai/keys</a>. Free endpoints can be entered manually if available.
@@ -1072,13 +1075,13 @@ function SettingsPanel({ settings, updateSetting }: {
 
       {settings.provider === 'deepseek' && (
         <>
-          <label>
-            DeepSeek API Key
-            <input type="password" value={settings.deepseekApiKey} onChange={(e) => updateSetting('deepseekApiKey', e.target.value)} placeholder="sk-..." />
+          <label className="inset-field">
+            <span className="inset-label">DeepSeek API Key</span>
+            <input type="password" value={settings.deepseekApiKey} onChange={(e) => updateSetting('deepseekApiKey', e.target.value)} placeholder="DeepSeek API Key" />
           </label>
-          <label>
-            DeepSeek Model
-            <input value={settings.deepseekModel} onChange={(e) => updateSetting('deepseekModel', e.target.value)} placeholder="e.g. deepseek-v4-flash" />
+          <label className="inset-field">
+            <span className="inset-label">DeepSeek Model</span>
+            <input value={settings.deepseekModel} onChange={(e) => updateSetting('deepseekModel', e.target.value)} placeholder="DeepSeek Model" />
           </label>
           <div className="settings-note">
             Get a key at <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer">platform.deepseek.com</a>. Use <code>deepseek-v4-flash</code> or <code>deepseek-v4-pro</code> (tool calls supported). The chat API accepts text only — no image input — so set Vision to <strong>Never</strong>. Legacy <code>deepseek-chat</code>/<code>deepseek-reasoner</code> aliases retire 2026/07/24.
@@ -1088,13 +1091,13 @@ function SettingsPanel({ settings, updateSetting }: {
 
       {settings.provider === 'mlx' && (
         <>
-          <label>
-            MLX API Key (optional)
-            <input type="password" value={settings.mlxApiKey} onChange={(e) => updateSetting('mlxApiKey', e.target.value)} />
+          <label className="inset-field">
+            <span className="inset-label">MLX API Key (optional)</span>
+            <input type="password" value={settings.mlxApiKey} onChange={(e) => updateSetting('mlxApiKey', e.target.value)} placeholder="MLX API Key" />
           </label>
-          <label>
-            MLX Model
-            <input value={settings.mlxModel} onChange={(e) => updateSetting('mlxModel', e.target.value)} placeholder="e.g. mlx-community/Qwen2.5-VL-7B-Instruct-4bit" />
+          <label className="inset-field">
+            <span className="inset-label">MLX Model</span>
+            <input value={settings.mlxModel} onChange={(e) => updateSetting('mlxModel', e.target.value)} placeholder="MLX Model" />
           </label>
           <div className="settings-note">
             Local MLX server expected at <code>http://127.0.0.1:8000</code>. Model must support function calling + vision.
@@ -1104,19 +1107,19 @@ function SettingsPanel({ settings, updateSetting }: {
 
       {settings.provider === 'ollama' && (
         <>
-          <label>
-            Model (optional)
+          <label className="inset-field">
+            <span className="inset-label">Model (optional)</span>
             <input
               value={settings.ollamaModel}
               onChange={(e) => updateSetting('ollamaModel', e.target.value)}
-              placeholder="e.g. qwen3-vl:8b or an MLX model"
+              placeholder="Model (optional)"
             />
           </label>
           <div className="settings-note">
             Leave blank to use the profile below. Set any model from <code>ollama list</code> to override it — including MLX models served by Ollama. Model must support function calling + vision.
           </div>
-          <label>
-            Profile
+          <label className="inset-field">
+            <span className="inset-label">Profile</span>
             <select
               value={settings.profile}
               disabled={Boolean(settings.ollamaModel.trim())}
@@ -1128,8 +1131,8 @@ function SettingsPanel({ settings, updateSetting }: {
               <option value="quality">Quality — gemma4:31b</option>
             </select>
           </label>
-          <label>
-            Planning profile
+          <label className="inset-field">
+            <span className="inset-label">Planning profile</span>
             <select
               value={settings.planningProfile}
               disabled={Boolean(settings.ollamaModel.trim())}
@@ -1144,36 +1147,39 @@ function SettingsPanel({ settings, updateSetting }: {
           </label>
         </>
       )}
-      <label>
-        Vision
-        <select value={settings.screenshotPolicy} onChange={(e) => updateSetting('screenshotPolicy', e.target.value as Settings['screenshotPolicy'])}>
-          <option value="auto">Auto</option>
-          <option value="always">Always</option>
-          <option value="never">Never</option>
-        </select>
-      </label>
-      <label>
-        Timeout, ms
-        <input type="number" value={settings.actionTimeoutMs} onChange={(e) => updateSetting('actionTimeoutMs', Number(e.target.value))} />
-      </label>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+        <label className="inset-field">
+          <span className="inset-label">Vision</span>
+          <select value={settings.screenshotPolicy} onChange={(e) => updateSetting('screenshotPolicy', e.target.value as Settings['screenshotPolicy'])}>
+            <option value="auto">Auto</option>
+            <option value="always">Always</option>
+            <option value="never">Never</option>
+          </select>
+        </label>
+        <label className="inset-field">
+          <span className="inset-label">Timeout, ms</span>
+          <input type="number" value={settings.actionTimeoutMs} onChange={(e) => updateSetting('actionTimeoutMs', Number(e.target.value))} placeholder="Timeout, ms" />
+        </label>
+      </div>
       <details className="settings-advanced">
         <summary>Advanced</summary>
-        <label>
-          Thinking
+        <label className="inset-field" style={{ marginTop: '8px' }}>
+          <span className="inset-label">Thinking</span>
           <select value={settings.thinkingPolicy} onChange={(e) => updateSetting('thinkingPolicy', e.target.value as Settings['thinkingPolicy'])}>
             <option value="auto">Auto</option>
             <option value="always">Always</option>
             <option value="never">Never</option>
           </select>
         </label>
-        <label>
-          Context compressor
+        <label className="inset-field">
+          <span className="inset-label">Context compressor</span>
           <select value={settings.contextCompressor} onChange={(e) => updateSetting('contextCompressor', e.target.value as Settings['contextCompressor'])}>
             <option value="off">Off (deterministic)</option>
             <option value="same">Same model</option>
             <option value="cloud">Cloud (DeepSeek/Gemini)</option>
           </select>
         </label>
+
         <div className="settings-note">
           Long tasks always collapse old page snapshots and fold older steps to stay within the model's context. <strong>Same model</strong> / <strong>Cloud</strong> additionally rewrite the folded history with an LLM (one extra call only when the budget is exceeded).
         </div>
