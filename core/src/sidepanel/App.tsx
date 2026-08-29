@@ -484,27 +484,30 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
               {task && <button className="text-btn" onClick={() => downloadJson(`trace-${task.id.slice(0, 8)}.json`, buildTrace(task))}>Export</button>}
             </div>
           </div>
-          <button
-            type="button"
-            className={`voice-btn ${isListening ? 'recording' : ''}`}
-            title={isListening ? 'Listening... click to stop' : 'Voice input (dictate task)'}
-            aria-label="Voice input"
-            onClick={toggleListening}
-            disabled={running}
-          >
-            <Icon name="mic" />
-          </button>
-          <button
-            className={`send-btn ${running || paused ? 'stop' : ''}`}
-            title={running || paused ? 'Stop' : 'Start'}
-            aria-label={running || paused ? 'Stop' : 'Start'}
-            onClick={() => running || paused ? task && sendToSW({ kind: 'task:stop', id: task.id }) : start()}
-            disabled={isStarting || (!task && !goal.trim())}
-          >
-            <Icon name={running || paused ? 'stop' : 'send'} />
-          </button>
+          <div className="composer-btns">
+            <button
+              type="button"
+              className={`voice-btn ${isListening ? 'recording' : ''}`}
+              title={isListening ? 'Listening... click to stop' : 'Voice input (dictate task)'}
+              aria-label="Voice input"
+              onClick={toggleListening}
+              disabled={running}
+            >
+              <Icon name="mic" />
+            </button>
+            <button
+              className={`send-btn ${running || paused ? 'stop' : ''}`}
+              title={running || paused ? 'Stop' : 'Start'}
+              aria-label={running || paused ? 'Stop' : 'Start'}
+              onClick={() => running || paused ? task && sendToSW({ kind: 'task:stop', id: task.id }) : start()}
+              disabled={isStarting || (!task && !goal.trim())}
+            >
+              <Icon name={running || paused ? 'stop' : 'send'} />
+            </button>
+          </div>
         </div>
         <div className="composer-disclaimer">WebOperator can make mistakes. Please double-check responses.</div>
+
       </div>
 
 

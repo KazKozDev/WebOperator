@@ -1105,50 +1105,73 @@ textarea:disabled {
   color: var(--accent);
 }
 
-.send-btn {
+.composer-btns {
   display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+  align-self: flex-end;
+}
+
+.send-btn {
+  display: inline-flex;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
   align-self: flex-end;
-  width: 30px;
-  height: 30px;
-  margin-bottom: 1px;
+
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  margin: 0;
+  padding: 0;
   border: 0;
-  border-radius: 50%;
-  background: rgba(212, 162, 78, 0.92);
-  color: #1a1815;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #17110e;
   font-size: 14px;
-  transition: background 0.15s, color 0.15s, opacity 0.15s;
+  cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .send-btn:hover {
-  background: var(--accent);
-  color: #1a1815;
+  background: #dfb05c;
+  transform: translateY(-1px);
+}
+
+.send-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .send-btn.stop {
-  background: rgba(183, 123, 107, 0.14);
+  background: rgba(183, 123, 107, 0.18);
+  border: 1px solid rgba(183, 123, 107, 0.35);
   color: var(--error);
 }
 
 .send-btn.stop:hover {
   background: var(--error);
   color: #fff;
+  border-color: var(--error);
 }
 
 .voice-btn {
-  display: flex;
+  display: inline-flex;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
   align-self: flex-end;
-  width: 30px;
-  height: 30px;
-  margin-bottom: 1px;
-  margin-right: 6px;
-  border: 1px solid rgba(223, 206, 179, 0.16);
-  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(223, 206, 179, 0.14);
+  border-radius: 8px;
   background: rgba(223, 206, 179, 0.06);
   color: var(--text2);
   cursor: pointer;
@@ -1157,7 +1180,15 @@ textarea:disabled {
 
 .voice-btn:hover {
   background: rgba(223, 206, 179, 0.14);
+  border-color: rgba(212, 162, 78, 0.35);
   color: var(--text);
+  transform: translateY(-1px);
+}
+
+.voice-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .voice-btn.recording {
@@ -1179,14 +1210,17 @@ textarea:disabled {
   }
 }
 
-
 .composer-disclaimer {
-  padding: 5px 2px 0;
-  color: rgba(223, 206, 179, 0.46);
+  padding: 6px 0 0;
+  color: var(--text3);
   font-size: 11px;
-  line-height: 1.25;
+  font-weight: 400;
+  line-height: 1.35;
   text-align: center;
+  opacity: 0.65;
+  user-select: none;
 }
+
 
 .controls {
   display: flex;
