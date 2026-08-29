@@ -18,11 +18,12 @@ This is the supported task surface for `1.0.0`. Anything outside this list may s
 - Login flows, because credentials and session state vary by site.
 - Pages with heavy client-side re-rendering.
 - Infinite scroll pages.
-- Sites with aggressive bot detection. The agent exposes a `solve_captcha` tool that clicks a
-  Cloudflare Turnstile widget or a challenge checkbox when `isBotChallengePage` flags the page.
-  It only dispatches a click at the widget: it does not read image or puzzle challenges, does not
-  call a solving service, and does not help on a site that keeps re-challenging. Automating a
-  challenge widget may breach a site's terms of service, so treat it as a supervised action.
+- Sites with aggressive bot detection. When `isBotChallengePage` flags a verification challenge,
+  the agent does not try to get past it. It parks the task in `paused` with a `bot_challenge`
+  pause reason, the side panel asks you to clear the challenge in the live tab, and the loop
+  resumes from a fresh snapshot once you press Resume. After two handoffs on the same task the
+  run fails and tells you to finish manually. A `solve_captcha` tool that clicks a Turnstile
+  widget still exists in the tool list, but nothing prompts the model towards it any more.
 - Tasks that require subjective judgment without clear page evidence.
 - Any destructive action, purchase, payment, deletion, or account change.
 

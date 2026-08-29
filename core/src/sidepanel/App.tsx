@@ -422,6 +422,19 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
           </div>
         ) : (
           <>
+            {task?.pauseReason?.kind === 'bot_challenge' && (
+              <div className="challenge-handoff">
+                <div className="challenge-handoff-title">Verification needed</div>
+                <p className="challenge-handoff-note">{task.pauseReason.note}</p>
+                <p className="challenge-handoff-url">{task.pauseReason.url}</p>
+                <button
+                  className="primary"
+                  onClick={() => sendToSW({ kind: 'task:resume', id: task.id })}
+                >
+                  I have solved it — resume
+                </button>
+              </div>
+            )}
             <AnswerPanel answer={finalAnswer} task={task} isConfirmationCheckpoint={isConfirmationCheckpoint} onResumeCheckpoint={onResumeCheckpoint} />
             <PlanPanel task={task} open={planOpen} onToggle={setPlanOpen} />
 

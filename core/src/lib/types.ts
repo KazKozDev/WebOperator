@@ -249,6 +249,20 @@ export const PROFILE_LATENCY_MULT: Record<ModelProfile, number> = {
 
 export type TaskStatus = 'idle' | 'planning' | 'running' | 'paused' | 'done' | 'failed' | 'awaiting_confirm';
 
+/**
+ * Why a task is sitting in `paused`. `bot_challenge` means the page put up a
+ * verification challenge and the agent handed control back: the person solves
+ * it in the live tab and presses Resume. The agent does not attempt to defeat
+ * the challenge itself.
+ */
+export interface TaskPauseReason {
+  kind: 'bot_challenge';
+  url: string;
+  title: string;
+  note: string;
+  since: number;
+}
+
 export interface AgentTask {
   id: string;
   goal: string;
@@ -263,6 +277,7 @@ export interface AgentTask {
   provider?: Settings['provider'];
   modelUsed?: string;
   error?: string;
+  pauseReason?: TaskPauseReason;
 }
 
 export type ScheduleRepeat = 'once' | 'hourly' | 'daily' | 'weekly';

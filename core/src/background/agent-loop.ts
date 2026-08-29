@@ -99,6 +99,9 @@ import type { OrchestrationPlan } from '@/lib/orchestrator-types';
 
 const MAX_STEPS = 60;
 const MAX_STEP_RETRIES = 3;
+// How many times one task may be handed back to the person for a bot challenge
+// before it gives up. A site that keeps re-challenging is not going to yield.
+const MAX_BOT_CHALLENGE_HANDOFFS = 2;
 const MAX_RESUMES = 3;
 const ORCHESTRATOR_CHECKPOINT_INTERVAL = 5;
 const TOOL_CALL_REPAIR_PROMPT = `[FORMAT ERROR] Your previous response was not a tool call.
@@ -278,6 +281,8 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
   // ── Retry tracking per step ──
   let stepRetryCount = 0;
   let resumeCount = 0;
+  let botChallengeHandoffs = 0;
+
   const advanceStepCounters = () => {
     stepIndex++;
     stepSerial++;
@@ -312,6 +317,13 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       await sleep(500);
       if (deps.isStopped(task.id)) { task.status = 'failed'; break; }
     }
+    if (task.pauseReason && !deps.isPaused(task.id)) {
+      task.pauseReason = undefined;
+      task.status = 'running';
+      task.updatedAt = Date.now();
+      await saveTask(task);
+      broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
+    }
 
     const stepStart = performance.now();
     const step: AgentStep = {
@@ -345,8 +357,46 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       if (availableCredential) {
         memoryHints.push(`[LOGIN] Session credential available for ${availableCredential.origin} as ${availableCredential.username}. Use fill_login_credentials when username/password fields are visible; do not ask for or reveal the password.`);
       }
+      // ── Bot challenge: hand the tab back to the person ──
+      // The agent does not try to defeat the challenge. It parks the task, the
+      // person clears it in the live tab, and the next iteration re-snapshots.
       if (isBotChallengePage(snapshot.title, snapshot.url)) {
-        memoryHints.push('[BOT CHALLENGE] Cloudflare Turnstile / Bot Verification Challenge detected on this page. Call solve_captcha() to pass the challenge automatically.');
+        if (botChallengeHandoffs >= MAX_BOT_CHALLENGE_HANDOFFS) {
+          step.status = 'skipped';
+          step.finishedAt = Date.now();
+          step.note = 'Bot challenge still present after the last handoff.';
+          await saveStep(task.id, step);
+          broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
+          task.status = 'failed';
+          task.error = `The site kept showing a verification challenge on ${snapshot.url} after ${MAX_BOT_CHALLENGE_HANDOFFS} attempts. Finish the task manually in the tab.`;
+          task.updatedAt = Date.now();
+          await saveTask(task);
+          broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
+          broadcastEvent({ kind: 'task:error', taskId: task.id, error: task.error });
+          break;
+        }
+
+        botChallengeHandoffs++;
+        step.status = 'skipped';
+        step.finishedAt = Date.now();
+        step.note = 'Paused: verification challenge — waiting for the user.';
+        await saveStep(task.id, step);
+        broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
+        advanceStepCounters();
+
+        task.status = 'paused';
+        task.pauseReason = {
+          kind: 'bot_challenge',
+          url: snapshot.url,
+          title: snapshot.title,
+          note: 'This page is asking to verify you are human. Solve it in the tab, then press Resume.',
+          since: Date.now(),
+        };
+        task.updatedAt = Date.now();
+        await saveTask(task);
+        broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
+        deps.requestPause?.(task.id);
+        continue;
       }
 
 
