@@ -585,7 +585,8 @@ function HistoryView({ onReplay, onOpen, onResumeCheckpoint }: { onReplay: (goal
                 <div key={t.id} className="ui-list-item history-item">
                   <div className="item-head step-head">
                     <span className="item-meta step-detail">{new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                    <span className="status-pill">{t.status}</span>
+                    <span className={`status-pill status-${t.status}`}>{t.status}</span>
+
                   </div>
                   <div className="item-title history-goal">{t.goal}</div>
 
