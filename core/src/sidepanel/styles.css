@@ -1876,16 +1876,16 @@ button.danger {
 
 
 .settings-advanced {
-  margin-top: 4px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(223, 206, 179, 0.08);
+  margin-top: 8px;
+  padding-top: 0;
+  border-top: none;
 }
 
 .settings-advanced summary {
-  color: var(--text2);
+  color: var(--text);
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
   list-style: none;
   user-select: none;
 }
@@ -1899,7 +1899,7 @@ button.danger {
   display: inline-block;
   width: 0;
   height: 0;
-  margin-right: 7px;
+  margin-right: 8px;
   border-style: solid;
   border-width: 4px 0 4px 5px;
   border-color: transparent transparent transparent currentColor;
@@ -1914,6 +1914,7 @@ button.danger {
 .settings-advanced[open] summary {
   color: var(--accent);
 }
+
 
 .settings-advanced-body {
   display: flex;
