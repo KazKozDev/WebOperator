@@ -141,7 +141,7 @@ export async function loadSteps(taskId: string): Promise<AgentStep[]> {
   });
 }
 
-const CREDENTIALS_KEY = 'credentialVault';
+const CREDENTIALS_KEY = 'vaultCredentials';
 
 export async function listCredentials(): Promise<CredentialSummary[]> {
   const entries = await loadCredentialEntries();
@@ -171,18 +171,18 @@ export async function saveCredential(entry: Omit<CredentialEntry, 'id' | 'create
     updatedAt: now,
   };
   const next = [...entries.filter((item) => item.id !== id && !(item.origin === origin && item.username === entry.username)), nextEntry];
-  await chrome.storage.session.set({ [CREDENTIALS_KEY]: next });
+  await chrome.storage.local.set({ [CREDENTIALS_KEY]: next });
   return listCredentials();
 }
 
 export async function deleteCredential(id: string): Promise<CredentialSummary[]> {
   const entries = await loadCredentialEntries();
-  await chrome.storage.session.set({ [CREDENTIALS_KEY]: entries.filter((entry) => entry.id !== id) });
+  await chrome.storage.local.set({ [CREDENTIALS_KEY]: entries.filter((entry) => entry.id !== id) });
   return listCredentials();
 }
 
 export async function clearCredentials(): Promise<void> {
-  await chrome.storage.session.remove(CREDENTIALS_KEY);
+  await chrome.storage.local.remove(CREDENTIALS_KEY);
 }
 
 export async function findCredentialForUrl(url: string): Promise<CredentialEntry | null> {
@@ -192,10 +192,27 @@ export async function findCredentialForUrl(url: string): Promise<CredentialEntry
 }
 
 async function loadCredentialEntries(): Promise<CredentialEntry[]> {
-  const raw = await chrome.storage.session.get(CREDENTIALS_KEY);
-  const entries = raw[CREDENTIALS_KEY];
-  return Array.isArray(entries) ? entries.filter(isCredentialEntry) : [];
+  const localRaw = await chrome.storage.local.get([CREDENTIALS_KEY, 'credentialVault', 'sessionCredentials']);
+  const localEntries = localRaw?.[CREDENTIALS_KEY] ?? localRaw?.credentialVault ?? localRaw?.sessionCredentials;
+
+  if (Array.isArray(localEntries) && localEntries.length > 0) {
+    return localEntries.filter(isCredentialEntry);
+  }
+
+  // Support fallback / migration from session storage if any exists
+  const sessionRaw = (await chrome.storage.session?.get([CREDENTIALS_KEY, 'credentialVault', 'sessionCredentials']).catch(() => ({}))) as Record<string, unknown> | undefined;
+  const sessionEntries = sessionRaw?.[CREDENTIALS_KEY] ?? sessionRaw?.credentialVault ?? sessionRaw?.sessionCredentials;
+
+
+  if (Array.isArray(sessionEntries) && sessionEntries.length > 0) {
+    const validSession = sessionEntries.filter(isCredentialEntry);
+    await chrome.storage.local.set({ [CREDENTIALS_KEY]: validSession });
+    return validSession;
+  }
+
+  return [];
 }
+
 
 function isCredentialEntry(value: unknown): value is CredentialEntry {
   if (!value || typeof value !== 'object') return false;

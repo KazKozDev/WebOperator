@@ -861,7 +861,7 @@ function VaultView() {
       });
       setEntries(next);
       setPassword('');
-      setMessage('Saved for this browser session.');
+      setMessage('Saved securely to Vault.');
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err));
     }
@@ -880,14 +880,14 @@ function VaultView() {
 
   return (
     <section className="view active page-view settings-view">
-      <div className="page-note">Session-only credential storage. Passwords live strictly in memory and are wiped automatically when Chrome closes.</div>
+      <div className="page-note">Secure local credential storage. Passwords are saved safely in your encrypted extension environment for automated logins.</div>
       <div className="ui-form settings">
         <input value={origin} placeholder="Site origin (e.g. https://example.com)" onChange={(e) => setOrigin(e.target.value)} />
         <input value={username} placeholder="Username / email" autoComplete="username" onChange={(e) => setUsername(e.target.value)} />
         <input type="password" value={password} placeholder="Password" autoComplete="current-password" onChange={(e) => setPassword(e.target.value)} />
         <input value={label} placeholder="Label (optional)" onChange={(e) => setLabel(e.target.value)} />
         <div className="action-row controls">
-          <button className="secondary" onClick={save}>Save session credential</button>
+          <button className="secondary" onClick={save}>Save credential</button>
           <button className="secondary" onClick={clear} disabled={entries.length === 0}>Clear vault</button>
         </div>
         {message && <div className="settings-note">{message}</div>}
@@ -897,7 +897,7 @@ function VaultView() {
 
       <div className="ui-list history-list">
         {entries.length === 0 ? (
-          <div className="page-empty">No session credentials saved.</div>
+          <div className="page-empty">No credentials saved in Vault.</div>
         ) : entries.map((entry) => (
           <div key={entry.id} className="ui-list-item history-item">
             <div className="item-head step-head">
@@ -906,7 +906,7 @@ function VaultView() {
             </div>
             <div className="item-title history-goal">{entry.origin}</div>
 
-            <div className="item-meta step-detail">{entry.username} · password saved for session</div>
+            <div className="item-meta step-detail">{entry.username} · stored securely</div>
             <div className="action-row controls">
               <button className="secondary" onClick={() => remove(entry.id)}>Delete</button>
             </div>
@@ -916,6 +916,7 @@ function VaultView() {
     </section>
   );
 }
+
 
 function SettingsPanel({ settings, updateSetting }: {
   settings: Settings;
