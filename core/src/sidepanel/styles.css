@@ -1228,16 +1228,16 @@ button.secondary:hover {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
+  padding: 6px 0;
   cursor: pointer;
   user-select: none;
   font-size: 12px;
   font-weight: 600;
   color: var(--text);
-  background: rgba(223, 206, 179, 0.05);
-  border: 1px solid rgba(223, 206, 179, 0.1);
-  border-radius: 6px;
-  transition: all 0.15s ease;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(223, 206, 179, 0.1);
+  transition: color 0.15s ease;
   list-style: none;
 }
 
@@ -1246,8 +1246,7 @@ button.secondary:hover {
 }
 
 .history-day-summary:hover {
-  background: rgba(223, 206, 179, 0.09);
-  border-color: rgba(212, 162, 78, 0.25);
+  background: transparent;
   color: var(--accent);
 }
 
@@ -1260,14 +1259,14 @@ button.secondary:hover {
 }
 
 .history-day-count {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 500;
-  color: var(--text2);
-  background: rgba(223, 206, 179, 0.08);
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(223, 206, 179, 0.08);
+  color: var(--text3);
+  background: transparent;
+  padding: 0;
+  border: none;
 }
+
 
 
 
@@ -1424,13 +1423,13 @@ button.danger {
   gap: 12px;
   flex: 0 0 auto;
   margin: 0 0 16px 0;
-  padding: 14px;
-  border: 1px solid rgba(223, 206, 179, 0.1);
-  border-radius: 8px;
-  background: rgba(28, 22, 21, 0.5);
+  padding: 0;
+  border: none;
+  background: transparent;
   box-sizing: border-box;
   width: 100%;
 }
+
 
 
 .history-item {
@@ -2025,16 +2024,15 @@ button.danger {
   align-items: flex-start;
   gap: 10px;
   margin: 0 0 16px 0;
-  padding: 12px 14px;
-  border-radius: 6px;
-  border: 1px solid rgba(120, 180, 220, 0.25);
-  background: rgba(120, 180, 220, 0.08);
-  color: var(--text);
+  padding: 0 0 12px 0;
+  border-bottom: 1px solid rgba(223, 206, 179, 0.1);
+  color: var(--text2);
   font-size: 12px;
   line-height: 1.45;
   box-sizing: border-box;
   width: 100%;
 }
+
 
 .vault-note strong {
   color: var(--text);
