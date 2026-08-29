@@ -744,57 +744,63 @@ function SkillsView({ settings, updateSetting }: {
         })}
       </div>
 
-      <div className="section-header" style={{ marginTop: '24px' }}>
-        <h4 className="section-title">Custom Skills ({customSkills.length})</h4>
-        <button
-          type="button"
-          className="secondary"
-          style={{ fontSize: '11px', padding: '3px 8px' }}
-          onClick={() => setIsCreating((prev) => !prev)}
-        >
-          {isCreating ? 'Cancel' : '+ Add custom skill'}
-        </button>
+      <div className="ui-list skills-list" style={{ marginTop: '16px' }}>
+        <article className="ui-list-item skill-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span className="item-title skill-title" style={{ margin: 0, fontWeight: 600 }}>Custom Skills</span>
+            <span className="status-pill" style={{ padding: '2px 6px', fontSize: '10px' }}>{customSkills.length}</span>
+          </div>
+          <button
+            type="button"
+            className="secondary"
+            style={{ fontSize: '11px', padding: '4px 10px', fontWeight: 600 }}
+            onClick={() => setIsCreating((prev) => !prev)}
+          >
+            {isCreating ? 'Cancel' : '+ Add custom skill'}
+          </button>
+        </article>
       </div>
+
 
 
       {isCreating && (
         <form onSubmit={handleSaveCustomSkill} className="ui-form custom-skill-form" style={{ marginTop: '12px' }}>
           {error && <div className="banner err" style={{ margin: '0 0 10px 0' }}>{error}</div>}
 
-          <label>
-            Skill Name *
+          <label className="inset-field">
+            <span className="inset-label">Skill Name *</span>
             <input
               placeholder="e.g., Company CRM Assistant"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
           </label>
-          <label>
-            Summary / Short Description
+          <label className="inset-field">
+            <span className="inset-label">Summary / Short Description</span>
             <input
               placeholder="e.g., Automatically fills lead forms in CRM"
               value={summary}
               onChange={(e) => setSummary(e.target.value)}
             />
           </label>
-          <label>
-            Target Domains (comma separated)
+          <label className="inset-field">
+            <span className="inset-label">Target Domains (comma separated)</span>
             <input
               placeholder="e.g., crm.company.com, hubspot.com"
               value={domainPattern}
               onChange={(e) => setDomainPattern(e.target.value)}
             />
           </label>
-          <label>
-            Trigger Keywords (comma separated)
+          <label className="inset-field">
+            <span className="inset-label">Trigger Keywords (comma separated)</span>
             <input
               placeholder="e.g., crm, лид, сделка, клиент"
               value={keywords}
               onChange={(e) => setKeywords(e.target.value)}
             />
           </label>
-          <label>
-            Agent Instructions / Prompt *
+          <label className="inset-field">
+            <span className="inset-label">Agent Instructions / Prompt *</span>
             <textarea
               style={{ minHeight: '80px', fontFamily: 'var(--font-mono)' }}
               placeholder="Detailed guidelines the agent should follow when this skill activates..."
@@ -809,19 +815,16 @@ function SkillsView({ settings, updateSetting }: {
         </form>
       )}
 
-
-      <div className="ui-list skills-list">
-        {customSkills.length === 0 && !isCreating ? (
-          <div className="page-empty" style={{ padding: '12px' }}>No custom skills added yet. Click "+ Add custom skill" to create one.</div>
-        ) : (
-          customSkills.map((skill) => {
+      {customSkills.length > 0 && (
+        <div className="ui-list skills-list" style={{ marginTop: '8px' }}>
+          {customSkills.map((skill) => {
             const open = expanded.has(skill.id);
             return (
               <article key={skill.id} className="ui-list-item skill-card active">
                 <div className="skill-row" onClick={() => toggleExpand(skill.id)}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span className="item-title skill-title">{skill.name}</span>
-                    <span style={{ fontSize: '10px', background: 'rgba(212, 162, 78, 0.15)', color: 'var(--accent)', padding: '1px 5px', borderRadius: '3px' }}>Custom</span>
+                    <span className="status-pill" style={{ padding: '1px 5px', fontSize: '9px' }}>Custom</span>
                   </div>
                   <button
                     type="button"
@@ -842,9 +845,10 @@ function SkillsView({ settings, updateSetting }: {
                 )}
               </article>
             );
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
+
     </section>
   );
 }
