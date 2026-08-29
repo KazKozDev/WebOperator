@@ -930,17 +930,11 @@ function SettingsPanel({ settings, updateSetting }: {
         <option value="openrouter">Provider: OpenRouter</option>
         <option value="deepseek">Provider: DeepSeek</option>
       </select>
-      <div className="settings-note">
-        Local providers run on your machine — nothing leaves the device. Cloud providers send page snapshots and screenshots to a third party.
-      </div>
 
       {settings.provider === 'anthropic' && (
         <>
           <input type="password" value={settings.anthropicApiKey} onChange={(e) => updateSetting('anthropicApiKey', e.target.value)} placeholder="Anthropic API Key" />
           <input value={settings.anthropicModel} onChange={(e) => updateSetting('anthropicModel', e.target.value)} placeholder="Claude Model (e.g. claude-3-7-sonnet-20250219)" />
-          <div className="settings-note">
-            Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">console.anthropic.com</a>. Native Claude Messages API with vision and tool calling.
-          </div>
         </>
       )}
 
@@ -948,9 +942,6 @@ function SettingsPanel({ settings, updateSetting }: {
       {settings.provider === 'ollama' && (
         <>
           <input value={settings.ollamaUrl} onChange={(e) => updateSetting('ollamaUrl', e.target.value)} placeholder="Ollama URL" />
-          <div className="settings-note">
-            If you see <code>403 Forbidden</code>, restart Ollama with <code>OLLAMA_ORIGINS="chrome-extension://*,http://localhost:*" ollama serve</code>. On macOS quit the menu-bar Ollama first.
-          </div>
         </>
       )}
 
@@ -958,9 +949,6 @@ function SettingsPanel({ settings, updateSetting }: {
         <>
           <input type="password" value={settings.openaiApiKey} onChange={(e) => updateSetting('openaiApiKey', e.target.value)} placeholder="OpenAI API Key" />
           <input value={settings.openaiModel} onChange={(e) => updateSetting('openaiModel', e.target.value)} placeholder="OpenAI Model (e.g. gpt-5-mini)" />
-          <div className="settings-note">
-            Get a key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">platform.openai.com/api-keys</a>. Model must support vision + function calling.
-          </div>
         </>
       )}
 
@@ -968,9 +956,6 @@ function SettingsPanel({ settings, updateSetting }: {
         <>
           <input type="password" value={settings.geminiApiKey} onChange={(e) => updateSetting('geminiApiKey', e.target.value)} placeholder="Gemini API Key" />
           <input value={settings.geminiModel} onChange={(e) => updateSetting('geminiModel', e.target.value)} placeholder="Gemini Model (e.g. gemini-2.5-flash)" />
-          <div className="settings-note">
-            Get a key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">aistudio.google.com/apikey</a>. Uses Gemini's OpenAI-compatible chat completions endpoint.
-          </div>
         </>
       )}
 
@@ -978,9 +963,6 @@ function SettingsPanel({ settings, updateSetting }: {
         <>
           <input type="password" value={settings.xaiApiKey} onChange={(e) => updateSetting('xaiApiKey', e.target.value)} placeholder="xAI API Key" />
           <input value={settings.xaiModel} onChange={(e) => updateSetting('xaiModel', e.target.value)} placeholder="xAI Model (e.g. grok-4-1-fast-non-reasoning)" />
-          <div className="settings-note">
-            Get a key at <a href="https://console.x.ai" target="_blank" rel="noreferrer">console.x.ai</a>.
-          </div>
         </>
       )}
 
@@ -988,9 +970,6 @@ function SettingsPanel({ settings, updateSetting }: {
         <>
           <input type="password" value={settings.openRouterApiKey} onChange={(e) => updateSetting('openRouterApiKey', e.target.value)} placeholder="OpenRouter API Key" />
           <input value={settings.openRouterModel} onChange={(e) => updateSetting('openRouterModel', e.target.value)} placeholder="OpenRouter Model (e.g. google/gemma-4-31b-it)" />
-          <div className="settings-note">
-            Get a key at <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">openrouter.ai/keys</a>. Free endpoints can be entered manually if available.
-          </div>
         </>
       )}
 
@@ -998,9 +977,6 @@ function SettingsPanel({ settings, updateSetting }: {
         <>
           <input type="password" value={settings.deepseekApiKey} onChange={(e) => updateSetting('deepseekApiKey', e.target.value)} placeholder="DeepSeek API Key" />
           <input value={settings.deepseekModel} onChange={(e) => updateSetting('deepseekModel', e.target.value)} placeholder="DeepSeek Model (e.g. deepseek-v4-flash)" />
-          <div className="settings-note">
-            Get a key at <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer">platform.deepseek.com</a>. Use <code>deepseek-v4-flash</code> or <code>deepseek-v4-pro</code> (tool calls supported). The chat API accepts text only — no image input — so set Vision to <strong>Never</strong>. Legacy <code>deepseek-chat</code>/<code>deepseek-reasoner</code> aliases retire 2026/07/24.
-          </div>
         </>
       )}
 
@@ -1008,9 +984,6 @@ function SettingsPanel({ settings, updateSetting }: {
         <>
           <input type="password" value={settings.mlxApiKey} onChange={(e) => updateSetting('mlxApiKey', e.target.value)} placeholder="MLX API Key (optional)" />
           <input value={settings.mlxModel} onChange={(e) => updateSetting('mlxModel', e.target.value)} placeholder="MLX Model (e.g. mlx-community/Qwen2.5-VL-7B-Instruct-4bit)" />
-          <div className="settings-note">
-            Local MLX server expected at <code>http://127.0.0.1:8000</code>. Model must support function calling + vision.
-          </div>
         </>
       )}
 
@@ -1021,9 +994,6 @@ function SettingsPanel({ settings, updateSetting }: {
             onChange={(e) => updateSetting('ollamaModel', e.target.value)}
             placeholder="Model (optional, e.g. qwen3-vl:8b)"
           />
-          <div className="settings-note">
-            Leave blank to use the profile below. Set any model from <code>ollama list</code> to override it — including MLX models served by Ollama. Model must support function calling + vision.
-          </div>
           <select
             value={settings.profile}
             disabled={Boolean(settings.ollamaModel.trim())}
@@ -1069,9 +1039,6 @@ function SettingsPanel({ settings, updateSetting }: {
         </select>
 
 
-        <div className="settings-note">
-          Long tasks always collapse old page snapshots and fold older steps to stay within the model's context. <strong>Same model</strong> / <strong>Cloud</strong> additionally rewrite the folded history with an LLM (one extra call only when the budget is exceeded).
-        </div>
         <label>
           Vision budget
           <select value={settings.visualTokenBudget} onChange={(e) => updateSetting('visualTokenBudget', Number(e.target.value) as Settings['visualTokenBudget'])}>
