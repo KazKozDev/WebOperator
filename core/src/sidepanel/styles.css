@@ -1712,50 +1712,72 @@ button.danger {
   background: var(--accent);
 }
 
-.settings {
+/* Unified Forms & Controls */
+.settings,
+.ui-form {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  width: 100%;
 }
 
-.settings label {
+.settings label,
+.ui-form label {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 6px;
   color: var(--text2);
   font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
 }
 
 .settings input,
 .settings select,
-.settings textarea {
+.settings textarea,
+.ui-form input,
+.ui-form select,
+.ui-form textarea,
+.text-input {
   min-width: 0;
   width: 100%;
-  padding: 7px 8px;
+  padding: 8px 10px;
   border: 1px solid rgba(223, 206, 179, 0.12);
-  border-radius: 7px;
+  border-radius: 6px;
   outline: none;
   background: var(--surface);
   color: var(--text);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .settings input:focus,
 .settings select:focus,
-.settings textarea:focus {
-  border-color: rgba(212, 162, 78, 0.45);
+.settings textarea:focus,
+.ui-form input:focus,
+.ui-form select:focus,
+.ui-form textarea:focus,
+.text-input:focus {
+  border-color: rgba(212, 162, 78, 0.5);
+  box-shadow: 0 0 0 1px rgba(212, 162, 78, 0.18);
 }
 
-.settings textarea {
-  min-height: 92px;
+.settings textarea,
+.ui-form textarea {
+  min-height: 80px;
   resize: vertical;
 }
 
 .schedule-form textarea {
-  min-height: 180px;
+  min-height: 140px;
 }
 
-.settings label.schedule-goal-label {
+.settings label.schedule-goal-label,
+.ui-form label.schedule-goal-label {
   align-items: stretch;
 }
 
@@ -1767,12 +1789,14 @@ button.danger {
   padding-top: 14px;
 }
 
-.settings input[type="checkbox"] {
+.settings input[type="checkbox"],
+.ui-form input[type="checkbox"] {
   justify-self: start;
   width: 16px;
   height: 16px;
   accent-color: var(--accent);
 }
+
 
 .settings-advanced {
   display: flex;

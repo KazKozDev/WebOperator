@@ -753,64 +753,56 @@ function SkillsView({ settings, updateSetting }: {
 
       {isCreating && (
         <form onSubmit={handleSaveCustomSkill} className="ui-form custom-skill-form" style={{ marginTop: '12px' }}>
-          {error && <div style={{ color: 'var(--error, #ef4444)', fontSize: '11px', marginBottom: '8px' }}>{error}</div>}
+          {error && <div className="banner err" style={{ margin: '0 0 10px 0' }}>{error}</div>}
 
-          <div style={{ marginBottom: '8px' }}>
-            <label style={{ display: 'block', fontSize: '11px', color: 'var(--text2)', marginBottom: '3px' }}>Skill Name *</label>
+          <label>
+            Skill Name *
             <input
-              className="text-input"
-              style={{ width: '100%', boxSizing: 'border-box' }}
               placeholder="e.g., Company CRM Assistant"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
-          </div>
-          <div style={{ marginBottom: '8px' }}>
-            <label style={{ display: 'block', fontSize: '11px', color: 'var(--text2)', marginBottom: '3px' }}>Summary / Short Description</label>
+          </label>
+          <label>
+            Summary / Short Description
             <input
-              className="text-input"
-              style={{ width: '100%', boxSizing: 'border-box' }}
               placeholder="e.g., Automatically fills lead forms in CRM"
               value={summary}
               onChange={(e) => setSummary(e.target.value)}
             />
-          </div>
-          <div style={{ marginBottom: '8px' }}>
-            <label style={{ display: 'block', fontSize: '11px', color: 'var(--text2)', marginBottom: '3px' }}>Target Domains (comma separated)</label>
+          </label>
+          <label>
+            Target Domains (comma separated)
             <input
-              className="text-input"
-              style={{ width: '100%', boxSizing: 'border-box' }}
               placeholder="e.g., crm.company.com, hubspot.com"
               value={domainPattern}
               onChange={(e) => setDomainPattern(e.target.value)}
             />
-          </div>
-          <div style={{ marginBottom: '8px' }}>
-            <label style={{ display: 'block', fontSize: '11px', color: 'var(--text2)', marginBottom: '3px' }}>Trigger Keywords (comma separated)</label>
+          </label>
+          <label>
+            Trigger Keywords (comma separated)
             <input
-              className="text-input"
-              style={{ width: '100%', boxSizing: 'border-box' }}
               placeholder="e.g., crm, лид, сделка, клиент"
               value={keywords}
               onChange={(e) => setKeywords(e.target.value)}
             />
-          </div>
-          <div style={{ marginBottom: '12px' }}>
-            <label style={{ display: 'block', fontSize: '11px', color: 'var(--text2)', marginBottom: '3px' }}>Agent Instructions / Prompt *</label>
+          </label>
+          <label>
+            Agent Instructions / Prompt *
             <textarea
-              className="text-input"
-              style={{ width: '100%', minHeight: '60px', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: '11px' }}
+              style={{ minHeight: '80px', fontFamily: 'var(--font-mono)' }}
               placeholder="Detailed guidelines the agent should follow when this skill activates..."
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
             />
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+          </label>
+          <div className="action-row controls" style={{ justifyContent: 'flex-end', marginTop: '6px' }}>
             <button type="button" className="secondary" onClick={() => setIsCreating(false)}>Cancel</button>
             <button type="submit" className="primary">Save Skill</button>
           </div>
         </form>
       )}
+
 
       <div className="ui-list skills-list">
         {customSkills.length === 0 && !isCreating ? (
