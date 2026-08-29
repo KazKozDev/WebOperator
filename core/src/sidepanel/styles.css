@@ -1774,53 +1774,6 @@ button.danger {
   width: 100%;
 }
 
-.inset-field {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 6px 10px 8px;
-  border: 1px solid rgba(223, 206, 179, 0.12);
-  border-radius: 6px;
-  background: var(--surface);
-  box-sizing: border-box;
-  width: 100%;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-.inset-field:focus-within {
-  border-color: rgba(212, 162, 78, 0.5);
-  box-shadow: 0 0 0 1px rgba(212, 162, 78, 0.18);
-}
-
-.inset-label {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  color: var(--text2);
-  user-select: none;
-  line-height: 1.2;
-}
-
-.inset-field input,
-.inset-field select,
-.inset-field textarea {
-  border: none !important;
-  background: transparent !important;
-  padding: 0 !important;
-  outline: none !important;
-  font-size: 12px;
-  font-family: var(--font-body);
-  color: var(--text);
-  box-shadow: none !important;
-  min-height: 20px;
-}
-
-.inset-field textarea {
-  min-height: 80px;
-  resize: vertical;
-}
-
 .settings label,
 .ui-form label {
   display: flex;
@@ -1832,6 +1785,7 @@ button.danger {
   font-weight: 500;
   line-height: 1.3;
 }
+
 
 
 .settings input,
