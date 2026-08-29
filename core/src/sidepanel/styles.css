@@ -220,11 +220,12 @@ textarea:disabled {
   flex-shrink: 0;
   align-items: flex-end;
   gap: 14px;
-  margin-top: 18px;
+  margin-top: 26px;
   padding: 0 16px;
   overflow-x: auto;
   border-bottom: 1px solid var(--border);
 }
+
 
 
 .tab-nav::-webkit-scrollbar {
