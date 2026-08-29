@@ -20,7 +20,7 @@ import { useVoiceInput } from './hooks/useVoiceInput';
 
 
 
-type View = 'task' | 'history' | 'skills' | 'vault' | 'schedule';
+type View = 'task' | 'history' | 'skills' | 'vault' | 'schedule' | 'settings';
 
 const logoUrl = chrome.runtime.getURL('public/icons/icon48.png');
 
@@ -30,10 +30,10 @@ export function App() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [task, setTask] = useState<AgentTask | null>(null);
   const [ollamaStatus, setOllamaStatus] = useState<{ ok: boolean; models: string[]; error?: string } | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [detectedSkills, setDetectedSkills] = useState<ClassifiedSkill[]>([]);
+
 
   useEffect(() => {
     sendToSW<Settings>({ kind: 'settings:get' }).then(setSettings).catch(console.error);
@@ -141,27 +141,25 @@ export function App() {
           WebOperator
         </h1>
         <div className="header-actions">
-          <div className="model-chip" title={currentModelLabel(settings)}>
-            {compactModelLabel(currentModelLabel(settings))}
-          </div>
           <button
-            className={`icon-btn settings-icon ${showSettings ? 'active' : ''}`}
-            title="Settings"
-            aria-label="Settings"
-            aria-pressed={showSettings}
-            onClick={() => setShowSettings((v) => !v)}
+            type="button"
+            className="model-chip"
+            style={{ cursor: 'pointer', background: 'transparent', border: 'none', padding: 0 }}
+            onClick={() => setView('settings')}
+            title={`Active: ${currentModelLabel(settings)} (click to open Settings)`}
           >
-            <Icon name="settings" />
+            {compactModelLabel(currentModelLabel(settings))}
           </button>
         </div>
       </header>
 
       <nav className="tab-nav" aria-label="Views">
-        <button className={view === 'task' && !showSettings ? 'tab-item active' : 'tab-item'} onClick={() => { setView('task'); setShowSettings(false); }}>Task</button>
-        <button className={view === 'history' && !showSettings ? 'tab-item active' : 'tab-item'} onClick={() => { setView('history'); setShowSettings(false); }}>History</button>
-        <button className={view === 'schedule' && !showSettings ? 'tab-item active' : 'tab-item'} onClick={() => { setView('schedule'); setShowSettings(false); }}>Schedule</button>
-        <button className={view === 'skills' && !showSettings ? 'tab-item active' : 'tab-item'} onClick={() => { setView('skills'); setShowSettings(false); }}>Skills</button>
-        <button className={view === 'vault' && !showSettings ? 'tab-item active' : 'tab-item'} onClick={() => { setView('vault'); setShowSettings(false); }}>Vault</button>
+        <button className={view === 'task' ? 'tab-item active' : 'tab-item'} onClick={() => setView('task')}>Task</button>
+        <button className={view === 'history' ? 'tab-item active' : 'tab-item'} onClick={() => setView('history')}>History</button>
+        <button className={view === 'schedule' ? 'tab-item active' : 'tab-item'} onClick={() => setView('schedule')}>Schedule</button>
+        <button className={view === 'skills' ? 'tab-item active' : 'tab-item'} onClick={() => setView('skills')}>Skills</button>
+        <button className={view === 'vault' ? 'tab-item active' : 'tab-item'} onClick={() => setView('vault')}>Vault</button>
+        <button className={view === 'settings' ? 'tab-item active' : 'tab-item'} onClick={() => setView('settings')}>Settings</button>
       </nav>
 
       {settings.provider === 'ollama' && ollamaStatus && !ollamaStatus.ok && (
@@ -180,9 +178,7 @@ export function App() {
         </div>
       )}
 
-      {showSettings ? (
-        <SettingsPanel settings={settings} updateSetting={updateSetting} />
-      ) : view === 'task' ? (
+      {view === 'task' ? (
         <TaskView goal={goal} setGoal={setGoal} task={task} start={start} isStarting={isStarting} detectedSkills={detectedSkills} onResumeCheckpoint={resumeCheckpoint} />
       ) : view === 'history' ? (
         <HistoryView onReplay={(goal) => { setGoal(goal); start(goal); }} onOpen={(t) => { setTask(t); setView('task'); }} onResumeCheckpoint={resumeCheckpoint} />
@@ -190,12 +186,15 @@ export function App() {
         <ScheduleView onOpenTask={(t) => { setTask(t); setView('task'); }} />
       ) : view === 'skills' ? (
         <SkillsView settings={settings} updateSetting={updateSetting} />
-      ) : (
+      ) : view === 'vault' ? (
         <VaultView />
+      ) : (
+        <SettingsPanel settings={settings} updateSetting={updateSetting} />
       )}
 
     </div>
   );
+
 }
 
 function ScheduleView({ onOpenTask }: { onOpenTask: (task: AgentTask) => void }) {
