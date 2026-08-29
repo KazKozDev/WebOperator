@@ -579,8 +579,9 @@ function HistoryView({ onReplay, onOpen, onResumeCheckpoint }: { onReplay: (goal
               <span className="history-day-label">{group.label}</span>
               <span className="history-day-count">{group.tasks.length} {group.tasks.length === 1 ? 'task' : 'tasks'}</span>
             </summary>
-            <div className="ui-list history-list" style={{ marginTop: '8px', padding: 0 }}>
+            <div className="ui-list history-list">
               {group.tasks.map((t) => (
+
                 <div key={t.id} className="ui-list-item history-item">
                   <div className="item-head step-head">
                     <span className="item-meta step-detail">{new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
