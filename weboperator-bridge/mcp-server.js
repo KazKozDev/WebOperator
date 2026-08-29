@@ -155,6 +155,21 @@ const TOOLS = [
     },
   },
   {
+    name: 'browser_solve_captcha',
+    description: 'Attempt to detect and automatically solve or click Cloudflare Turnstile, reCAPTCHA, or hCaptcha verification challenges in the active tab.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        type: {
+          type: 'string',
+          enum: ['cloudflare', 'recaptcha', 'hcaptcha', 'auto'],
+          description: 'Optional captcha type to target (default: auto).',
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'weboperator_execute_goal',
     description: 'Execute an autonomous browser goal end-to-end using WebOperator multi-step planner.',
     inputSchema: {
@@ -396,6 +411,17 @@ async function handleToolCall(name, args) {
     }
     case 'browser_extract': {
       const res = await callBridge('browser.extract', { instruction: args.instruction, selector: args.selector }, 30_000);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: typeof res === 'string' ? res : JSON.stringify(res, null, 2),
+          },
+        ],
+      };
+    }
+    case 'browser_solve_captcha': {
+      const res = await callBridge('browser.solve_captcha', { type: args.type === 'auto' ? undefined : args.type }, 30_000);
       return {
         content: [
           {

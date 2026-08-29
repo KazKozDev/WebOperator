@@ -17,6 +17,7 @@
     "browser_scroll",
     "browser_screenshot",
     "browser_extract",
+    "browser_solve_captcha",
     "weboperator_execute_goal"
   ]
 }

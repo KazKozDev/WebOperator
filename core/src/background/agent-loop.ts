@@ -70,7 +70,7 @@ import { learnFromSuccess, getCookieHint, getSearchHint, getRecoveryHint } from 
 import { learnFromTask, memoryContext } from '@/lib/memory';
 import { getRecentSessionContext } from '@/lib/session-memory';
 import { classifyTaskNeural, skillPrompts } from '@/lib/skills';
-import { isBotChallengePage, solveCloudflareChallenge } from '@/lib/captcha-solver';
+import { isBotChallengePage, detectPageCaptcha, solveCaptcha, type CaptchaDetection } from '@/lib/captcha-solver';
 import { readLatestDownload } from '@/lib/file-reader';
 
 
@@ -357,10 +357,40 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       if (availableCredential) {
         memoryHints.push(`[LOGIN] Session credential available for ${availableCredential.origin} as ${availableCredential.username}. Use fill_login_credentials when username/password fields are visible; do not ask for or reveal the password.`);
       }
-      // ── Bot challenge: hand the tab back to the person ──
-      // The agent does not try to defeat the challenge. It parks the task, the
-      // person clears it in the live tab, and the next iteration re-snapshots.
-      if (isBotChallengePage(snapshot.title, snapshot.url)) {
+      // ── Bot challenge detection & automated solver with graceful human handoff ──
+      const isChallengeUrlOrTitle = isBotChallengePage(snapshot.title, snapshot.url);
+      const captchaDetection = isChallengeUrlOrTitle
+        ? { detected: true, type: 'cloudflare' as const, details: 'Bot challenge detected from page metadata' }
+        : await detectPageCaptcha(activeTabId);
+
+      if (captchaDetection.detected) {
+        // First try solving/clicking the challenge widget automatically
+        const autoSolveResult = await solveCaptcha(activeTabId, captchaDetection.type);
+        if (autoSolveResult.success) {
+          step.note = `Auto-solved ${autoSolveResult.type ?? captchaDetection.type} challenge: ${autoSolveResult.message}`;
+          await sleep(2500);
+
+          // Verify if challenge is cleared
+          const recheck = await detectPageCaptcha(activeTabId);
+          const currentTab = await chrome.tabs.get(activeTabId).catch(() => null);
+          const currentTitle = currentTab?.title ?? '';
+          const currentUrl = currentTab?.url ?? '';
+          if (!recheck.detected && !isBotChallengePage(currentTitle, currentUrl)) {
+            step.status = 'ok';
+            step.finishedAt = Date.now();
+            step.result = {
+              ok: true,
+              durationMs: 2500,
+              extracted: autoSolveResult.message,
+            };
+            await saveStep(task.id, step);
+            broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
+            advanceStepCounters();
+            continue;
+          }
+        }
+
+        // If automated solver failed or interactive challenge persists, park the task for human handoff
         if (botChallengeHandoffs >= MAX_BOT_CHALLENGE_HANDOFFS) {
           step.status = 'skipped';
           step.finishedAt = Date.now();
@@ -1029,7 +1059,8 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         };
         step.note = `Filled login credentials for ${credential.origin}`;
       } else if (toolCall.name === 'solve_captcha') {
-        const captchaResult = await solveCloudflareChallenge(activeTabId);
+        const typeArg = typeof toolCall.arguments.type === 'string' ? (toolCall.arguments.type as CaptchaDetection['type']) : undefined;
+        const captchaResult = await solveCaptcha(activeTabId, typeArg);
         await sleep(2500);
         step.result = {
           ok: captchaResult.success,

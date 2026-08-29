@@ -551,6 +551,14 @@ const AGENT_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'browser_solve_captcha',
+      description: 'Attempt to detect and automatically solve or click Cloudflare Turnstile, reCAPTCHA, or hCaptcha verification challenges in the active tab.',
+      parameters: { type: 'object', properties: { type: { type: 'string', enum: ['cloudflare', 'recaptcha', 'hcaptcha', 'auto'] } } },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'weboperator_execute_goal',
       description: 'Execute an autonomous browser goal end-to-end.',
       parameters: { type: 'object', properties: { goal: { type: 'string' }, timeoutMs: { type: 'number' } }, required: ['goal'] },
@@ -576,6 +584,8 @@ async function executeToolByName(name, args = {}, timeoutMs = 30_000) {
       return requestExtension('browser.screenshot', {}, timeoutMs);
     case 'browser_extract':
       return requestExtension('browser.extract', { instruction: args.instruction, selector: args.selector }, timeoutMs);
+    case 'browser_solve_captcha':
+      return requestExtension('browser.solve_captcha', { type: args.type === 'auto' ? undefined : args.type }, timeoutMs);
     case 'weboperator_execute_goal': {
       const taskTimeout = Number(args.timeoutMs || timeoutMs || 120_000);
       const startRes = await requestExtension('tasks.start', { goal: args.goal, timeoutMs: taskTimeout }, 30_000);

@@ -87,7 +87,15 @@ Extract structured text content or answers from the active page.
 }
 ```
 
-### 9. `mcp__weboperator__weboperator_execute_goal`
+### 9. `mcp__weboperator__browser_solve_captcha`
+Attempt to detect and automatically pass or click Cloudflare Turnstile, reCAPTCHA, or hCaptcha verification challenges on the active page.
+```json
+{
+  "type": "auto"
+}
+```
+
+### 10. `mcp__weboperator__weboperator_execute_goal`
 Run a high-level autonomous goal in the browser end-to-end using WebOperator's planner.
 ```json
 {

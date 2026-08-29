@@ -29,6 +29,7 @@ import { broadcastEvent, ensureContentScript, onLocalSWEvent, registerPortHost }
 
 import { AgentPortHost } from '@/lib/port-channel';
 import type { ActionResult, AgentStep, AgentTask, ScheduledTask, SWEvent, SWMessage, ToolCall } from '@/lib/types';
+import { solveCaptcha, type CaptchaDetection } from '@/lib/captcha-solver';
 
 
 type Pending = { allow: boolean | null; resolve: (v: boolean) => void };
@@ -671,6 +672,15 @@ async function executeBridgeRequest(type: string, payload: Record<string, unknow
       return recordBridgeActionStep(tabId, action, `External Agent: ${describeToolCall(action)}`, async () => {
         const resp = await chrome.tabs.sendMessage(tabId, { kind: 'action:run', action });
         return resp;
+      });
+    }
+    case 'browser.solve_captcha': {
+      const tabId = await activeTabIdFromPayload(payload);
+      const captchaType = typeof payload.type === 'string' ? (payload.type as CaptchaDetection['type']) : undefined;
+      const action: ToolCall = { name: 'solve_captcha', arguments: { type: captchaType } };
+      return recordBridgeActionStep(tabId, action, 'External Agent: solve_captcha', async () => {
+        const res = await solveCaptcha(tabId, captchaType);
+        return { ok: res.success, message: res.message, type: res.type };
       });
     }
     case 'tasks.list':
