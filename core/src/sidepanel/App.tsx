@@ -872,12 +872,7 @@ function VaultView() {
 
   return (
     <section className="view active page-view settings-view">
-      <div className="vault-note">
-        <Icon name="info" />
-        <div>
-          <strong>Session-only storage.</strong> Credentials live in memory for this browser session and are wiped when Chrome closes. Passwords are never sent to the model — only typed into the page when an action requires them.
-        </div>
-      </div>
+      <div className="page-note">Session-only storage. Credentials live in memory for this session and are wiped when Chrome closes.</div>
       <div className="ui-form settings">
         <input value={origin} placeholder="Site origin (e.g. https://example.com)" onChange={(e) => setOrigin(e.target.value)} />
         <input value={username} placeholder="Username / email" autoComplete="username" onChange={(e) => setUsername(e.target.value)} />
@@ -919,8 +914,10 @@ function SettingsPanel({ settings, updateSetting }: {
 }) {
   return (
     <section className="view active page-view settings-view">
+      <div className="page-note">Configure your model providers, vision tokens, and browser limits.</div>
       <div className="ui-form settings">
       <select value={settings.provider} onChange={(e) => updateSetting('provider', e.target.value as Settings['provider'])}>
+
         <option value="anthropic">Provider: Anthropic (Claude)</option>
         <option value="ollama">Provider: Ollama (Local)</option>
         <option value="mlx">Provider: MLX (Local)</option>

@@ -1906,19 +1906,18 @@ button.danger {
   line-height: 1.45;
 }
 
-.settings-note a,
-.vault-note a {
+.settings-note a {
   color: var(--accent);
   text-decoration: underline;
 }
 
-.settings-note code,
-.vault-note code {
+.settings-note code {
   background: rgba(223, 206, 179, 0.12);
   padding: 1px 4px;
   border-radius: 4px;
   font-size: 11px;
 }
+
 
 
 .modal-backdrop {
@@ -2113,33 +2112,8 @@ button.danger {
   text-align: center;
 }
 
-.vault-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin: 0 0 16px 0;
-  padding: 12px 14px;
-  border-radius: 8px;
-  border: 1px solid rgba(120, 180, 220, 0.22);
-  background: rgba(120, 180, 220, 0.08);
-  color: var(--text);
-  font-size: 12px;
-  line-height: 1.45;
-  box-sizing: border-box;
-  width: 100%;
-}
-
-.vault-note strong {
-  color: var(--text);
-}
-.vault-note .i {
-  flex-shrink: 0;
-  margin-top: 2px;
-  color: rgb(150, 195, 230);
-}
-
-
 .risk-legend {
+
   display: flex;
   flex-wrap: wrap;
   gap: 8px 14px;
