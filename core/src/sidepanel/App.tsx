@@ -289,7 +289,8 @@ function ScheduleView({ onOpenTask }: { onOpenTask: (task: AgentTask) => void })
 
   return (
     <section className="view active page-view schedule-view">
-      <div className="page-note">Run browser tasks later or on a simple repeat.</div>
+      <div className="page-note">Schedule tasks to run at a specific time or on a recurring interval.</div>
+
 
       <div className="ui-form schedule-form">
         <input value={name} placeholder="Task name" onChange={(e) => setName(e.target.value)} />
@@ -569,7 +570,8 @@ function HistoryView({ onReplay, onOpen, onResumeCheckpoint }: { onReplay: (goal
 
   return (
     <section className="view active page-view history-view">
-      <div className="page-note">Past tasks the agent has run. Open one to inspect its trace, or replay its goal.</div>
+      <div className="page-note">Review completed task traces, inspect execution logs, or replay previous goals.</div>
+
       <div className="history-accordion">
         {dayGroups.map((group) => (
           <details key={group.key} className="history-day-group" open={group.isToday || dayGroups.length === 1}>
@@ -699,7 +701,8 @@ function SkillsView({ settings, updateSetting }: {
 
   return (
     <section className="view active page-view skills-view">
-      <div className="page-note">Skills give the agent reusable playbooks for common sites. Toggle one on and the agent will follow its rules whenever the goal matches.</div>
+      <div className="page-note">Reusable domain playbooks. Enabled skills guide the agent's actions when relevant sites or tasks are matched.</div>
+
 
       <div className="section-header">
         <h4 className="section-title">Built-in Skills</h4>
@@ -873,7 +876,7 @@ function VaultView() {
 
   return (
     <section className="view active page-view settings-view">
-      <div className="page-note">Session-only storage. Credentials live in memory for this session and are wiped when Chrome closes.</div>
+      <div className="page-note">Session-only credential storage. Passwords live strictly in memory and are wiped automatically when Chrome closes.</div>
       <div className="ui-form settings">
         <input value={origin} placeholder="Site origin (e.g. https://example.com)" onChange={(e) => setOrigin(e.target.value)} />
         <input value={username} placeholder="Username / email" autoComplete="username" onChange={(e) => setUsername(e.target.value)} />
@@ -916,8 +919,9 @@ function SettingsPanel({ settings, updateSetting }: {
 }) {
   return (
     <section className="view active page-view settings-view">
-      <div className="page-note">Configure your model providers, vision tokens, and browser limits.</div>
+      <div className="page-note">Configure AI model providers, API credentials, vision modes, and browser execution policies.</div>
       <div className="ui-form settings">
+
       <select value={settings.provider} onChange={(e) => updateSetting('provider', e.target.value as Settings['provider'])}>
 
         <option value="anthropic">Provider: Anthropic (Claude)</option>
