@@ -1,10 +1,5 @@
 # WebOperator — AI browser agent and MCP server for Chrome automation
 
-Run a Claude Code-style browser agent with local or cloud models.
-
-```bash
-npm --prefix core ci
-```
 
 <!-- TODO(user): add a real 10–20 second demo GIF, 640–800 px, 12–15 fps, ≤5 MB, opaque dark background, absolute URL. -->
 
@@ -12,7 +7,7 @@ Eight AI providers · MCP agent bridge · Open source
 
 ---
 
-## Quick start
+
 
 ```bash
 git clone https://github.com/KazKozDev/WebOperator.git
@@ -20,6 +15,8 @@ cd WebOperator
 npm --prefix core ci
 npm --prefix core run build
 ```
+
+## Quick start
 
 The production extension is written to `core/dist`.
 
@@ -33,10 +30,6 @@ Open `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and
 ## Run a Claude Code-style agent loop in Chrome
 
 WebOperator brings a plan → act → verify → trace loop to a live browser tab. Give it a goal in the Chrome side panel; it builds a visible plan, executes one browser tool at a time, verifies each result, and keeps an inspectable trace.
-
-```text
-Find three laptops under €900 on this page and compare their prices and RAM.
-```
 
 Choose Ollama, Anthropic, DeepSeek, Gemini, MLX, OpenAI, OpenRouter, or xAI in settings. Local and remote models use the same browser loop.
 
