@@ -161,11 +161,11 @@ function ensureAgentGlowStyle(): void {
       inset: 0;
       z-index: 2147483646;
       pointer-events: none;
-      border: 1px solid rgba(212, 162, 78, 0.34);
+      border: 1px solid rgba(212, 162, 78, 0.28);
       box-shadow:
-        inset 0 0 0 1px rgba(255, 226, 168, 0.08),
-        inset 0 0 26px rgba(212, 162, 78, 0.16),
-        0 0 22px rgba(212, 162, 78, 0.18);
+        inset 0 0 0 1px rgba(255, 226, 168, 0.06),
+        inset 0 0 8px rgba(212, 162, 78, 0.12),
+        0 0 6px rgba(212, 162, 78, 0.12);
       animation: weboperator-agent-edge-pulse 2.8s ease-in-out infinite;
     }
 
@@ -174,26 +174,27 @@ function ensureAgentGlowStyle(): void {
       position: absolute;
       inset: 1px;
       background:
-        linear-gradient(90deg, rgba(212, 162, 78, 0.16), transparent 18%, transparent 82%, rgba(212, 162, 78, 0.16)),
-        linear-gradient(180deg, rgba(255, 226, 168, 0.11), transparent 16%, transparent 84%, rgba(132, 145, 118, 0.12));
-      filter: blur(12px);
-      opacity: 0.9;
+        linear-gradient(90deg, rgba(212, 162, 78, 0.10), transparent 6%, transparent 94%, rgba(212, 162, 78, 0.10)),
+        linear-gradient(180deg, rgba(255, 226, 168, 0.08), transparent 5%, transparent 95%, rgba(132, 145, 118, 0.08));
+      filter: blur(4px);
+      opacity: 0.7;
     }
 
     @keyframes weboperator-agent-edge-pulse {
       0%, 100% {
         box-shadow:
-          inset 0 0 0 1px rgba(255, 226, 168, 0.06),
-          inset 0 0 20px rgba(212, 162, 78, 0.12),
-          0 0 16px rgba(212, 162, 78, 0.14);
+          inset 0 0 0 1px rgba(255, 226, 168, 0.04),
+          inset 0 0 6px rgba(212, 162, 78, 0.08),
+          0 0 4px rgba(212, 162, 78, 0.08);
       }
       50% {
         box-shadow:
-          inset 0 0 0 1px rgba(255, 226, 168, 0.1),
-          inset 0 0 32px rgba(212, 162, 78, 0.18),
-          0 0 28px rgba(212, 162, 78, 0.22);
+          inset 0 0 0 1px rgba(255, 226, 168, 0.08),
+          inset 0 0 10px rgba(212, 162, 78, 0.15),
+          0 0 8px rgba(212, 162, 78, 0.14);
       }
     }
   `;
   document.documentElement.appendChild(style);
 }
+
