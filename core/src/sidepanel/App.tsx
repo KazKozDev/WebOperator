@@ -289,7 +289,7 @@ function ScheduleView({ onOpenTask }: { onOpenTask: (task: AgentTask) => void })
   }
 
   return (
-    <section className="view active page-view settings-view">
+    <section className="view active page-view schedule-view">
       <div className="page-note">Run browser tasks later or on a simple repeat.</div>
 
       <div className="ui-form settings schedule-form">
@@ -325,7 +325,8 @@ function ScheduleView({ onOpenTask }: { onOpenTask: (task: AgentTask) => void })
         {message && <div className="settings-note">{message}</div>}
       </div>
 
-      <div className="ui-list history-list schedule-list">
+      <div className="ui-list schedule-list">
+
         {items.length === 0 ? (
           <div className="page-empty">No scheduled tasks yet.</div>
         ) : items.map((item) => (
