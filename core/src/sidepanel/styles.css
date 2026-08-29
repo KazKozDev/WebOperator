@@ -1453,33 +1453,33 @@ button.danger {
 }
 
 .status-pill.status-done {
-  border-color: rgba(52, 211, 153, 0.22);
-  background: rgba(52, 211, 153, 0.06);
-  color: rgba(110, 231, 183, 0.85);
+  border-color: rgba(52, 211, 153, 0.14);
+  background: rgba(52, 211, 153, 0.035);
+  color: rgba(167, 243, 208, 0.75);
 }
 
 .status-pill.status-done::before {
-  background: #34d399;
+  background: rgba(52, 211, 153, 0.75);
 }
 
 .status-pill.status-failed {
-  border-color: rgba(248, 113, 113, 0.22);
-  background: rgba(248, 113, 113, 0.06);
-  color: rgba(252, 165, 165, 0.85);
+  border-color: rgba(248, 113, 113, 0.14);
+  background: rgba(248, 113, 113, 0.035);
+  color: rgba(254, 202, 202, 0.75);
 }
 
 .status-pill.status-failed::before {
-  background: #f87171;
+  background: rgba(248, 113, 113, 0.75);
 }
 
 .status-pill.status-running {
-  border-color: rgba(251, 191, 36, 0.24);
-  background: rgba(251, 191, 36, 0.08);
-  color: rgba(253, 230, 138, 0.9);
+  border-color: rgba(251, 191, 36, 0.16);
+  background: rgba(251, 191, 36, 0.04);
+  color: rgba(253, 230, 138, 0.78);
 }
 
 .status-pill.status-running::before {
-  background: #fbbf24;
+  background: rgba(251, 191, 36, 0.8);
   animation: pulse 1.5s infinite;
 }
 
@@ -1532,6 +1532,8 @@ button.danger {
 }
 
 .history-item .controls {
+  display: flex;
+  align-items: center;
   margin-top: 5px;
   gap: 4px;
 }
@@ -1543,6 +1545,7 @@ button.danger {
   border-radius: 5px;
   min-height: 22px;
 }
+
 
 
 
