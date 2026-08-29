@@ -298,11 +298,12 @@ textarea:disabled {
 
 .page-note {
   flex-shrink: 0;
-  padding: 2px 0 20px 0;
+  margin-bottom: 24px;
   color: var(--text2);
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.5;
 }
+
 
 
 
