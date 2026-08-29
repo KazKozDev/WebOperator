@@ -292,30 +292,32 @@ function ScheduleView({ onOpenTask }: { onOpenTask: (task: AgentTask) => void })
     <section className="view active page-view schedule-view">
       <div className="page-note">Run browser tasks later or on a simple repeat.</div>
 
-      <div className="ui-form settings schedule-form">
-        <label>
-          Task name
+      <div className="ui-form schedule-form">
+        <label className="inset-field">
+          <span className="inset-label">Task name</span>
           <input value={name} placeholder="Daily pricing check" onChange={(e) => setName(e.target.value)} />
         </label>
-        <label>
-          Start URL
+        <label className="inset-field">
+          <span className="inset-label">Start URL</span>
           <input value={startUrl} placeholder="https://example.com" onChange={(e) => setStartUrl(e.target.value)} />
         </label>
-        <label>
-          Run at
-          <input type="datetime-local" value={runAt} onChange={(e) => setRunAt(e.target.value)} />
-        </label>
-        <label>
-          Repeat
-          <select value={repeat} onChange={(e) => setRepeat(e.target.value as ScheduleRepeat)}>
-            <option value="once">Once</option>
-            <option value="hourly">Hourly</option>
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
-          </select>
-        </label>
-        <label className="schedule-goal-label">
-          Goal
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+          <label className="inset-field">
+            <span className="inset-label">Run at</span>
+            <input type="datetime-local" value={runAt} onChange={(e) => setRunAt(e.target.value)} />
+          </label>
+          <label className="inset-field">
+            <span className="inset-label">Repeat</span>
+            <select value={repeat} onChange={(e) => setRepeat(e.target.value as ScheduleRepeat)}>
+              <option value="once">Once</option>
+              <option value="hourly">Hourly</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+            </select>
+          </label>
+        </div>
+        <label className="inset-field schedule-goal-label">
+          <span className="inset-label">Goal</span>
           <textarea value={goal} placeholder="What should the agent do when this runs?" onChange={(e) => setGoal(e.target.value)} />
         </label>
         <div className="action-row controls">
@@ -324,6 +326,7 @@ function ScheduleView({ onOpenTask }: { onOpenTask: (task: AgentTask) => void })
         </div>
         {message && <div className="settings-note">{message}</div>}
       </div>
+
 
       <div className="ui-list schedule-list">
 
