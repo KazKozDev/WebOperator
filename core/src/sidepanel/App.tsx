@@ -532,13 +532,13 @@ function groupTasksByDay(tasks: AgentTask[]): TaskDayGroup[] {
   for (const task of tasks) {
     const d = new Date(task.createdAt);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    let label = d.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+    let label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     let isToday = false;
     if (key === todayKey) {
-      label = 'Сегодня';
+      label = 'Today';
       isToday = true;
     } else if (key === yesterdayKey) {
-      label = 'Вчера';
+      label = 'Yesterday';
     }
 
     if (!groups.has(key)) {
@@ -548,6 +548,7 @@ function groupTasksByDay(tasks: AgentTask[]): TaskDayGroup[] {
   }
   return Array.from(groups.values());
 }
+
 
 function HistoryView({ onReplay, onOpen, onResumeCheckpoint }: { onReplay: (goal: string) => void; onOpen: (t: AgentTask) => void; onResumeCheckpoint?: (id: string) => void }) {
 
@@ -751,8 +752,9 @@ function SkillsView({ settings, updateSetting }: {
 
 
       {isCreating && (
-        <form onSubmit={handleSaveCustomSkill} style={{ background: 'rgba(223, 206, 179, 0.06)', padding: '12px', borderRadius: '6px', marginBottom: '16px', border: '1px solid rgba(223, 206, 179, 0.12)' }}>
+        <form onSubmit={handleSaveCustomSkill} className="ui-form custom-skill-form" style={{ marginTop: '12px' }}>
           {error && <div style={{ color: 'var(--error, #ef4444)', fontSize: '11px', marginBottom: '8px' }}>{error}</div>}
+
           <div style={{ marginBottom: '8px' }}>
             <label style={{ display: 'block', fontSize: '11px', color: 'var(--text2)', marginBottom: '3px' }}>Skill Name *</label>
             <input
