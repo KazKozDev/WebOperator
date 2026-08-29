@@ -993,22 +993,23 @@ function SettingsPanel({ settings, updateSetting }: {
         </>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-        <select value={settings.screenshotPolicy} onChange={(e) => updateSetting('screenshotPolicy', e.target.value as Settings['screenshotPolicy'])}>
-          <option value="auto">Vision: Auto</option>
-          <option value="always">Vision: Always</option>
-          <option value="never">Vision: Never</option>
-        </select>
-        <input type="number" value={settings.actionTimeoutMs} onChange={(e) => updateSetting('actionTimeoutMs', Number(e.target.value))} placeholder="Timeout, ms" />
-      </div>
       <details className="settings-advanced">
         <summary>Advanced Settings</summary>
         <div className="settings-advanced-body">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <select value={settings.screenshotPolicy} onChange={(e) => updateSetting('screenshotPolicy', e.target.value as Settings['screenshotPolicy'])}>
+              <option value="auto">Vision: Auto</option>
+              <option value="always">Vision: Always</option>
+              <option value="never">Vision: Never</option>
+            </select>
+            <input type="number" value={settings.actionTimeoutMs} onChange={(e) => updateSetting('actionTimeoutMs', Number(e.target.value))} placeholder="Timeout, ms" />
+          </div>
           <select value={settings.thinkingPolicy} onChange={(e) => updateSetting('thinkingPolicy', e.target.value as Settings['thinkingPolicy'])}>
             <option value="auto">Thinking: Auto</option>
             <option value="always">Thinking: Always</option>
             <option value="never">Thinking: Never</option>
           </select>
+
           <select value={settings.contextCompressor} onChange={(e) => updateSetting('contextCompressor', e.target.value as Settings['contextCompressor'])}>
             <option value="off">Context compressor: Off (deterministic)</option>
             <option value="same">Context compressor: Same model</option>
