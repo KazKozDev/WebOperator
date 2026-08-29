@@ -581,10 +581,11 @@ function HistoryView({ onReplay, onOpen, onResumeCheckpoint }: { onReplay: (goal
               {group.tasks.map((t) => (
                 <div key={t.id} className="ui-list-item history-item">
                   <div className="item-head step-head">
-                    <span className="status-pill">{t.status}</span>
                     <span className="item-meta step-detail">{new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    <span className="status-pill">{t.status}</span>
                   </div>
                   <div className="item-title history-goal">{t.goal}</div>
+
                   <div className="action-row controls">
                     <button className="secondary" onClick={() => openTask(t.id)}>Open</button>
                     {t.status === 'failed' && onResumeCheckpoint && (
