@@ -8,10 +8,11 @@ export const PROFILE_TO_MODEL: Record<ModelProfile, string> = {
 };
 
 /** Resolve the Ollama model: a non-empty free-text override wins over the profile mapping. */
-export function resolveOllamaModel(ollamaModelOverride: string, profileModel: string): string {
-  const override = ollamaModelOverride.trim();
-  return override || profileModel;
+export function resolveOllamaModel(ollamaModelOverride?: string, profileModel?: string): string {
+  const override = ollamaModelOverride?.trim();
+  return override || profileModel || 'qwen2.5-vl:7b';
 }
+
 
 export type VisualTokenBudget = 70 | 140 | 280 | 560 | 1120;
 

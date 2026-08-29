@@ -938,9 +938,15 @@ function SettingsPanel({ settings, updateSetting }: {
 
       {settings.provider === 'ollama' && (
         <>
-          <input value={settings.ollamaUrl} onChange={(e) => updateSetting('ollamaUrl', e.target.value)} placeholder="Ollama URL" />
+          <input value={settings.ollamaUrl} onChange={(e) => updateSetting('ollamaUrl', e.target.value)} placeholder="Ollama URL (e.g. http://127.0.0.1:11434)" />
+          <input
+            value={settings.ollamaModel}
+            onChange={(e) => updateSetting('ollamaModel', e.target.value)}
+            placeholder="Ollama Model (e.g. qwen2.5-vl:7b)"
+          />
         </>
       )}
+
 
       {settings.provider === 'openai' && (
         <>
@@ -984,36 +990,6 @@ function SettingsPanel({ settings, updateSetting }: {
         </>
       )}
 
-      {settings.provider === 'ollama' && (
-        <>
-          <input
-            value={settings.ollamaModel}
-            onChange={(e) => updateSetting('ollamaModel', e.target.value)}
-            placeholder="Model (optional, e.g. qwen3-vl:8b)"
-          />
-          <select
-            value={settings.profile}
-            disabled={Boolean(settings.ollamaModel.trim())}
-            onChange={(e) => updateSetting('profile', e.target.value as Settings['profile'])}
-          >
-            <option value="edge">Profile: Edge — gemma4:e2b</option>
-            <option value="balanced">Profile: Balanced — gemma4:e4b</option>
-            <option value="fast">Profile: Fast — gemma4:26b</option>
-            <option value="quality">Profile: Quality — gemma4:31b</option>
-          </select>
-          <select
-            value={settings.planningProfile}
-            disabled={Boolean(settings.ollamaModel.trim())}
-            onChange={(e) => updateSetting('planningProfile', e.target.value as Settings['planningProfile'])}
-          >
-            <option value="same">Planning: same as main</option>
-            <option value="edge">Planning: Edge</option>
-            <option value="balanced">Planning: Balanced</option>
-            <option value="fast">Planning: Fast</option>
-            <option value="quality">Planning: Quality</option>
-          </select>
-        </>
-      )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
         <select value={settings.screenshotPolicy} onChange={(e) => updateSetting('screenshotPolicy', e.target.value as Settings['screenshotPolicy'])}>
           <option value="auto">Vision: Auto</option>
