@@ -579,10 +579,10 @@ function HistoryView({ onReplay, onOpen, onResumeCheckpoint }: { onReplay: (goal
         {dayGroups.map((group) => (
           <details key={group.key} className="history-day-group" open={group.isToday || dayGroups.length === 1}>
             <summary className="history-day-summary">
-              <span className="history-day-label">📅 {group.label}</span>
+              <span className="history-day-label">{group.label}</span>
               <span className="history-day-count">{group.tasks.length} {group.tasks.length === 1 ? 'task' : 'tasks'}</span>
             </summary>
-            <div className="ui-list history-list" style={{ padding: '8px' }}>
+            <div className="ui-list history-list" style={{ marginTop: '8px', padding: 0 }}>
               {group.tasks.map((t) => (
                 <div key={t.id} className="ui-list-item history-item">
                   <div className="item-head step-head">
@@ -605,6 +605,7 @@ function HistoryView({ onReplay, onOpen, onResumeCheckpoint }: { onReplay: (goal
         ))}
       </div>
     </section>
+
   );
 }
 
