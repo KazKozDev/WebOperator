@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 import type { CachedAction } from './action-cache';
-import { DEFAULT_SETTINGS, SETTINGS_VERSION, type AgentStep, type AgentTask, type CredentialEntry, type CredentialSummary, type ScheduledTask, type Settings, type SitePattern, type RecoveryMemory } from './types';
+import { DEFAULT_SETTINGS, SETTINGS_VERSION, type AgentStep, type AgentTask, type CredentialEntry, type CredentialSummary, type CustomSkillDefinition, type ScheduledTask, type Settings, type SitePattern, type RecoveryMemory } from './types';
+
 import { maskTaskForLog } from './masking';
 
 export class AgentDB extends Dexie {
@@ -361,4 +362,40 @@ export async function updateSessionState(patch: Partial<AgentSessionState>): Pro
   }
   return next;
 }
+
+const CUSTOM_SKILLS_KEY = 'custom_skills';
+
+export async function getCustomSkills(): Promise<CustomSkillDefinition[]> {
+  try {
+    const raw = await chrome.storage.local.get(CUSTOM_SKILLS_KEY);
+    const list = raw[CUSTOM_SKILLS_KEY];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveCustomSkill(skill: Omit<CustomSkillDefinition, 'id' | 'createdAt'> & { id?: string }): Promise<CustomSkillDefinition> {
+  const current = await getCustomSkills();
+  const now = Date.now();
+  const id = skill.id || `custom-${now}-${Math.random().toString(36).slice(2, 7)}`;
+  const full: CustomSkillDefinition = {
+    ...skill,
+    id,
+    isCustom: true,
+    enabled: skill.enabled !== false,
+    createdAt: now,
+  };
+  const existingIdx = current.findIndex((s) => s.id === id);
+  const next = existingIdx >= 0 ? [...current.slice(0, existingIdx), full, ...current.slice(existingIdx + 1)] : [...current, full];
+  await chrome.storage.local.set({ [CUSTOM_SKILLS_KEY]: next });
+  return full;
+}
+
+export async function deleteCustomSkill(id: string): Promise<void> {
+  const current = await getCustomSkills();
+  const next = current.filter((s) => s.id !== id);
+  await chrome.storage.local.set({ [CUSTOM_SKILLS_KEY]: next });
+}
+
 

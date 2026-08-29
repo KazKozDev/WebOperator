@@ -18,7 +18,11 @@ import {
   db,
   getSessionState,
   updateSessionState,
+  getCustomSkills,
+  saveCustomSkill,
+  deleteCustomSkill,
 } from '@/lib/storage';
+
 import { clearCache } from '@/lib/action-cache';
 import { ensureContentScript, onLocalSWEvent, registerPortHost } from '@/lib/messaging';
 import { AgentPortHost } from '@/lib/port-channel';
@@ -156,8 +160,12 @@ async function handle(msg: SWMessage): Promise<unknown> {
       void runScheduledTask(msg.id, true);
       return listScheduledTasks();
     }
+    case 'custom_skill:list': return getCustomSkills();
+    case 'custom_skill:save': return saveCustomSkill(msg.skill);
+    case 'custom_skill:delete': await deleteCustomSkill(msg.id); return { ok: true };
     default:
       throw new Error('Unknown message');
+
   }
 }
 

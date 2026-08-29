@@ -53,7 +53,23 @@ export interface Settings {
   autoResumeTimeoutMs: number;
 }
 
+export type SkillRisk = 'safe' | 'medium' | 'high';
+
+export interface CustomSkillDefinition {
+  id: string;
+  name: string;
+  summary: string;
+  risk: SkillRisk;
+  domains: string[];
+  keywords: string[];
+  prompt: string;
+  isCustom?: boolean;
+  enabled?: boolean;
+  createdAt: number;
+}
+
 export type SkillId = string;
+
 
 export const DEFAULT_SETTINGS: Settings = {
   ollamaUrl: 'http://127.0.0.1:11434',
@@ -284,7 +300,11 @@ export type SWMessage =
   | { kind: 'schedule:set'; entry: Omit<ScheduledTask, 'id' | 'createdAt' | 'updatedAt'> & { id?: string } }
   | { kind: 'schedule:delete'; id: string }
   | { kind: 'schedule:run'; id: string }
-  | { kind: 'schedule:toggle'; id: string; enabled: boolean };
+  | { kind: 'schedule:toggle'; id: string; enabled: boolean }
+  | { kind: 'custom_skill:list' }
+  | { kind: 'custom_skill:save'; skill: Omit<CustomSkillDefinition, 'id' | 'createdAt'> & { id?: string } }
+  | { kind: 'custom_skill:delete'; id: string };
+
 
 export type SWEvent =
   | { kind: 'task:update'; task: AgentTask }

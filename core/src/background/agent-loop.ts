@@ -35,11 +35,12 @@ import {
   type ToolCall,
 } from '@/lib/types';
 import { actionMayOpenTab, addOpenedTabsToResult, findOpenedTabs, shouldFollowOpenedTab, type BrowserTabSummary } from '@/lib/tab-sync';
-import { findCredentialForUrl, saveStep as saveStepRaw, saveTask } from '@/lib/storage';
+import { findCredentialForUrl, getCustomSkills, saveStep as saveStepRaw, saveTask } from '@/lib/storage';
 
 async function saveStep(taskId: string, step: AgentStep): Promise<void> {
   await saveStepRaw(taskId, maskStepForStorage(step));
 }
+
 import { isDomainAllowed, shouldAttachScreenshot } from '@/lib/vision-policy';
 import { captureViewport, stripDataUrlPrefix } from '@/lib/screenshot';
 import { parseHints } from '@/lib/hints';
@@ -181,16 +182,18 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
   history.push({ role: 'user', content: `GOAL: ${task.goal}\n\n${PLANNING_PROMPT}` });
 
 
-  // ── Auto-detect skills from task (Neural HF + Semantic Router) ──
-  const classified = settings.autoSkills !== false ? await classifyTaskNeural(task.goal) : [];
+  // ── Auto-detect skills from task (Neural HF + Semantic Router + Custom Skills) ──
+  const customSkills = await getCustomSkills();
+  const classified = settings.autoSkills !== false ? await classifyTaskNeural(task.goal, customSkills) : [];
   const manualSkills = new Set(settings.enabledSkills ?? []);
 
   const autoSkills = classified.filter((c) => !manualSkills.has(c.id)).map((c) => c.id);
   if (autoSkills.length > 0) {
-    const prompts = skillPrompts(autoSkills);
+    const prompts = skillPrompts(autoSkills, customSkills);
     history[0].content += `\n\nAUTO-DETECTED SKILLS:\n${prompts}`;
     broadcastEvent({ kind: 'skills:detected', taskId: task.id, skills: classified.filter((c) => autoSkills.includes(c.id)) });
   }
+
 
   // ── Orchestrator: always active ──
   const hasOrchestrator = true;

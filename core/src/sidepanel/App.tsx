@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import type { AgentStep, AgentTask, CredentialSummary, ScheduledTask, ScheduleRepeat, Settings, SWEvent } from '@/lib/types';
+import type { AgentStep, AgentTask, CredentialSummary, CustomSkillDefinition, ScheduledTask, ScheduleRepeat, Settings, SWEvent } from '@/lib/types';
+
 import { DEFAULT_SETTINGS, PROFILE_TO_MODEL, resolveOllamaModel } from '@/lib/types';
 import { sendToSW } from '@/lib/messaging';
 import { ping } from '@/lib/ollama-client';
@@ -568,6 +569,25 @@ function SkillsView({ settings, updateSetting }: {
 }) {
   const enabled = new Set(settings.enabledSkills ?? []);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [customSkills, setCustomSkills] = useState<CustomSkillDefinition[]>([]);
+  const [isCreating, setIsCreating] = useState(false);
+  const [name, setName] = useState('');
+  const [summary, setSummary] = useState('');
+  const [domainPattern, setDomainPattern] = useState('');
+  const [keywords, setKeywords] = useState('');
+  const [prompt, setPrompt] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const loadCustomSkills = useCallback(async () => {
+    try {
+      const list = await sendToSW<CustomSkillDefinition[]>({ kind: 'custom_skill:list' });
+      setCustomSkills(list);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    void loadCustomSkills();
+  }, [loadCustomSkills]);
 
   function toggleSkill(id: Settings['enabledSkills'][number]) {
     const next = enabled.has(id)
@@ -584,32 +604,190 @@ function SkillsView({ settings, updateSetting }: {
     });
   }
 
+  async function handleSaveCustomSkill(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (!name.trim()) { setError('Skill name is required'); return; }
+    if (!prompt.trim()) { setError('Skill instructions/prompt are required'); return; }
+
+    const kwArray = keywords
+      .split(/[,;\n]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const domainsArray = domainPattern
+      .split(/[,;\n]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    try {
+      await sendToSW({
+        kind: 'custom_skill:save',
+        skill: {
+          name: name.trim(),
+          summary: summary.trim() || name.trim(),
+          domains: domainsArray.length ? domainsArray : ['*'],
+          keywords: kwArray.length ? kwArray : [name.trim().toLowerCase()],
+          prompt: prompt.trim(),
+          risk: 'safe',
+          enabled: true,
+        },
+      });
+
+      setName('');
+      setSummary('');
+      setDomainPattern('');
+      setKeywords('');
+      setPrompt('');
+      setIsCreating(false);
+      await loadCustomSkills();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function handleDeleteCustomSkill(id: string) {
+    try {
+      await sendToSW({ kind: 'custom_skill:delete', id });
+      await loadCustomSkills();
+    } catch {}
+  }
+
   return (
     <section className="view active page-view skills-view">
       <div className="page-note">Skills give the agent reusable playbooks for common sites. Toggle one on and the agent will follow its rules whenever the goal matches.</div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+        <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>Built-in Skills</h4>
+      </div>
+
       <div className="ui-list skills-list">
-        {BUILT_IN_SKILLS.length === 0 ? (
-          <div className="page-empty">No skills installed. Custom skills coming soon.</div>
+        {BUILT_IN_SKILLS.map((skill) => {
+          const active = enabled.has(skill.id);
+          const open = expanded.has(skill.id);
+          return (
+            <article key={skill.id} className={`ui-list-item skill-card ${active ? 'active' : ''}`}>
+              <div className="skill-row" onClick={() => toggleExpand(skill.id)}>
+                <span className="item-title skill-title">{skill.name}</span>
+                <button
+                  className={`toggle ${active ? 'on' : ''}`}
+                  role="switch"
+                  aria-checked={active}
+                  onClick={(e) => { e.stopPropagation(); toggleSkill(skill.id); }}
+                >
+                  <span />
+                </button>
+              </div>
+              {open && (
+                <div className="skill-detail">
+                  <p className="item-meta skill-desc">{skill.summary}</p>
+                </div>
+              )}
+            </article>
+          );
+        })}
+      </div>
+
+      <div style={{ marginTop: '24px', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>Custom Skills ({customSkills.length})</h4>
+        <button
+          type="button"
+          className="secondary"
+          style={{ fontSize: '11px', padding: '3px 8px' }}
+          onClick={() => setIsCreating((prev) => !prev)}
+        >
+          {isCreating ? 'Cancel' : '+ Add custom skill'}
+        </button>
+      </div>
+
+      {isCreating && (
+        <form onSubmit={handleSaveCustomSkill} style={{ background: 'rgba(223, 206, 179, 0.06)', padding: '12px', borderRadius: '6px', marginBottom: '16px', border: '1px solid rgba(223, 206, 179, 0.12)' }}>
+          {error && <div style={{ color: 'var(--error, #ef4444)', fontSize: '11px', marginBottom: '8px' }}>{error}</div>}
+          <div style={{ marginBottom: '8px' }}>
+            <label style={{ display: 'block', fontSize: '11px', color: 'var(--text2)', marginBottom: '3px' }}>Skill Name *</label>
+            <input
+              className="text-input"
+              style={{ width: '100%', boxSizing: 'border-box' }}
+              placeholder="e.g., Company CRM Assistant"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div style={{ marginBottom: '8px' }}>
+            <label style={{ display: 'block', fontSize: '11px', color: 'var(--text2)', marginBottom: '3px' }}>Summary / Short Description</label>
+            <input
+              className="text-input"
+              style={{ width: '100%', boxSizing: 'border-box' }}
+              placeholder="e.g., Automatically fills lead forms in CRM"
+              value={summary}
+              onChange={(e) => setSummary(e.target.value)}
+            />
+          </div>
+          <div style={{ marginBottom: '8px' }}>
+            <label style={{ display: 'block', fontSize: '11px', color: 'var(--text2)', marginBottom: '3px' }}>Target Domains (comma separated)</label>
+            <input
+              className="text-input"
+              style={{ width: '100%', boxSizing: 'border-box' }}
+              placeholder="e.g., crm.company.com, hubspot.com"
+              value={domainPattern}
+              onChange={(e) => setDomainPattern(e.target.value)}
+            />
+          </div>
+          <div style={{ marginBottom: '8px' }}>
+            <label style={{ display: 'block', fontSize: '11px', color: 'var(--text2)', marginBottom: '3px' }}>Trigger Keywords (comma separated)</label>
+            <input
+              className="text-input"
+              style={{ width: '100%', boxSizing: 'border-box' }}
+              placeholder="e.g., crm, лид, сделка, клиент"
+              value={keywords}
+              onChange={(e) => setKeywords(e.target.value)}
+            />
+          </div>
+          <div style={{ marginBottom: '12px' }}>
+            <label style={{ display: 'block', fontSize: '11px', color: 'var(--text2)', marginBottom: '3px' }}>Agent Instructions / Prompt *</label>
+            <textarea
+              className="text-input"
+              style={{ width: '100%', minHeight: '60px', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: '11px' }}
+              placeholder="Detailed guidelines the agent should follow when this skill activates..."
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+            />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <button type="button" className="secondary" onClick={() => setIsCreating(false)}>Cancel</button>
+            <button type="submit" className="primary">Save Skill</button>
+          </div>
+        </form>
+      )}
+
+      <div className="ui-list skills-list">
+        {customSkills.length === 0 && !isCreating ? (
+          <div className="page-empty" style={{ padding: '12px' }}>No custom skills added yet. Click "+ Add custom skill" to create one.</div>
         ) : (
-          BUILT_IN_SKILLS.map((skill) => {
-            const active = enabled.has(skill.id);
+          customSkills.map((skill) => {
             const open = expanded.has(skill.id);
             return (
-              <article key={skill.id} className={`ui-list-item skill-card ${active ? 'active' : ''}`}>
+              <article key={skill.id} className="ui-list-item skill-card active">
                 <div className="skill-row" onClick={() => toggleExpand(skill.id)}>
-                  <span className="item-title skill-title">{skill.name}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span className="item-title skill-title">{skill.name}</span>
+                    <span style={{ fontSize: '10px', background: 'rgba(212, 162, 78, 0.15)', color: 'var(--accent)', padding: '1px 5px', borderRadius: '3px' }}>Custom</span>
+                  </div>
                   <button
-                    className={`toggle ${active ? 'on' : ''}`}
-                    role="switch"
-                    aria-checked={active}
-                    onClick={(e) => { e.stopPropagation(); toggleSkill(skill.id); }}
+                    type="button"
+                    style={{ background: 'transparent', border: 'none', color: 'var(--error, #ef4444)', fontSize: '11px', cursor: 'pointer' }}
+                    onClick={(e) => { e.stopPropagation(); void handleDeleteCustomSkill(skill.id); }}
+                    title="Delete custom skill"
                   >
-                    <span />
+                    Delete
                   </button>
                 </div>
                 {open && (
-                  <div className="skill-detail">
-                    <p className="item-meta skill-desc">{skill.summary}</p>
+                  <div className="skill-detail" style={{ marginTop: '8px' }}>
+                    <p className="item-meta skill-desc" style={{ marginBottom: '4px' }}>{skill.summary}</p>
+                    {skill.domains.length > 0 && <div style={{ fontSize: '11px', color: 'var(--text2)', marginBottom: '2px' }}>Domains: {skill.domains.join(', ')}</div>}
+                    {skill.keywords.length > 0 && <div style={{ fontSize: '11px', color: 'var(--text2)', marginBottom: '4px' }}>Keywords: {skill.keywords.join(', ')}</div>}
+                    <pre style={{ background: 'rgba(0,0,0,0.2)', padding: '6px', borderRadius: '4px', fontSize: '10px', whiteSpace: 'pre-wrap' }}>{skill.prompt}</pre>
                   </div>
                 )}
               </article>
@@ -620,6 +798,7 @@ function SkillsView({ settings, updateSetting }: {
     </section>
   );
 }
+
 
 function VaultView() {
   const [entries, setEntries] = useState<CredentialSummary[]>([]);

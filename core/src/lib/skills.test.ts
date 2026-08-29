@@ -54,5 +54,30 @@ describe('skills', () => {
     const results = await classifyTaskNeural('заполни анкету');
     expect(results.some((s) => s.id === 'form-filler')).toBe(true);
   });
+
+  it('supports custom user-defined skills', () => {
+    const custom = [
+      {
+        id: 'crm-helper',
+        name: 'CRM Helper',
+        summary: 'Handles corporate CRM leads',
+        risk: 'safe' as const,
+        domains: ['crm.internal'],
+        keywords: ['crm', 'лид', 'сделка'],
+        prompt: '[SKILL: crm-helper] Always assign manager',
+        isCustom: true,
+        enabled: true,
+        createdAt: Date.now(),
+      },
+    ];
+
+    const results = classifyTask('добавь нового лида в crm', custom);
+    expect(results.some((s) => s.id === 'crm-helper')).toBe(true);
+
+    expect(isKnownSkill('crm-helper', custom)).toBe(true);
+    expect(getSkill('crm-helper', custom)?.prompt).toContain('Always assign manager');
+    expect(enabledSkillPrompts(['crm-helper'], custom)).toContain('[SKILL: crm-helper]');
+  });
 });
+
 

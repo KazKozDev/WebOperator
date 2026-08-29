@@ -1,4 +1,5 @@
-import type { SkillId } from './types';
+import type { CustomSkillDefinition, SkillId } from './types';
+
 
 export type SkillRisk = 'safe' | 'medium' | 'high';
 
@@ -224,24 +225,17 @@ export interface ClassifiedSkill {
   auto: boolean;
 }
 
-const skillRouter = new SemanticRouter(
-  BUILT_IN_SKILLS.map((skill) => ({
-    id: skill.id,
-    text: `${skill.name} ${skill.summary} ${skill.keywords.join(' ')} ${skill.prompt}`,
-  }))
-);
-
-export function classifyTask(goal: string): ClassifiedSkill[] {
-
+export function classifyTask(goal: string, customSkills: CustomSkillDefinition[] = []): ClassifiedSkill[] {
 
   const lower = goal.toLowerCase();
   const results = new Map<SkillId, ClassifiedSkill>();
+  const allSkills = [...BUILT_IN_SKILLS, ...customSkills.filter((cs) => cs.enabled !== false)];
 
   // 1. Stage 1: Fast keyword matches
-  for (const skill of BUILT_IN_SKILLS) {
+  for (const skill of allSkills) {
     if (skill.risk === 'high') continue;
 
-    const matched = skill.keywords.filter((kw) => lower.includes(kw.toLowerCase()));
+    const matched = skill.keywords.filter((kw) => kw && lower.includes(kw.toLowerCase()));
     if (matched.length > 0) {
       results.set(skill.id, {
         id: skill.id,
@@ -252,9 +246,16 @@ export function classifyTask(goal: string): ClassifiedSkill[] {
   }
 
   // 2. Stage 2: Semantic vector router for synonyms, paraphrasing and semantic concepts
-  const semanticMatches = skillRouter.query(goal, 0.22);
+  const dynamicRouter = new SemanticRouter(
+    allSkills.map((skill) => ({
+      id: skill.id,
+      text: `${skill.name} ${skill.summary} ${skill.keywords.join(' ')} ${skill.prompt}`,
+    }))
+  );
+
+  const semanticMatches = dynamicRouter.query(goal, 0.22);
   for (const match of semanticMatches) {
-    const skill = getSkill(match.id as SkillId);
+    const skill = getSkill(match.id, customSkills);
     if (!skill || skill.risk === 'high') continue;
     if (!results.has(skill.id)) {
       results.set(skill.id, {
@@ -268,8 +269,8 @@ export function classifyTask(goal: string): ClassifiedSkill[] {
   return Array.from(results.values());
 }
 
-export async function classifyTaskNeural(goal: string): Promise<ClassifiedSkill[]> {
-  const syncResults = classifyTask(goal);
+export async function classifyTaskNeural(goal: string, customSkills: CustomSkillDefinition[] = []): Promise<ClassifiedSkill[]> {
+  const syncResults = classifyTask(goal, customSkills);
   try {
     const { classifyWithHuggingFace } = await import('./hf-classifier');
     const hfResults = await classifyWithHuggingFace(goal);
@@ -284,15 +285,16 @@ export async function classifyTaskNeural(goal: string): Promise<ClassifiedSkill[
   }
 }
 
-export function getSkill(id: SkillId): SkillDefinition | undefined {
-
+export function getSkill(id: SkillId, customSkills: CustomSkillDefinition[] = []): SkillDefinition | CustomSkillDefinition | undefined {
+  const custom = customSkills.find((s) => s.id === id);
+  if (custom) return custom;
   return BUILT_IN_SKILLS.find((s) => s.id === id);
 }
 
-export function skillPrompts(ids: SkillId[]): string {
+export function skillPrompts(ids: SkillId[], customSkills: CustomSkillDefinition[] = []): string {
   const prompts: string[] = [];
   for (const id of ids) {
-    const skill = getSkill(id);
+    const skill = getSkill(id, customSkills);
     if (skill) {
       prompts.push(skill.prompt);
     }
@@ -300,10 +302,11 @@ export function skillPrompts(ids: SkillId[]): string {
   return prompts.join('\n\n');
 }
 
-export function enabledSkillPrompts(ids: SkillId[]): string {
-  return skillPrompts(ids);
+export function enabledSkillPrompts(ids: SkillId[], customSkills: CustomSkillDefinition[] = []): string {
+  return skillPrompts(ids, customSkills);
 }
 
-export function isKnownSkill(id: string): id is SkillId {
-  return BUILT_IN_SKILLS.some((skill) => skill.id === id);
+export function isKnownSkill(id: string, customSkills: CustomSkillDefinition[] = []): id is SkillId {
+  return BUILT_IN_SKILLS.some((skill) => skill.id === id) || customSkills.some((skill) => skill.id === id);
 }
+
