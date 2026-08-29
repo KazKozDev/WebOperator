@@ -704,8 +704,8 @@ function SkillsView({ settings, updateSetting }: {
     <section className="view active page-view skills-view">
       <div className="page-note">Skills give the agent reusable playbooks for common sites. Toggle one on and the agent will follow its rules whenever the goal matches.</div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-        <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>Built-in Skills</h4>
+      <div className="section-header">
+        <h4 className="section-title">Built-in Skills</h4>
       </div>
 
       <div className="ui-list skills-list">
@@ -735,8 +735,8 @@ function SkillsView({ settings, updateSetting }: {
         })}
       </div>
 
-      <div style={{ marginTop: '24px', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>Custom Skills ({customSkills.length})</h4>
+      <div className="section-header" style={{ marginTop: '24px' }}>
+        <h4 className="section-title">Custom Skills ({customSkills.length})</h4>
         <button
           type="button"
           className="secondary"
@@ -746,6 +746,7 @@ function SkillsView({ settings, updateSetting }: {
           {isCreating ? 'Cancel' : '+ Add custom skill'}
         </button>
       </div>
+
 
       {isCreating && (
         <form onSubmit={handleSaveCustomSkill} style={{ background: 'rgba(223, 206, 179, 0.06)', padding: '12px', borderRadius: '6px', marginBottom: '16px', border: '1px solid rgba(223, 206, 179, 0.12)' }}>

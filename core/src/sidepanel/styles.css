@@ -295,11 +295,12 @@ textarea:disabled {
 
 .page-note {
   flex-shrink: 0;
-  padding: 16px 20px 0;
+  padding: 0 0 16px 0;
   color: var(--text2);
   font-size: 12px;
   line-height: 1.4;
 }
+
 
 .task-scroll,
 .steps-container,
@@ -1309,8 +1310,6 @@ button.danger {
   color: var(--text);
 }
 
-.history-list,
-.skills-list,
 .settings {
   flex: 1;
   min-height: 0;
@@ -1320,7 +1319,32 @@ button.danger {
 
 .page-view {
   background: var(--bg);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px 24px;
 }
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 16px 0 10px;
+}
+
+.section-header:first-of-type {
+  margin-top: 0;
+}
+
+.section-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.2px;
+}
+
+
 
 .ui-list {
   display: flex;
