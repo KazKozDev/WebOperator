@@ -17,13 +17,14 @@ export default defineManifest({
     'alarms',
     'debugger',
     'downloads',
+    'nativeMessaging',
   ],
 
   optional_permissions: [
-    'nativeMessaging',
     'bookmarks',
     'tabGroups',
   ],
+
 
 
   host_permissions: [

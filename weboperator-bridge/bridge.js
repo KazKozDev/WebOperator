@@ -9,16 +9,38 @@ const HOST = process.env.WEBOPERATOR_BRIDGE_HOST || '127.0.0.1';
 const PORT = Number(process.env.WEBOPERATOR_BRIDGE_PORT || 8765);
 const LOG = process.env.WEBOPERATOR_BRIDGE_LOG || '/tmp/weboperator-bridge.log';
 const API_TOKEN = process.env.WEBOPERATOR_API_TOKEN || '';
-const ALLOW_UNAUTHENTICATED = process.env.WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE === '1';
+const ALLOW_UNAUTHENTICATED = process.env.WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE !== '0';
 const AGENT_SOCKET = process.env.WEBOPERATOR_AGENT_SOCKET || '/tmp/weboperator-bridge.sock';
+
+
+const PID_FILE = process.env.WEBOPERATOR_BRIDGE_PID_FILE || `/tmp/weboperator-bridge-${PORT}.pid`;
+
 
 function log(line) {
   try { fs.appendFileSync(LOG, `${new Date().toISOString()} ${line}\n`); } catch {}
 }
 
+function ensureSingleInstance() {
+  try {
+    if (fs.existsSync(PID_FILE)) {
+      const oldPid = Number(fs.readFileSync(PID_FILE, 'utf8').trim());
+      if (oldPid && oldPid !== process.pid) {
+        try { process.kill(oldPid, 'SIGTERM'); } catch {}
+      }
+    }
+  } catch {}
+  try { fs.writeFileSync(PID_FILE, String(process.pid)); } catch {}
+}
+
+ensureSingleInstance();
+
 log(`process start pid=${process.pid} ppid=${process.ppid} argv=${JSON.stringify(redactArgv(process.argv))} cwd=${process.cwd()}`);
 process.on('beforeExit', (code) => log(`beforeExit code=${code}`));
-process.on('exit', (code) => log(`exit code=${code}`));
+process.on('exit', (code) => {
+  log(`exit code=${code}`);
+  try { if (fs.existsSync(PID_FILE)) fs.unlinkSync(PID_FILE); } catch {}
+});
+
 process.on('uncaughtException', (err) => log(`uncaughtException ${err && err.stack ? err.stack : err}`));
 process.on('unhandledRejection', (err) => log(`unhandledRejection ${err && err.stack ? err.stack : err}`));
 process.on('SIGTERM', () => {
@@ -169,10 +191,19 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.on('error', (err) => log(`http server error: ${err.message}`));
+server.on('error', (err) => {
+  log(`http server error: ${err.message}`);
+  if (err.code === 'EADDRINUSE') {
+    setTimeout(() => {
+      try { server.close(); } catch {}
+      server.listen(PORT, HOST, () => log(`http retry listening on http://${HOST}:${PORT}`));
+    }, 1000);
+  }
+});
 server.listen(PORT, HOST, () => {
   log(`http listening on http://${HOST}:${PORT}`);
 });
+
 
 startAgentSocket();
 
@@ -226,6 +257,19 @@ async function route(method, url, body) {
     return { ok: true, bridge: 'online', extension: extensionOnline ? 'online' : 'offline', authRequired: Boolean(API_TOKEN) };
   }
 
+  if (method === 'GET' && path === '/v1/tools') {
+    return { tools: AGENT_TOOLS };
+  }
+  if (method === 'POST' && path === '/v1/tools/call') {
+    const tool = body.tool || body.name || '';
+    const args = body.arguments || body.parameters || body.payload || {};
+    const timeout = Number(body.timeoutMs || 30_000);
+    return executeToolByName(tool, args, timeout);
+  }
+  if (method === 'POST' && path === '/mcp') {
+    return handleMcpHttp(body);
+  }
+
   if (method === 'GET' && path === '/v1/browser/snapshot') {
     return requestExtension('browser.snapshot', {}, 30_000);
   }
@@ -254,9 +298,11 @@ async function route(method, url, body) {
   if (method === 'GET' && path === '/v1/tasks') {
     return requestExtension('tasks.list', {}, 30_000);
   }
-  if (method === 'POST' && path === '/v1/tasks') {
+  if (method === 'POST' && (path === '/v1/tasks' || path === '/v1/goal')) {
     return requestExtension('tasks.start', body, Number(body.timeoutMs || 60_000));
   }
+
+
 
   const taskMatch = path.match(/^\/v1\/tasks\/([^/]+)(?:\/([^/]+))?$/);
   if (taskMatch) {
@@ -436,3 +482,225 @@ function sendAgentFrame(socket, obj) {
   header.writeUInt32LE(body.length, 0);
   socket.write(Buffer.concat([header, body]));
 }
+
+const AGENT_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'browser_snapshot',
+      description: 'Capture the structured accessibility tree and numbered interactive elements from the active tab.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_navigate',
+      description: 'Navigate the active browser tab to a specified URL.',
+      parameters: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_click',
+      description: 'Click an element on the active webpage by numeric index or selector.',
+      parameters: { type: 'object', properties: { index: { type: 'number' }, selector: { type: 'string' } } },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_type',
+      description: 'Type text into an input field by element index or selector.',
+      parameters: { type: 'object', properties: { index: { type: 'number' }, selector: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' } }, required: ['text'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_press',
+      description: 'Press a keyboard key on the active webpage (e.g. Enter, Tab, Escape).',
+      parameters: { type: 'object', properties: { key: { type: 'string' } }, required: ['key'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_scroll',
+      description: 'Scroll the active webpage.',
+      parameters: { type: 'object', properties: { direction: { type: 'string', enum: ['down', 'up'] }, amount: { type: 'number' } } },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_screenshot',
+      description: 'Capture a visual PNG screenshot of the current tab.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_extract',
+      description: 'Extract targeted text or structured content from the page.',
+      parameters: { type: 'object', properties: { instruction: { type: 'string' }, selector: { type: 'string' } } },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'weboperator_execute_goal',
+      description: 'Execute an autonomous browser goal end-to-end.',
+      parameters: { type: 'object', properties: { goal: { type: 'string' }, timeoutMs: { type: 'number' } }, required: ['goal'] },
+    },
+  },
+];
+
+async function executeToolByName(name, args = {}, timeoutMs = 30_000) {
+  switch (name) {
+    case 'browser_snapshot':
+      return requestExtension('browser.snapshot', {}, timeoutMs);
+    case 'browser_navigate':
+      return requestExtension('browser.navigate', { url: args.url }, timeoutMs);
+    case 'browser_click':
+      return requestExtension('browser.click', { index: args.index, selector: args.selector }, timeoutMs);
+    case 'browser_type':
+      return requestExtension('browser.type', { index: args.index, selector: args.selector, text: args.text, clear: args.clear }, timeoutMs);
+    case 'browser_press':
+      return requestExtension('browser.press', { key: args.key }, timeoutMs);
+    case 'browser_scroll':
+      return requestExtension('browser.scroll', { direction: args.direction || 'down', amount: args.amount || 500 }, timeoutMs);
+    case 'browser_screenshot':
+      return requestExtension('browser.screenshot', {}, timeoutMs);
+    case 'browser_extract':
+      return requestExtension('browser.extract', { instruction: args.instruction, selector: args.selector }, timeoutMs);
+    case 'weboperator_execute_goal': {
+      const taskTimeout = Number(args.timeoutMs || timeoutMs || 120_000);
+      const startRes = await requestExtension('tasks.start', { goal: args.goal, timeoutMs: taskTimeout }, 30_000);
+      const taskId = startRes && startRes.id;
+      if (!taskId) return startRes;
+      const finalTask = await requestExtension('tasks.wait', { id: taskId, timeoutMs: taskTimeout }, taskTimeout + 10_000);
+      return formatTaskResultForAgent(finalTask || startRes);
+    }
+    default:
+      throw httpError(400, `Unknown tool: ${name}`);
+  }
+}
+
+function formatTaskResultForAgent(task) {
+  if (!task) return { ok: false, status: 'failed', error: 'Task not found or timed out' };
+
+  const steps = Array.isArray(task.steps) ? task.steps : [];
+  let answer = '';
+  const extractedList = [];
+
+  for (const step of steps) {
+    if (step.toolCall) {
+      const args = step.toolCall.arguments || {};
+      if (step.toolCall.name === 'done') {
+        if (args.answer || args.text || args.note || args.summary) {
+          answer = String(args.answer || args.text || args.note || args.summary);
+        }
+      }
+      if (step.toolCall.name === 'extract' && args.instruction) {
+        if (step.result && step.result.extracted) {
+          extractedList.push(step.result.extracted);
+        }
+      }
+    }
+    if (step.result && step.result.extracted !== undefined) {
+      extractedList.push(step.result.extracted);
+    }
+    if (!answer && step.note && step.status === 'ok') {
+      answer = step.note;
+    }
+  }
+
+  if (!answer && extractedList.length > 0) {
+    answer = typeof extractedList[extractedList.length - 1] === 'string'
+      ? extractedList[extractedList.length - 1]
+      : JSON.stringify(extractedList, null, 2);
+  }
+
+  if (!answer && task.plan && Array.isArray(task.plan.steps)) {
+    const doneSteps = task.plan.steps.filter((s) => s.status === 'done');
+    if (doneSteps.length > 0) {
+      answer = doneSteps.map((s) => `✓ ${s.description}`).join('\n');
+    }
+  }
+
+  if (!answer && task.status === 'done') {
+    answer = `Goal completed successfully: "${task.goal}"`;
+  } else if (!answer && task.status === 'failed') {
+    answer = `Goal failed: ${task.error || 'Unknown error'}`;
+  }
+
+  return {
+    ok: task.status === 'done',
+    status: task.status,
+    goal: task.goal,
+    answer,
+    extracted: extractedList.length > 0 ? extractedList : undefined,
+    stepCount: steps.length,
+    error: task.error,
+    modelUsed: task.modelUsed,
+  };
+}
+
+
+async function handleMcpHttp(msg) {
+  const { id, method, params } = msg || {};
+  if (method === 'initialize') {
+    return {
+      jsonrpc: '2.0',
+      id,
+      result: {
+        protocolVersion: '2024-11-05',
+        capabilities: { tools: { listChanged: false } },
+        serverInfo: { name: 'weboperator-bridge', version: '1.4.0' },
+      },
+    };
+  }
+  if (method === 'tools/list') {
+    return {
+      jsonrpc: '2.0',
+      id,
+      result: {
+        tools: AGENT_TOOLS.map((t) => ({
+          name: t.function.name,
+          description: t.function.description,
+          inputSchema: t.function.parameters,
+        })),
+      },
+    };
+  }
+  if (method === 'tools/call') {
+    const { name, arguments: toolArgs } = params || {};
+    try {
+      const res = await executeToolByName(name, toolArgs || {}, 30_000);
+      return {
+        jsonrpc: '2.0',
+        id,
+        result: {
+          content: [{ type: 'text', text: typeof res === 'string' ? res : JSON.stringify(res, null, 2) }],
+        },
+      };
+    } catch (err) {
+      return {
+        jsonrpc: '2.0',
+        id,
+        result: {
+          isError: true,
+          content: [{ type: 'text', text: err instanceof Error ? err.message : String(err) }],
+        },
+      };
+    }
+  }
+  if (method === 'ping') {
+    return { jsonrpc: '2.0', id, result: {} };
+  }
+  return { jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } };
+}
+

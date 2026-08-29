@@ -52,10 +52,16 @@ export function App() {
   }, [settings.ollamaUrl, settings.provider]);
 
   const handleEvent = useCallback((evt: SWEvent) => {
-    if (evt.kind === 'task:update') setTask({ ...evt.task });
+    if (evt.kind === 'task:update') {
+      setTask({ ...evt.task });
+      if (evt.task.status === 'running') {
+        setView('task');
+      }
+    }
     if (evt.kind === 'task:step') setTask((t) => t && t.id === evt.taskId ? { ...t, steps: upsertStep(t.steps, evt.step) } : t);
     if (evt.kind === 'skills:detected') setDetectedSkills(evt.skills as ClassifiedSkill[]);
   }, []);
+
 
   useAgentPort(handleEvent);
 
@@ -526,14 +532,16 @@ function groupTasksByDay(tasks: AgentTask[]): TaskDayGroup[] {
   for (const task of tasks) {
     const d = new Date(task.createdAt);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const formattedDate = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     let label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     let isToday = false;
     if (key === todayKey) {
-      label = 'Today';
+      label = `Today, ${formattedDate}`;
       isToday = true;
     } else if (key === yesterdayKey) {
-      label = 'Yesterday';
+      label = `Yesterday, ${formattedDate}`;
     }
+
 
     if (!groups.has(key)) {
       groups.set(key, { key, label, isToday, tasks: [] });
@@ -590,11 +598,15 @@ function HistoryView({ onReplay, onOpen, onResumeCheckpoint }: { onReplay: (goal
                     {t.status === 'failed' && onResumeCheckpoint && (
                       <button className="secondary" onClick={() => onResumeCheckpoint(t.id)}>Resume</button>
                     )}
-                    <button className="secondary" onClick={() => onReplay(t.goal)}>Replay</button>
+                    <button className="secondary" onClick={() => onReplay(t.goal)}>Repeat</button>
+
                     <button className="secondary" onClick={() => exportTask(t.id)}>Export</button>
                     <div className="history-meta">
                       <span className="item-meta step-detail">{new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                      <span className={`status-pill status-${t.status}`}>{t.status}</span>
+                      <span className={`status-pill status-${t.status}`} title={t.status}>
+                        {t.status === 'done' ? '✓' : t.status === 'failed' ? '✕' : t.status}
+                      </span>
+
                     </div>
                   </div>
 
@@ -930,14 +942,15 @@ function SettingsPanel({ settings, updateSetting }: {
       <select value={settings.provider} onChange={(e) => updateSetting('provider', e.target.value as Settings['provider'])}>
 
         <option value="anthropic">Provider: Anthropic (Claude)</option>
-        <option value="ollama">Provider: Ollama (Local)</option>
-        <option value="mlx">Provider: MLX (Local)</option>
-        <option value="openai">Provider: OpenAI</option>
-        <option value="gemini">Provider: Google Gemini</option>
-        <option value="xai">Provider: xAI</option>
-        <option value="openrouter">Provider: OpenRouter</option>
         <option value="deepseek">Provider: DeepSeek</option>
+        <option value="gemini">Provider: Google Gemini</option>
+        <option value="mlx">Provider: MLX (Local)</option>
+        <option value="ollama">Provider: Ollama (Local)</option>
+        <option value="openai">Provider: OpenAI</option>
+        <option value="openrouter">Provider: OpenRouter</option>
+        <option value="xai">Provider: xAI</option>
       </select>
+
 
       {settings.provider === 'anthropic' && (
         <>

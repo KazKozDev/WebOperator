@@ -57,7 +57,7 @@ export function useVoiceInput({
     }
   }, []);
 
-  const toggleListening = () => {
+  const toggleListening = async () => {
     if (isListening) {
       recognitionRef.current?.stop();
       setIsListening(false);
@@ -68,6 +68,21 @@ export function useVoiceInput({
     if (!SpeechRec) {
       setError('Voice recognition is not supported in this browser.');
       return;
+    }
+
+    // Proactively request microphone access if supported to trigger permission prompt
+    if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function') {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((track) => track.stop());
+      } catch (mediaErr: unknown) {
+        const errName = (mediaErr as { name?: string })?.name;
+        if (errName === 'NotAllowedError' || errName === 'PermissionDeniedError') {
+          setError('Microphone permission blocked. Please allow microphone access in Chrome settings.');
+          setIsListening(false);
+          return;
+        }
+      }
     }
 
     try {
@@ -96,7 +111,9 @@ export function useVoiceInput({
       };
 
       recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
-        if (e.error !== 'no-speech') {
+        if (e.error === 'not-allowed') {
+          setError('Microphone access blocked. Please allow microphone permission for the extension in Chrome Settings.');
+        } else if (e.error !== 'no-speech') {
           setError(`Speech error: ${e.error}`);
         }
         setIsListening(false);

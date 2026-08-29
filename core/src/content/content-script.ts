@@ -161,37 +161,26 @@ function ensureAgentGlowStyle(): void {
       inset: 0;
       z-index: 2147483646;
       pointer-events: none;
-      border: 2px solid rgba(224, 122, 63, 0.68);
+      border: 1.5px solid rgba(212, 162, 78, 0.8);
       box-shadow:
-        inset 0 0 0 1px rgba(255, 238, 204, 0.45),
-        inset 0 0 14px rgba(224, 122, 63, 0.30),
-        0 0 12px rgba(224, 122, 63, 0.38);
-      animation: weboperator-agent-edge-pulse 2.4s ease-in-out infinite;
-    }
-
-    #${AGENT_GLOW_ID}::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background:
-        linear-gradient(90deg, rgba(224, 122, 63, 0.24), transparent 7%, transparent 93%, rgba(224, 122, 63, 0.24)),
-        linear-gradient(180deg, rgba(255, 218, 160, 0.20), transparent 6%, transparent 94%, rgba(224, 122, 63, 0.22));
-      filter: blur(5px);
-      opacity: 0.9;
+        inset 0 0 0 1px rgba(255, 238, 180, 0.35),
+        inset 0 0 6px rgba(212, 162, 78, 0.25),
+        0 0 4px rgba(212, 162, 78, 0.35);
+      animation: weboperator-agent-edge-pulse 2.2s ease-in-out infinite;
     }
 
     @keyframes weboperator-agent-edge-pulse {
       0%, 100% {
         box-shadow:
-          inset 0 0 0 1px rgba(255, 238, 204, 0.35),
-          inset 0 0 12px rgba(224, 122, 63, 0.24),
-          0 0 10px rgba(224, 122, 63, 0.30);
+          inset 0 0 0 1px rgba(255, 238, 180, 0.28),
+          inset 0 0 5px rgba(212, 162, 78, 0.20),
+          0 0 3px rgba(212, 162, 78, 0.25);
       }
       50% {
         box-shadow:
-          inset 0 0 0 1px rgba(255, 248, 225, 0.65),
-          inset 0 0 20px rgba(224, 122, 63, 0.42),
-          0 0 16px rgba(224, 122, 63, 0.50);
+          inset 0 0 0 1px rgba(255, 248, 210, 0.50),
+          inset 0 0 8px rgba(212, 162, 78, 0.35),
+          0 0 6px rgba(212, 162, 78, 0.45);
       }
     }
   `;

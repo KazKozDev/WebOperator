@@ -24,27 +24,35 @@
 
 :root {
   color-scheme: dark;
-  --bg: #151312;
-  --surface: #1c1615;
+  --bg: #100E0B;
+  --surface: #17140F;
+  --surface2: #1B1712;
+  --surface3: #292319;
+  --border: #292319;
 
-  --surface2: #261d1b;
-  --surface3: #312624;
-  --border: #302421;
-  --text: #dfceb3;
-  --text2: rgba(223, 206, 179, 0.52);
-  --text3: rgba(223, 206, 179, 0.72);
-  --accent: #d4a24e;
-  --accent2: rgba(212, 162, 78, 0.58);
+  --accent: #BFA054;
+  --accent2: #7A6330;
   --success: #849176;
   --error: #b77b6b;
   --warning: #cc9955;
+
+  /* 4 Tiers of Typography */
+  --text-1: #EAE4D9; /* Заголовки, значения полей, названия skill'ов */
+  --text-2: #9C9488; /* Основной текст списков */
+  --text-3: #6B655C; /* Подписи, описания вкладок, ссылки-действия */
+  --text-4: #4A453E; /* Время, плейсхолдеры, счётчики */
+
+  --text: var(--text-1);
+  --text2: var(--text-2);
+  --text3: var(--text-3);
+
   --font-body: "DM Sans Local", "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
   font-family: var(--font-body);
   font-size: 13px;
   line-height: 1.5;
   background: var(--bg);
-  color: var(--text);
+  color: var(--text-2);
 }
 
 * {
@@ -115,7 +123,7 @@ textarea:disabled {
   overflow: hidden;
   padding: 5px 9px;
   border: 1px solid rgba(223, 206, 179, 0.14);
-  border-radius: 8px;
+  border-radius: 12px;
   background: rgba(28, 22, 21, 0.72);
   backdrop-filter: blur(8px);
   color: var(--text2);
@@ -127,7 +135,7 @@ textarea:disabled {
 }
 
 .model-chip:hover {
-  border-color: rgba(212, 162, 78, 0.3);
+  border-color: rgba(191, 160, 84, 0.3);
   color: var(--text);
 }
 
@@ -145,7 +153,7 @@ textarea:disabled {
   display: block;
   width: 26px;
   height: 26px;
-  border-radius: 7px;
+  border-radius: 12px;
 }
 
 .brand-status {
@@ -199,7 +207,7 @@ textarea:disabled {
   height: 30px;
   padding: 6px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 12px;
   background: transparent;
   color: var(--text2);
   transition: background 0.15s, color 0.15s, border-color 0.15s;
@@ -211,8 +219,8 @@ textarea:disabled {
 }
 
 .icon-btn.active {
-  border-color: rgba(212, 162, 78, 0.28);
-  background: rgba(212, 162, 78, 0.14);
+  border-color: rgba(191, 160, 84, 0.28);
+  background: rgba(191, 160, 84, 0.14);
   color: var(--accent);
 }
 
@@ -238,7 +246,7 @@ textarea:disabled {
   border: 0;
   border-bottom: 2px solid transparent;
   background: transparent;
-  color: rgba(223, 206, 179, 0.62);
+  color: var(--text-3);
   font-size: 12px;
   font-weight: 400;
   white-space: nowrap;
@@ -246,7 +254,7 @@ textarea:disabled {
 }
 
 .tab-item:hover:not(.active) {
-  color: var(--text);
+  color: var(--text-1);
 }
 
 .tab-item.active {
@@ -284,7 +292,7 @@ textarea:disabled {
 
 .page-header h2 {
   margin: 0 0 10px;
-  color: var(--text);
+  color: var(--text-1);
   font-size: 18px;
   font-weight: 500;
   letter-spacing: 1px;
@@ -292,14 +300,14 @@ textarea:disabled {
 
 .page-header p {
   margin: 0;
-  color: var(--text2);
+  color: var(--text-3);
   font-size: 13px;
 }
 
 .page-note {
   flex-shrink: 0;
-  margin-bottom: 32px;
-  color: var(--text2);
+  margin-bottom: 16px;
+  color: var(--text-3);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -658,14 +666,14 @@ textarea:disabled {
   min-height: 28px;
   padding: 6px 8px;
   border: 1px solid rgba(223, 206, 179, 0.07);
-  border-radius: 6px;
+  border-radius: 12px;
   background: rgba(15, 14, 12, 0.34);
 }
 
 .plan-step.active,
 .subtask-row.running {
-  border-color: rgba(212, 162, 78, 0.22);
-  background: rgba(212, 162, 78, 0.08);
+  border-color: rgba(191, 160, 84, 0.22);
+  background: rgba(191, 160, 84, 0.08);
 }
 
 .plan-step.done,
@@ -727,7 +735,7 @@ textarea:disabled {
 
 .trace-collapse {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 12px;
   background: rgba(28, 22, 21, 0.52);
 }
 
@@ -826,11 +834,11 @@ textarea:disabled {
 .prompt-chip {
   width: 100%;
   padding: 10px 14px;
-  border: 1px solid rgba(223, 206, 179, 0.12);
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: rgba(26, 22, 20, 0.7);
+  background: var(--surface);
   backdrop-filter: blur(8px);
-  color: rgba(223, 206, 179, 0.7);
+  color: var(--text-2);
   font-size: 13px;
   font-weight: 400;
   line-height: 1.4;
@@ -842,9 +850,9 @@ textarea:disabled {
 }
 
 .prompt-chip:hover {
-  border-color: rgba(212, 162, 78, 0.4);
-  background: rgba(38, 30, 27, 0.9);
-  color: var(--text);
+  border-color: var(--accent);
+  background: var(--surface2);
+  color: var(--text-1);
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
 }
@@ -878,7 +886,7 @@ textarea:disabled {
 
 .step:hover {
   background: transparent;
-  border-bottom-color: rgba(212, 162, 78, 0.25);
+  border-bottom-color: rgba(191, 160, 84, 0.25);
   transform: none;
 }
 
@@ -897,7 +905,7 @@ textarea:disabled {
 
 .step.thinking {
   background: transparent;
-  border-bottom-color: rgba(212, 162, 78, 0.2);
+  border-bottom-color: rgba(191, 160, 84, 0.2);
   animation: thinking-pulse 1.4s ease-in-out infinite;
 }
 
@@ -959,15 +967,16 @@ textarea:disabled {
   color: var(--warning);
 }
 
-.step-detail,
-.step-badges {
+.step-detail {
   margin-top: 4px;
-  color: var(--text2);
+  color: rgba(223, 206, 179, 0.28);
   font-size: 11px;
 }
 
 .step-badges {
+  margin-top: 4px;
   color: var(--accent2);
+  font-size: 11px;
 }
 
 .step-detail.is-fast {
@@ -985,7 +994,7 @@ textarea:disabled {
   overflow: auto;
   padding: 8px;
   border: 1px solid rgba(223, 206, 179, 0.08);
-  border-radius: 6px;
+  border-radius: 12px;
   background: var(--bg);
   color: var(--text3);
   font: 11px/1.35 var(--font-mono);
@@ -995,7 +1004,7 @@ textarea:disabled {
 .step img {
   width: 100%;
   margin-top: 8px;
-  border-radius: 6px;
+  border-radius: 12px;
 }
 
 .input-area {
@@ -1008,22 +1017,21 @@ textarea:disabled {
 }
 
 .input-row {
+  position: relative;
   display: flex;
-  align-items: stretch;
-  gap: 10px;
-  min-height: 88px;
-  padding: 13px 14px 10px;
-  border: 1px solid rgba(223, 206, 179, 0.18);
-  border-radius: 16px;
-  background: rgba(38, 30, 28, 0.92);
+  flex-direction: column;
+  padding: 10px 12px 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface2);
   backdrop-filter: blur(16px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .input-row:focus-within {
-  border-color: rgba(212, 162, 78, 0.5);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(212, 162, 78, 0.2);
+  border-color: var(--accent);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(191, 160, 84, 0.2);
 }
 
 
@@ -1046,15 +1054,22 @@ textarea:disabled {
   border-radius: 0;
   outline: none;
   background: transparent;
-  color: rgba(223, 206, 179, 0.88);
+  color: var(--text-1);
   font-family: inherit;
   font-size: 14px;
   scrollbar-width: thin;
-  scrollbar-color: rgba(212, 162, 78, 0.32) transparent;
+  scrollbar-color: rgba(191, 160, 84, 0.32) transparent;
 }
 
-.goal-input::placeholder {
-  color: rgba(223, 206, 179, 0.48);
+::placeholder,
+.goal-input::placeholder,
+.ui-form input::placeholder,
+.ui-form textarea::placeholder,
+.settings input::placeholder,
+.settings textarea::placeholder,
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-4);
 }
 
 .goal-input::-webkit-scrollbar {
@@ -1067,11 +1082,11 @@ textarea:disabled {
 
 .goal-input::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: rgba(212, 162, 78, 0.26);
+  background: rgba(191, 160, 84, 0.26);
 }
 
 .goal-input::-webkit-scrollbar-thumb:hover {
-  background: rgba(212, 162, 78, 0.44);
+  background: rgba(191, 160, 84, 0.44);
 }
 
 .composer-actions {
@@ -1136,7 +1151,7 @@ textarea:disabled {
   margin: 0;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--accent);
   color: #17110e;
   font-size: 14px;
@@ -1180,7 +1195,7 @@ textarea:disabled {
   margin: 0;
   padding: 0;
   border: 1px solid rgba(223, 206, 179, 0.14);
-  border-radius: 8px;
+  border-radius: 12px;
   background: rgba(223, 206, 179, 0.06);
   color: var(--text2);
   cursor: pointer;
@@ -1189,7 +1204,7 @@ textarea:disabled {
 
 .voice-btn:hover {
   background: rgba(223, 206, 179, 0.14);
-  border-color: rgba(212, 162, 78, 0.35);
+  border-color: rgba(191, 160, 84, 0.35);
   color: var(--text);
   transform: translateY(-1px);
 }
@@ -1243,14 +1258,14 @@ button.secondary,
 button.danger {
   padding: 6px 10px;
   border: 1px solid rgba(223, 206, 179, 0.12);
-  border-radius: 7px;
+  border-radius: 12px;
   background: var(--surface2);
   color: var(--text3);
 }
 
 .controls button:hover,
 button.secondary:hover {
-  border-color: rgba(212, 162, 78, 0.28);
+  border-color: rgba(191, 160, 84, 0.28);
   color: var(--accent);
 }
 
@@ -1276,10 +1291,10 @@ button.secondary:hover {
   user-select: none;
   font-size: 12px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--text-3);
   background: transparent;
   border: none;
-  border-bottom: 1px solid rgba(223, 206, 179, 0.1);
+  border-bottom: 1px solid var(--border);
   transition: color 0.15s ease;
   list-style: none;
 }
@@ -1305,7 +1320,7 @@ button.secondary:hover {
 .history-day-count {
   font-size: 11px;
   font-weight: 500;
-  color: var(--text3);
+  color: var(--text-4);
   background: transparent;
   padding: 0;
   border: none;
@@ -1325,7 +1340,7 @@ button.danger {
   margin: 10px 20px 0;
   padding: 10px 12px;
   border: 1px solid rgba(132, 145, 118, 0.22);
-  border-radius: 8px;
+  border-radius: 12px;
   background: rgba(132, 145, 118, 0.08);
   color: var(--success);
   font-size: 12px;
@@ -1354,7 +1369,7 @@ button.danger {
   padding: 12px 14px;
   border: 1px solid rgba(204, 153, 85, 0.25);
   border-left: 3px solid var(--warning);
-  border-radius: 8px;
+  border-radius: 12px;
   background: rgba(204, 153, 85, 0.1);
   color: var(--text);
 }
@@ -1397,15 +1412,15 @@ button.danger {
 
 .ui-list-item {
   padding: 12px 13px;
-  border: 1px solid rgba(223, 206, 179, 0.08);
-  border-radius: 8px;
-  background: rgba(28, 22, 21, 0.66);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
   transition: border-color 0.15s, background 0.15s;
 }
 
 .ui-list-item:hover {
-  border-color: rgba(212, 162, 78, 0.18);
-  background: rgba(28, 22, 21, 0.88);
+  border-color: var(--accent2);
+  background: rgba(23, 20, 15, 0.95);
 }
 
 .item-head {
@@ -1417,7 +1432,7 @@ button.danger {
 
 .item-title {
   margin-top: 7px;
-  color: var(--text);
+  color: var(--text-2);
   font-size: 13px;
   font-weight: 400;
   line-height: 1.35;
@@ -1426,7 +1441,7 @@ button.danger {
 
 
 .item-meta {
-  color: var(--text2);
+  color: var(--text-3);
   font-size: 11px;
   line-height: 1.4;
 }
@@ -1457,22 +1472,30 @@ button.danger {
 .status-pill.status-done {
   border: none;
   background: transparent;
-  color: rgba(167, 243, 208, 0.8);
+  color: rgba(132, 155, 125, 0.45);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
 }
 
 .status-pill.status-done::before {
-  background: rgba(52, 211, 153, 0.8);
+  display: none;
 }
 
 .status-pill.status-failed {
   border: none;
   background: transparent;
-  color: rgba(254, 202, 202, 0.8);
+  color: rgba(183, 123, 107, 0.48);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
 }
 
 .status-pill.status-failed::before {
-  background: rgba(248, 113, 113, 0.8);
+  display: none;
 }
+
+
 
 .status-pill.status-running {
   border: none;
@@ -1519,7 +1542,7 @@ button.danger {
 .history-item {
   background: transparent;
   border: none;
-  border-bottom: 1px solid rgba(223, 206, 179, 0.08);
+  border-bottom: 1px solid var(--border);
   border-radius: 0;
   padding: 14px 0 14px;
   box-shadow: none;
@@ -1527,7 +1550,7 @@ button.danger {
 
 .history-item:hover {
   background: transparent;
-  border-bottom-color: rgba(212, 162, 78, 0.25);
+  border-bottom-color: var(--accent2);
 }
 
 .history-item:last-child {
@@ -1539,7 +1562,7 @@ button.danger {
   flex-wrap: nowrap;
   align-items: center;
   margin-top: 8px;
-  gap: 5px;
+  gap: 12px;
 }
 
 .history-item .history-meta {
@@ -1551,13 +1574,58 @@ button.danger {
   flex-shrink: 0;
 }
 
-.history-item .controls button {
-  padding: 3px 8px;
-  font-size: 11px;
-  line-height: 1.2;
-  border-radius: 5px;
-  min-height: 22px;
+.history-item .history-meta .item-meta {
+  color: var(--text-4);
 }
+
+.history-item .item-meta,
+.history-item .step-detail,
+.history-item .status-pill {
+  color: var(--text-3);
+}
+
+.history-item .controls button {
+  padding: 0;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  min-height: auto;
+  color: var(--text-3);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.15s ease, text-decoration 0.15s ease;
+}
+
+.history-item .controls button:hover {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--accent);
+}
+
+.history-item .controls button.danger {
+  color: rgba(183, 123, 107, 0.7);
+}
+
+.history-item .controls button.danger:hover {
+  color: var(--error);
+  text-decoration: underline;
+  text-decoration-color: var(--error);
+}
+
+.history-item .controls button:active {
+  background: transparent;
+  color: var(--accent);
+  opacity: 0.8;
+}
+
 
 
 
@@ -1583,7 +1651,7 @@ button.danger {
 
 .history-goal {
   margin-top: 0;
-  color: var(--text);
+  color: var(--text-2);
   font-size: 12px;
   font-weight: 400;
   line-height: 1.42;
@@ -1593,46 +1661,84 @@ button.danger {
 
 
 
+
 .page-empty {
-  padding: 24px 20px;
-  color: var(--text2);
+  padding: 32px 20px;
+  color: var(--text-3);
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+
+.skills-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .skill-card {
-  padding: 7px 10px;
-  border-color: rgba(223, 206, 179, 0.07);
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.4;
+  text-align: left;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-sizing: border-box;
+}
+
+.skill-card:hover {
+  border-color: var(--accent);
+  background: var(--surface2);
+  color: var(--text-1);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
 }
 
 .skill-card.active {
-  border-color: rgba(212, 162, 78, 0.16);
-  background: rgba(212, 162, 78, 0.045);
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.skill-card.active:hover {
+  border-color: var(--accent);
+  background: var(--surface2);
 }
 
 .skill-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   width: 100%;
-  min-height: 24px;
+  min-height: 0;
   cursor: pointer;
 }
 
 .skill-row .toggle {
   margin-left: auto;
+  flex-shrink: 0;
 }
 
-.skill-row .item-title {
-  margin-top: 0;
-}
-
-.skill-row:hover .skill-title {
-  color: var(--accent);
-}
-
+.skill-row .item-title,
 .skill-title {
-  color: var(--text);
-  font-size: 12px;
+  margin: 0;
+  color: var(--text-2);
+  font-size: 13px;
   font-weight: 400;
+  line-height: 1.4;
+  transition: color 0.15s ease;
+}
+
+.skill-card:hover .skill-title,
+.skill-card:hover .item-title,
+.skill-row:hover .skill-title {
+  color: var(--text-1);
 }
 
 
@@ -1645,22 +1751,23 @@ button.danger {
   letter-spacing: 0.5px;
 }
 
-.risk-tag--safe { background: rgba(223,206,179,0.08); color: var(--text2); }
-.risk-tag--medium { background: rgba(223,206,179,0.08); color: var(--text2); }
-.risk-tag--high { background: rgba(223,206,179,0.08); color: var(--text2); }
+.risk-tag--safe { background: rgba(74, 69, 62, 0.25); color: var(--text-4); }
+.risk-tag--medium { background: rgba(74, 69, 62, 0.25); color: var(--text-4); }
+.risk-tag--high { background: rgba(74, 69, 62, 0.25); color: var(--text-4); }
 
 .skill-detail {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 0 1px 0;
-  border-top: 1px solid rgba(223, 206, 179, 0.06);
-  margin-top: 5px;
+  padding: 8px 0 2px 0;
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+  color: var(--text-3);
 }
 
 .skill-desc {
   margin: 0;
-  color: var(--text2);
+  color: var(--text-3);
   font-size: 12px;
   line-height: 1.4;
   text-align: left;
@@ -1670,7 +1777,7 @@ button.danger {
   margin-top: 12px;
   padding: 10px;
   border: 1px solid rgba(223, 206, 179, 0.1);
-  border-radius: 8px;
+  border-radius: 12px;
   background: rgba(15, 14, 12, 0.34);
 }
 
@@ -1704,9 +1811,9 @@ button.danger {
   gap: 6px;
   max-width: 100%;
   padding: 4px 7px;
-  border: 1px solid rgba(212, 162, 78, 0.18);
+  border: 1px solid rgba(191, 160, 84, 0.18);
   border-radius: 999px;
-  background: rgba(212, 162, 78, 0.08);
+  background: rgba(191, 160, 84, 0.08);
   color: var(--accent2);
   font-size: 11px;
 }
@@ -1804,7 +1911,7 @@ button.danger {
   width: 28px;
   height: 28px;
   border: 1px solid rgba(223, 206, 179, 0.1);
-  border-radius: 7px;
+  border-radius: 12px;
   background: rgba(223, 206, 179, 0.05);
   color: var(--text2);
   font-size: 12px;
@@ -1819,34 +1926,36 @@ button.danger {
 .toggle {
   position: relative;
   flex: 0 0 auto;
-  width: 30px;
-  height: 18px;
+  width: 24px;
+  height: 14px;
   padding: 0;
-  border: 1px solid rgba(223, 206, 179, 0.1);
+  border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--surface2);
+  cursor: pointer;
+  outline: none;
   transition: background 0.15s, border-color 0.15s;
 }
 
 .toggle span {
   position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 12px;
-  height: 12px;
+  top: 1px;
+  left: 1px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  background: rgba(223, 206, 179, 0.62);
+  background: var(--text-4);
   transition: transform 0.15s, background 0.15s;
 }
 
 .toggle.on {
-  border-color: rgba(212, 162, 78, 0.3);
-  background: rgba(212, 162, 78, 0.16);
+  border-color: rgba(234, 228, 217, 0.25);
+  background: rgba(234, 228, 217, 0.12);
 }
 
 .toggle.on span {
-  transform: translateX(12px);
-  background: var(--accent);
+  transform: translateX(10px);
+  background: var(--text-1);
 }
 
 /* Unified Forms & Controls */
@@ -1864,13 +1973,11 @@ button.danger {
   flex-direction: column;
   align-items: stretch;
   gap: 6px;
-  color: var(--text2);
+  color: var(--text-3);
   font-size: 12px;
   font-weight: 500;
   line-height: 1.3;
 }
-
-
 
 .settings input,
 .settings select,
@@ -1882,11 +1989,11 @@ button.danger {
   min-width: 0;
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid rgba(223, 206, 179, 0.12);
-  border-radius: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
   outline: none;
-  background: var(--surface);
-  color: var(--text);
+  background: var(--surface2);
+  color: var(--text-1);
   font-family: var(--font-body);
   font-size: 12px;
   font-weight: 400;
@@ -1901,8 +2008,7 @@ button.danger {
 .ui-form select:focus,
 .ui-form textarea:focus,
 .text-input:focus {
-  border-color: rgba(212, 162, 78, 0.5);
-  box-shadow: 0 0 0 1px rgba(212, 162, 78, 0.18);
+  border-color: var(--accent);
 }
 
 .settings textarea,
@@ -1989,7 +2095,7 @@ button.danger {
 .settings-note {
   padding: 12px 14px;
   border: 1px solid rgba(120, 180, 220, 0.22);
-  border-radius: 8px;
+  border-radius: 12px;
   background: rgba(120, 180, 220, 0.08);
   color: var(--text);
   font-size: 12px;
@@ -2027,7 +2133,7 @@ button.danger {
   overflow: auto;
   padding: 14px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--surface);
 }
 
@@ -2054,7 +2160,7 @@ button.danger {
   margin: 6px 0 0;
   padding: 8px;
   border: 1px solid rgba(223, 206, 179, 0.08);
-  border-radius: 6px;
+  border-radius: 12px;
   background: var(--bg);
   color: var(--text3);
   font: 11px/1.35 var(--font-mono);
@@ -2065,7 +2171,7 @@ button.danger {
 .detail-block img {
   width: 100%;
   margin-top: 6px;
-  border-radius: 6px;
+  border-radius: 12px;
 }
 
 .i {
@@ -2196,7 +2302,7 @@ button.danger {
 
 .empty-intro {
   padding: 0 20px 12px;
-  color: var(--text2);
+  color: var(--text-3);
   font-size: 12px;
   line-height: 1.45;
   text-align: center;
