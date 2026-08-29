@@ -514,6 +514,40 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
   );
 }
 
+interface TaskDayGroup {
+  key: string;
+  label: string;
+  isToday: boolean;
+  tasks: AgentTask[];
+}
+
+function groupTasksByDay(tasks: AgentTask[]): TaskDayGroup[] {
+  const groups = new Map<string, TaskDayGroup>();
+  const now = new Date();
+  const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const yesterday = new Date(now.getTime() - 86400000);
+  const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+
+  for (const task of tasks) {
+    const d = new Date(task.createdAt);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    let label = d.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+    let isToday = false;
+    if (key === todayKey) {
+      label = 'Сегодня';
+      isToday = true;
+    } else if (key === yesterdayKey) {
+      label = 'Вчера';
+    }
+
+    if (!groups.has(key)) {
+      groups.set(key, { key, label, isToday, tasks: [] });
+    }
+    groups.get(key)!.tasks.push(task);
+  }
+  return Array.from(groups.values());
+}
+
 function HistoryView({ onReplay, onOpen, onResumeCheckpoint }: { onReplay: (goal: string) => void; onOpen: (t: AgentTask) => void; onResumeCheckpoint?: (id: string) => void }) {
 
   const [tasks, setTasks] = useState<AgentTask[]>([]);
@@ -536,31 +570,44 @@ function HistoryView({ onReplay, onOpen, onResumeCheckpoint }: { onReplay: (goal
   if (loading) return <section className="view active page-view"><div className="page-empty">Loading...</div></section>;
   if (tasks.length === 0) return <section className="view active page-view"><div className="page-empty">History is empty</div></section>;
 
+  const dayGroups = groupTasksByDay(tasks);
+
   return (
     <section className="view active page-view history-view">
       <div className="page-note">Past tasks the agent has run. Open one to inspect its trace, or replay its goal.</div>
-      <div className="ui-list history-list">
-      {tasks.map((t) => (
-        <div key={t.id} className="ui-list-item history-item">
-          <div className="item-head step-head">
-            <span className="status-pill">{t.status}</span>
-            <span className="item-meta step-detail">{new Date(t.createdAt).toLocaleString()}</span>
-          </div>
-          <div className="item-title history-goal">{t.goal}</div>
-          <div className="action-row controls">
-            <button className="secondary" onClick={() => openTask(t.id)}>Open</button>
-            {t.status === 'failed' && onResumeCheckpoint && (
-              <button className="secondary" onClick={() => onResumeCheckpoint(t.id)}>Resume</button>
-            )}
-            <button className="secondary" onClick={() => onReplay(t.goal)}>Replay</button>
-            <button className="secondary" onClick={() => exportTask(t.id)}>Export</button>
-          </div>
-        </div>
-      ))}
+      <div className="history-accordion">
+        {dayGroups.map((group) => (
+          <details key={group.key} className="history-day-group" open={group.isToday || dayGroups.length === 1}>
+            <summary className="history-day-summary">
+              <span className="history-day-label">📅 {group.label}</span>
+              <span className="history-day-count">{group.tasks.length} {group.tasks.length === 1 ? 'task' : 'tasks'}</span>
+            </summary>
+            <div className="ui-list history-list" style={{ padding: '8px' }}>
+              {group.tasks.map((t) => (
+                <div key={t.id} className="ui-list-item history-item">
+                  <div className="item-head step-head">
+                    <span className="status-pill">{t.status}</span>
+                    <span className="item-meta step-detail">{new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                  <div className="item-title history-goal">{t.goal}</div>
+                  <div className="action-row controls">
+                    <button className="secondary" onClick={() => openTask(t.id)}>Open</button>
+                    {t.status === 'failed' && onResumeCheckpoint && (
+                      <button className="secondary" onClick={() => onResumeCheckpoint(t.id)}>Resume</button>
+                    )}
+                    <button className="secondary" onClick={() => onReplay(t.goal)}>Replay</button>
+                    <button className="secondary" onClick={() => exportTask(t.id)}>Export</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </details>
+        ))}
       </div>
     </section>
   );
 }
+
 
 
 function SkillsView({ settings, updateSetting }: {
