@@ -748,19 +748,20 @@ function SkillsView({ settings, updateSetting }: {
       <div className="ui-list skills-list" style={{ marginTop: '16px' }}>
         <article className="ui-list-item skill-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span className="item-title skill-title" style={{ margin: 0, fontWeight: 600 }}>Custom Skills</span>
+            <span className="item-title skill-title" style={{ margin: 0 }}>Custom Skills</span>
             <span className="status-pill" style={{ padding: '2px 6px', fontSize: '10px' }}>{customSkills.length}</span>
           </div>
           <button
             type="button"
             className="secondary"
-            style={{ fontSize: '11px', padding: '4px 10px', fontWeight: 600 }}
+            style={{ fontSize: '11px', padding: '4px 10px', fontWeight: 500 }}
             onClick={() => setIsCreating((prev) => !prev)}
           >
             {isCreating ? 'Cancel' : '+ Add custom skill'}
           </button>
         </article>
       </div>
+
 
 
 
