@@ -1868,11 +1868,8 @@ button.danger {
 
 
 .settings-advanced {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: 2px;
-  padding-top: 10px;
+  margin-top: 4px;
+  padding-top: 12px;
   border-top: 1px solid rgba(223, 206, 179, 0.08);
 }
 
@@ -1880,6 +1877,7 @@ button.danger {
   color: var(--text2);
   cursor: pointer;
   font-size: 12px;
+  font-weight: 500;
   list-style: none;
   user-select: none;
 }
@@ -1906,9 +1904,16 @@ button.danger {
 }
 
 .settings-advanced[open] summary {
-  margin-bottom: 10px;
-  color: var(--accent2);
+  color: var(--accent);
 }
+
+.settings-advanced-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
 
 .settings-note {
   padding: 12px 14px;

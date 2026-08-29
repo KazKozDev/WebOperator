@@ -1023,62 +1023,62 @@ function SettingsPanel({ settings, updateSetting }: {
         <input type="number" value={settings.actionTimeoutMs} onChange={(e) => updateSetting('actionTimeoutMs', Number(e.target.value))} placeholder="Timeout, ms" />
       </div>
       <details className="settings-advanced">
-        <summary>Advanced</summary>
-        <select style={{ marginTop: '8px' }} value={settings.thinkingPolicy} onChange={(e) => updateSetting('thinkingPolicy', e.target.value as Settings['thinkingPolicy'])}>
-          <option value="auto">Thinking: Auto</option>
-          <option value="always">Thinking: Always</option>
-          <option value="never">Thinking: Never</option>
-        </select>
-        <select value={settings.contextCompressor} onChange={(e) => updateSetting('contextCompressor', e.target.value as Settings['contextCompressor'])}>
-          <option value="off">Context compressor: Off (deterministic)</option>
-          <option value="same">Context compressor: Same model</option>
-          <option value="cloud">Context compressor: Cloud (DeepSeek/Gemini)</option>
-        </select>
-
-
-        <label>
-          Vision budget
-          <select value={settings.visualTokenBudget} onChange={(e) => updateSetting('visualTokenBudget', Number(e.target.value) as Settings['visualTokenBudget'])}>
-            {[70, 140, 280, 560, 1120].map((n) => <option key={n} value={n}>{n}</option>)}
+        <summary>Advanced Settings</summary>
+        <div className="settings-advanced-body">
+          <select value={settings.thinkingPolicy} onChange={(e) => updateSetting('thinkingPolicy', e.target.value as Settings['thinkingPolicy'])}>
+            <option value="auto">Thinking: Auto</option>
+            <option value="always">Thinking: Always</option>
+            <option value="never">Thinking: Never</option>
           </select>
-        </label>
-        <label>
-          Verification vision budget
-          <select value={settings.visualTokenBudgetVerify} onChange={(e) => updateSetting('visualTokenBudgetVerify', Number(e.target.value) as Settings['visualTokenBudgetVerify'])}>
-            {[70, 140, 280, 560, 1120].map((n) => <option key={n} value={n}>{n}</option>)}
+          <select value={settings.contextCompressor} onChange={(e) => updateSetting('contextCompressor', e.target.value as Settings['contextCompressor'])}>
+            <option value="off">Context compressor: Off (deterministic)</option>
+            <option value="same">Context compressor: Same model</option>
+            <option value="cloud">Context compressor: Cloud (DeepSeek/Gemini)</option>
           </select>
-        </label>
-        <label>
-          Domain whitelist
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <select value={settings.visualTokenBudget} onChange={(e) => updateSetting('visualTokenBudget', Number(e.target.value) as Settings['visualTokenBudget'])}>
+              {[70, 140, 280, 560, 1120].map((n) => <option key={n} value={n}>Vision: {n} tokens</option>)}
+            </select>
+            <select value={settings.visualTokenBudgetVerify} onChange={(e) => updateSetting('visualTokenBudgetVerify', Number(e.target.value) as Settings['visualTokenBudgetVerify'])}>
+              {[70, 140, 280, 560, 1120].map((n) => <option key={n} value={n}>Verify: {n} tokens</option>)}
+            </select>
+          </div>
           <input
             value={settings.whitelist.join(', ')}
-            placeholder="example.com, *.mysite.org"
+            placeholder="Domain whitelist (e.g. example.com, *.mysite.org)"
             onChange={(e) => updateSetting('whitelist', splitList(e.target.value))}
           />
-        </label>
-        <label>
-          Domain blacklist
           <input
             value={settings.blacklist.join(', ')}
-            placeholder="bank.com, *.paypal.com"
+            placeholder="Domain blacklist (e.g. bank.com, *.paypal.com)"
             onChange={(e) => updateSetting('blacklist', splitList(e.target.value))}
           />
-        </label>
-        <label>
-          Action cache
-          <input type="checkbox" checked={settings.useActionCache} onChange={(e) => updateSetting('useActionCache', e.target.checked)} />
-        </label>
-        <label>
-          Cache TTL, days
-          <input type="number" min={1} max={365} value={settings.cacheTtlDays} onChange={(e) => updateSetting('cacheTtlDays', Number(e.target.value))} />
-        </label>
-        <div className="action-row controls">
-          <button className="secondary" onClick={async () => {
-            const res = await sendToSW<{ ok: boolean; removed: number }>({ kind: 'cache:clear' });
-            alert(`Removed entries: ${res.removed}`);
-          }}>Clear action cache</button>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 2px' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text2)' }}>Action cache</span>
+            <input
+              type="checkbox"
+              style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+              checked={settings.useActionCache}
+              onChange={(e) => updateSetting('useActionCache', e.target.checked)}
+            />
+          </div>
+          <input
+            type="number"
+            min={1}
+            max={365}
+            value={settings.cacheTtlDays}
+            placeholder="Cache TTL, days"
+            onChange={(e) => updateSetting('cacheTtlDays', Number(e.target.value))}
+          />
+          <div className="action-row controls" style={{ marginTop: '4px' }}>
+            <button className="secondary" onClick={async () => {
+              const res = await sendToSW<{ ok: boolean; removed: number }>({ kind: 'cache:clear' });
+              alert(`Removed entries: ${res.removed}`);
+            }}>Clear action cache</button>
+          </div>
         </div>
       </details>
+
       </div>
     </section>
   );
