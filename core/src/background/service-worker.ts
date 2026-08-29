@@ -16,13 +16,16 @@ import {
   loadSteps,
   updateScheduledTask,
   db,
+  getSessionState,
+  updateSessionState,
 } from '@/lib/storage';
 import { clearCache } from '@/lib/action-cache';
-import { ensureContentScript } from '@/lib/messaging';
-import { onLocalSWEvent } from '@/lib/messaging';
+import { ensureContentScript, onLocalSWEvent, registerPortHost } from '@/lib/messaging';
+import { AgentPortHost } from '@/lib/port-channel';
 import type { AgentStep, AgentTask, ScheduledTask, SWEvent, SWMessage, ToolCall } from '@/lib/types';
 
 type Pending = { allow: boolean | null; resolve: (v: boolean) => void };
+type BridgeRequestMessage = { kind?: unknown; type?: unknown; payload?: unknown; id?: unknown };
 
 const state = {
   stopped: new Set<string>(),
@@ -30,6 +33,34 @@ const state = {
   pendingConfirms: new Map<string, Pending>(),
   runningSchedules: new Set<string>(),
 };
+
+// Initialize Port Host for resilient Side Panel connection
+const portHost = new AgentPortHost();
+registerPortHost(portHost);
+
+portHost.onMessage((msg, port) => {
+  if (msg.kind === 'session:attach') {
+    if (msg.tabId) {
+      void updateSessionState({ activeTabId: msg.tabId });
+    }
+  } else if (msg.kind === 'sw:message') {
+    handle(msg.message).then((result) => {
+      try {
+        port.postMessage({ type: 'sw:response', result });
+      } catch {}
+    }).catch((err) => {
+      try {
+        port.postMessage({ type: 'sw:response', error: err instanceof Error ? err.message : String(err) });
+      } catch {}
+    });
+  }
+});
+
+// Restore session state on startup
+void getSessionState().then((session) => {
+  for (const id of session.pausedTaskIds) state.paused.add(id);
+  for (const id of session.stoppedTaskIds) state.stopped.add(id);
+});
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => {});
@@ -58,6 +89,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   void runScheduledTask(id);
 });
 
+
 async function handle(msg: SWMessage): Promise<unknown> {
   switch (msg.kind) {
     case 'settings:get': return getSettings();
@@ -74,7 +106,9 @@ async function handle(msg: SWMessage): Promise<unknown> {
     case 'eval:waitTask': return waitForEvalTask(msg.id, msg.timeoutMs);
     case 'eval:clear': return clearEvalTasks();
     case 'task:start': return startTask(msg.goal, msg.tabId);
+    case 'task:resume_checkpoint': return resumeTaskFromCheckpoint(msg.id);
     case 'task:pause': state.paused.add(msg.id); return { ok: true };
+
     case 'task:resume': state.paused.delete(msg.id); return { ok: true };
     case 'task:stop': {
       state.stopped.add(msg.id);
@@ -135,7 +169,7 @@ async function startTask(goal: string, tabId: number, options: { autoConfirm?: b
 
   runTask(task, {
     settings,
-    shouldConfirm: (t: AgentTask, _call: ToolCall) => options.autoConfirm
+    shouldConfirm: (t: AgentTask) => options.autoConfirm
       ? Promise.resolve(true)
       : new Promise<boolean>((resolve) => {
         state.pendingConfirms.set(t.id, { allow: null, resolve });
@@ -149,7 +183,47 @@ async function startTask(goal: string, tabId: number, options: { autoConfirm?: b
   return task;
 }
 
+async function resumeTaskFromCheckpoint(taskId: string): Promise<AgentTask> {
+  const task = await getTask(taskId);
+  if (!task) throw new Error(`Task ${taskId} not found`);
+  task.steps = await loadSteps(taskId);
+  task.status = 'running';
+  task.error = undefined;
+  task.updatedAt = Date.now();
+  await saveTask(task);
+
+  let tabId = task.tabId;
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab?.id) throw new Error('Tab closed');
+  } catch {
+    const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (active?.id) tabId = active.id;
+  }
+  task.tabId = tabId;
+  await ensureContentScript(tabId);
+
+  const settings = await getSettings();
+  state.stopped.delete(taskId);
+  state.paused.delete(taskId);
+
+  runTask(task, {
+    settings,
+    shouldConfirm: (t: AgentTask) =>
+      new Promise<boolean>((resolve) => {
+        state.pendingConfirms.set(t.id, { allow: null, resolve });
+      }).finally(() => { state.pendingConfirms.delete(task.id); }),
+    isStopped: (id) => state.stopped.has(id),
+    isPaused: (id) => state.paused.has(id),
+    requestPause: (id) => state.paused.add(id),
+    requestResume: (id) => state.paused.delete(id),
+  }).catch((err) => console.error('[agent] resume checkpoint failed', err));
+
+  return task;
+}
+
 const EVAL_TASK_IDS_KEY = 'evalTaskIds';
+
 
 function assertEvalApiEnabled(): void {
   if (import.meta.env.MODE === 'production') {
@@ -350,9 +424,11 @@ function createAgentTask(goal: string, tabId: number, settings: Awaited<ReturnTy
 
 function modelUsedFromSettings(settings: Awaited<ReturnType<typeof getSettings>>): string | undefined {
   if (settings.provider === 'openai') return settings.openaiModel;
+  if (settings.provider === 'gemini') return settings.geminiModel;
   if (settings.provider === 'xai') return settings.xaiModel;
   if (settings.provider === 'openrouter') return settings.openRouterModel;
   if (settings.provider === 'mlx') return settings.mlxModel;
+  if (settings.provider === 'deepseek') return settings.deepseekModel;
   return undefined;
 }
 
@@ -394,14 +470,12 @@ function compactBridgeEvent(event: SWEvent): SWEvent {
 }
 
 function compactStepForBridge(step: AgentStep): AgentStep {
-  const {
-    snapshot: _snapshot,
-    snapshotAfter: _snapshotAfter,
-    screenshotDataUrl: _screenshotDataUrl,
-    prompt: _prompt,
-    thinking: _thinking,
-    ...compact
-  } = step;
+  const compact = { ...step };
+  delete compact.snapshot;
+  delete compact.snapshotAfter;
+  delete compact.screenshotDataUrl;
+  delete compact.prompt;
+  delete compact.thinking;
   return compact;
 }
 
@@ -430,12 +504,13 @@ function connectApiBridge() {
     startApiBridgeKeepAlive();
     apiBridgePort.postMessage({ kind: 'bridge:hello' });
 
-    apiBridgePort.onMessage.addListener(async (msg: any) => {
+    apiBridgePort.onMessage.addListener(async (rawMsg: unknown) => {
+      const msg = rawMsg as BridgeRequestMessage;
       if (msg.kind !== 'bridge:request') return;
       try {
-        const result = await executeBridgeRequest(String(msg.type), msg.payload ?? {});
+        const result = await executeBridgeRequest(String(msg.type), isRecord(msg.payload) ? msg.payload : {});
         apiBridgePort?.postMessage({ kind: 'bridge:response', id: msg.id, result });
-      } catch (err: any) {
+      } catch (err: unknown) {
         apiBridgePort?.postMessage({ kind: 'bridge:response', id: msg.id, error: err instanceof Error ? err.message : String(err) });
       }
     });
@@ -448,13 +523,17 @@ function connectApiBridge() {
       if (apiBridgeReconnectTimer) clearTimeout(apiBridgeReconnectTimer);
       apiBridgeReconnectTimer = setTimeout(connectApiBridge, 5000);
     });
-  } catch (err: any) {
-    console.warn('[bridge] local API bridge not found:', err.message);
+  } catch (err: unknown) {
+    console.warn('[bridge] local API bridge not found:', err instanceof Error ? err.message : String(err));
     stopApiBridgeKeepAlive();
     apiBridgePort = null;
     if (apiBridgeReconnectTimer) clearTimeout(apiBridgeReconnectTimer);
     apiBridgeReconnectTimer = setTimeout(connectApiBridge, 10000);
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 async function executeBridgeRequest(type: string, payload: Record<string, unknown>) {

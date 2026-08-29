@@ -40,7 +40,7 @@ export function verify(
   }
 
   if (!action.ok) {
-    return verifyFailedAction(snapshotBefore, snapshotAfter, action, toolName);
+    return verifyFailedAction(snapshotBefore, snapshotAfter, action);
   }
 
   const domChanged = snapshotBefore.domHash !== snapshotAfter.domHash;
@@ -127,7 +127,6 @@ function verifyFailedAction(
   snapshotBefore: A11ySnapshot,
   snapshotAfter: A11ySnapshot,
   action: ActionResult,
-  _toolName: string,
 ): VerificationResult {
   const domChanged = snapshotBefore.domHash !== snapshotAfter.domHash;
   const urlChanged = snapshotBefore.url !== snapshotAfter.url;
@@ -255,7 +254,7 @@ export function describeVerification(v: VerificationResult): string {
     if (v.urlChanged) parts.push('URL changed');
     if (v.elementAppeared) parts.push(`new element: ${v.elementAppeared}`);
   } else if (v.status === 'partial') {
-    parts.push('Verification partial');
+    parts.push('Verification partial (no DOM/URL change)');
   } else if (v.status === 'failed') {
     parts.push('Verification failed');
     if (v.errorDetected) parts.push(`error: ${v.errorDetected}`);
@@ -271,6 +270,11 @@ export function verificationToPrompt(v: VerificationResult): string {
   if (v.status === 'success') return 'Action confirmed — page changed as expected. Continue.';
   if (v.status === 'partial' && v.popupDetected) {
     return `Action completed, but a popup was detected (${v.popupRefs?.join(', ')}). Close the popup before continuing.`;
+  }
+  if (v.status === 'partial') {
+    const lines = ['Action reported success, but NO observable state or DOM change was detected on the page.'];
+    lines.push(...v.suggestions.map((s) => `- ${s}`));
+    return lines.join('\n');
   }
   if (v.status === 'failed') {
     const lines = ['Action did not produce the expected result.'];

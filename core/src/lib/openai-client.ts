@@ -2,9 +2,47 @@ import { AGENT_TOOLS } from './tools';
 import type { ToolCall } from './types';
 import type { OllamaChatOptions, OllamaChatResult } from './ollama-client';
 
+type ChatCompletionChunk = {
+  choices?: Array<{
+    delta?: {
+      content?: unknown;
+      reasoning_content?: unknown;
+      tool_calls?: Array<{
+        index: number;
+        id?: string;
+        function?: { name?: string; arguments?: string };
+      }>;
+    };
+  }>;
+};
+
+let syntheticToolCallIdSeq = 0;
+
 export async function chatOpenAI(opts: OllamaChatOptions, apiKey: string, model: string): Promise<OllamaChatResult> {
-  if (!apiKey.trim()) throw new Error('OpenAI API key is empty');
-  if (!model.trim()) throw new Error('OpenAI model is empty');
+  return chatOpenAICompatible({
+    opts,
+    apiKey,
+    model,
+    label: 'OpenAI',
+    url: 'https://api.openai.com/v1/chat/completions',
+  });
+}
+
+export async function chatOpenAICompatible({
+  opts,
+  apiKey,
+  model,
+  label,
+  url,
+}: {
+  opts: OllamaChatOptions;
+  apiKey: string;
+  model: string;
+  label: string;
+  url: string;
+}): Promise<OllamaChatResult> {
+  if (!apiKey.trim()) throw new Error(`${label} API key is empty`);
+  if (!model.trim()) throw new Error(`${label} model is empty`);
 
   const startedAt = Date.now();
   const messages = opts.messages.map((m) => {
@@ -52,24 +90,29 @@ export async function chatOpenAI(opts: OllamaChatOptions, apiKey: string, model:
       tools: AGENT_TOOLS.map((t) => ({ type: 'function', function: t.function })),
       temperature: 0.2,
     };
-    let res = await requestChatCompletions(apiKey, body, signal);
+    let res = await requestChatCompletions(url, apiKey, body, signal);
 
     if (!res.ok && res.status === 400) {
       const text = await res.text().catch(() => '');
       if (/temperature/i.test(text)) {
-        const { temperature: _temperature, ...fallbackBody } = body;
-        res = await requestChatCompletions(apiKey, fallbackBody, signal);
+        const fallbackBody = {
+          model,
+          messages,
+          stream: Boolean(opts.onUpdate),
+          tools: AGENT_TOOLS.map((t) => ({ type: 'function', function: t.function })),
+        };
+        res = await requestChatCompletions(url, apiKey, fallbackBody, signal);
       } else {
-        throw new Error(`OpenAI ${res.status}: ${text || res.statusText}`);
+        throw new Error(`${label} ${res.status}: ${text || res.statusText}`);
       }
     }
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`OpenAI ${res.status}: ${text || res.statusText}`);
+      throw new Error(`${label} ${res.status}: ${text || res.statusText}`);
     }
 
-    if (opts.onUpdate) return readStreamingResponseOpenAI(res, opts, startedAt, model);
+    if (opts.onUpdate) return readStreamingResponseOpenAICompatible(res, opts, startedAt, model, label);
 
     const data = await res.json();
     const msg = data.choices?.[0]?.message ?? {};
@@ -79,7 +122,7 @@ export async function chatOpenAI(opts: OllamaChatOptions, apiKey: string, model:
       toolCall = {
         name: func.name as ToolCall['name'],
         arguments: safeJson(func.arguments),
-        id: msg.tool_calls[0].id,
+        id: normalizeToolCallId(msg.tool_calls[0].id, func.name),
       };
     }
 
@@ -101,8 +144,8 @@ export async function chatOpenAI(opts: OllamaChatOptions, apiKey: string, model:
   }
 }
 
-function requestChatCompletions(apiKey: string, body: unknown, signal: AbortSignal): Promise<Response> {
-  return fetch('https://api.openai.com/v1/chat/completions', {
+function requestChatCompletions(url: string, apiKey: string, body: unknown, signal: AbortSignal): Promise<Response> {
+  return fetch(url, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -113,8 +156,8 @@ function requestChatCompletions(apiKey: string, body: unknown, signal: AbortSign
   });
 }
 
-async function readStreamingResponseOpenAI(res: Response, opts: OllamaChatOptions, startedAt: number, model: string): Promise<OllamaChatResult> {
-  if (!res.body) throw new Error('OpenAI stream response has no body');
+async function readStreamingResponseOpenAICompatible(res: Response, opts: OllamaChatOptions, startedAt: number, model: string, label: string): Promise<OllamaChatResult> {
+  if (!res.body) throw new Error(`${label} stream response has no body`);
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -135,7 +178,7 @@ async function readStreamingResponseOpenAI(res: Response, opts: OllamaChatOption
       if (!trimmed || !trimmed.startsWith('data: ')) continue;
       if (trimmed === 'data: [DONE]') continue;
 
-      const chunk = safeJsonAny(trimmed.slice(6)) as any;
+      const chunk = safeJsonAny(trimmed.slice(6)) as ChatCompletionChunk | undefined;
       const delta = chunk?.choices?.[0]?.delta;
       if (!delta) continue;
 
@@ -163,7 +206,7 @@ async function readStreamingResponseOpenAI(res: Response, opts: OllamaChatOption
     toolCall = {
       name: func.name as ToolCall['name'],
       arguments: safeJson(func.arguments),
-      id: lastToolCalls[0].id,
+      id: normalizeToolCallId(lastToolCalls[0].id, func.name),
     };
   }
 
@@ -204,8 +247,23 @@ function parseToolCallFromText(text: string): ToolCall | undefined {
   return undefined;
 }
 
-function safeJson(raw: string): Record<string, unknown> {
-  try { return JSON.parse(raw); } catch { return {}; }
+function normalizeToolCallId(id: unknown, name: unknown): string {
+  const rawId = typeof id === 'string' ? id.trim() : '';
+  if (rawId) return rawId;
+  const rawName = typeof name === 'string' && name.trim() ? name.trim() : 'tool';
+  syntheticToolCallIdSeq += 1;
+  return `call_${rawName}_${syntheticToolCallIdSeq}`;
+}
+
+function safeJson(raw: unknown): Record<string, unknown> {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, unknown>;
+  if (typeof raw !== 'string') return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
 }
 
 function safeJsonAny(raw: string): unknown {

@@ -52,4 +52,42 @@ describe('renderMarkdown', () => {
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
     expect(html).not.toContain('<script>');
   });
+
+  it('keeps ordered list content in a single grid cell', async () => {
+    const { renderMarkdown } = await loadRenderer();
+
+    const html = renderMarkdown('1. **Euronews**: Опубликован видео выпуск');
+
+    expect(html).toContain('<span class="answer-list-index">1.</span><span class="answer-list-body"><strong>Euronews</strong>: Опубликован видео выпуск</span>');
+  });
+
+  it('renders markdown tables as fitted tables', async () => {
+    const { renderMarkdown } = await loadRenderer();
+
+    const html = renderMarkdown(`
+| Дата | Событие |
+| --- | --- |
+| 19 мая | Новости Испании |
+`);
+
+    expect(html).toContain('<div class="answer-table-fit"><table>');
+    expect(html).toContain('<th>Дата</th>');
+    expect(html).toContain('<td>Новости Испании</td>');
+    expect(html).not.toContain('| --- | --- |');
+  });
+
+  it('keeps markdown table cell content escaped and link-safe', async () => {
+    const { renderMarkdown } = await loadRenderer();
+
+    const html = renderMarkdown(`
+| Name | Link |
+| --- | --- |
+| <script>alert(1)</script> | [bad](javascript:alert) |
+`);
+
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(html).toContain('<td>bad</td>');
+    expect(html).not.toContain('<script>');
+    expect(html).not.toContain('javascript:');
+  });
 });

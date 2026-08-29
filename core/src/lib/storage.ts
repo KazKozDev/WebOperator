@@ -36,6 +36,7 @@ export const db = new AgentDB();
 export async function getSettings(): Promise<Settings> {
   const stored = await chrome.storage.local.get(['settings', 'settingsVersion']);
   const s = stored?.settings ?? {};
+  const storedSettings = s as Partial<Settings> & Record<string, unknown>;
   const next = { ...DEFAULT_SETTINGS, ...s };
   const version = stored?.settingsVersion ?? 0;
   let migrated = false;
@@ -71,13 +72,39 @@ export async function getSettings(): Promise<Settings> {
   }
   if (version < 8) migrated = true;
   if (version < 9) {
-    next.mlxApiKey = typeof (next as any).mlxApiKey === 'string' ? (next as any).mlxApiKey : '';
-    next.mlxModel = typeof (next as any).mlxModel === 'string' ? (next as any).mlxModel : DEFAULT_SETTINGS.mlxModel;
+    next.mlxApiKey = typeof storedSettings.mlxApiKey === 'string' ? storedSettings.mlxApiKey : '';
+    next.mlxModel = typeof storedSettings.mlxModel === 'string' ? storedSettings.mlxModel : DEFAULT_SETTINGS.mlxModel;
+    migrated = true;
+  }
+  if (version < 11) {
+    next.geminiApiKey = typeof storedSettings.geminiApiKey === 'string' ? storedSettings.geminiApiKey : '';
+    next.geminiModel = typeof storedSettings.geminiModel === 'string' ? storedSettings.geminiModel : DEFAULT_SETTINGS.geminiModel;
+    migrated = true;
+  }
+  if (version < 12) {
+    next.ollamaModel = typeof storedSettings.ollamaModel === 'string' ? storedSettings.ollamaModel : DEFAULT_SETTINGS.ollamaModel;
+    migrated = true;
+  }
+  if (version < 13) {
+    next.deepseekApiKey = typeof storedSettings.deepseekApiKey === 'string' ? storedSettings.deepseekApiKey : '';
+    next.deepseekModel = typeof storedSettings.deepseekModel === 'string' ? storedSettings.deepseekModel : DEFAULT_SETTINGS.deepseekModel;
+    migrated = true;
+  }
+  if (version < 14) {
+    next.contextCompressor = storedSettings.contextCompressor === 'same' || storedSettings.contextCompressor === 'cloud'
+      ? storedSettings.contextCompressor
+      : DEFAULT_SETTINGS.contextCompressor;
+    migrated = true;
+  }
+  if (version < 15) {
+    next.anthropicApiKey = typeof storedSettings.anthropicApiKey === 'string' ? storedSettings.anthropicApiKey : '';
+    next.anthropicModel = typeof storedSettings.anthropicModel === 'string' ? storedSettings.anthropicModel : DEFAULT_SETTINGS.anthropicModel;
     migrated = true;
   }
   if (migrated) {
     await chrome.storage.local.set({ settings: next, settingsVersion: SETTINGS_VERSION });
   }
+
   return next;
 }
 
@@ -106,14 +133,25 @@ export async function getTask(id: string): Promise<AgentTask | undefined> {
 
 export async function loadSteps(taskId: string): Promise<AgentStep[]> {
   const rows = await db.steps.where('taskId').equals(taskId).sortBy('index');
-  return rows.map(({ taskId: _t, ...rest }) => rest);
+  return rows.map((row) => {
+    const { taskId: storedTaskId, ...rest } = row;
+    void storedTaskId;
+    return rest;
+  });
 }
 
 const CREDENTIALS_KEY = 'credentialVault';
 
 export async function listCredentials(): Promise<CredentialSummary[]> {
   const entries = await loadCredentialEntries();
-  return entries.map(({ password: _password, ...summary }) => summary);
+  return entries.map((entry) => ({
+    id: entry.id,
+    origin: entry.origin,
+    username: entry.username,
+    label: entry.label,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+  }));
 }
 
 export async function saveCredential(entry: Omit<CredentialEntry, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<CredentialSummary[]> {
@@ -258,3 +296,69 @@ function normalizeHttpUrl(value: string): string {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('Start URL must be http or https');
   return url.href;
 }
+
+// ---------------------------------------------------------------------------
+// Resilient Session State Management (chrome.storage.session)
+// ---------------------------------------------------------------------------
+
+export interface AgentSessionState {
+  activeTaskId: string | null;
+  activeTabId: number | null;
+  pausedTaskIds: string[];
+  stoppedTaskIds: string[];
+}
+
+const DEFAULT_SESSION_STATE: AgentSessionState = {
+  activeTaskId: null,
+  activeTabId: null,
+  pausedTaskIds: [],
+  stoppedTaskIds: [],
+};
+
+const SESSION_STORAGE_KEY = 'agentSessionState';
+let memoryFallbackSessionState: AgentSessionState = { ...DEFAULT_SESSION_STATE };
+
+function getSessionStorageArea(): chrome.storage.StorageArea | null {
+  if (typeof chrome !== 'undefined' && chrome.storage?.session) {
+    return chrome.storage.session;
+  }
+  return null;
+}
+
+export async function getSessionState(): Promise<AgentSessionState> {
+  const area = getSessionStorageArea();
+  if (!area) return { ...memoryFallbackSessionState };
+  try {
+    const raw = await area.get(SESSION_STORAGE_KEY);
+    const data = raw[SESSION_STORAGE_KEY] as Partial<AgentSessionState> | undefined;
+    return {
+      activeTaskId: data?.activeTaskId ?? null,
+      activeTabId: data?.activeTabId ?? null,
+      pausedTaskIds: Array.isArray(data?.pausedTaskIds) ? data.pausedTaskIds : [],
+      stoppedTaskIds: Array.isArray(data?.stoppedTaskIds) ? data.stoppedTaskIds : [],
+    };
+  } catch {
+    return { ...memoryFallbackSessionState };
+  }
+}
+
+export async function updateSessionState(patch: Partial<AgentSessionState>): Promise<AgentSessionState> {
+  const current = await getSessionState();
+  const next: AgentSessionState = {
+    ...current,
+    ...patch,
+    pausedTaskIds: patch.pausedTaskIds ?? current.pausedTaskIds,
+    stoppedTaskIds: patch.stoppedTaskIds ?? current.stoppedTaskIds,
+  };
+  memoryFallbackSessionState = { ...next };
+  const area = getSessionStorageArea();
+  if (area) {
+    try {
+      await area.set({ [SESSION_STORAGE_KEY]: next });
+    } catch (err) {
+      console.warn('[storage] Failed to write session state', err);
+    }
+  }
+  return next;
+}
+

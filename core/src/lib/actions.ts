@@ -55,11 +55,15 @@ async function dispatch(call: ToolCall): Promise<unknown> {
     case 'read_cells':
     case 'define_sheet_contract':
     case 'fill_login_credentials':
+    case 'solve_captcha':
+    case 'read_downloaded_file':
     case 'start_subtask':
     case 'finish_subtask':
     case 'fail_subtask':
     case 'update_task_memory':
+
       return undefined;
+
     default:
       throw new Error(`Unknown action: ${(call as { name: string }).name}`);
   }
@@ -95,6 +99,8 @@ async function doType(ref: string, text: string, mode: 'replace' | 'append', sub
     setter?.call(el, mode === 'append' ? `${el.value}${text}` : text);
     el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
+    el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    el.dispatchEvent(new FocusEvent('blur', { bubbles: false }));
     if (submit) {
       el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
       el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
@@ -105,10 +111,36 @@ async function doType(ref: string, text: string, mode: 'replace' | 'append', sub
   }
   const editable = resolveContentEditable(el);
   if (editable) {
-    throw new Error('contenteditable requires CDP (trusted input)');
+    editable.focus();
+    if (mode === 'replace') {
+      const sel = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(editable);
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+      document.execCommand('delete', false);
+    }
+    const inserted = document.execCommand('insertText', false, text);
+    if (!inserted) {
+      if (mode === 'replace') {
+        editable.textContent = text;
+      } else {
+        editable.textContent = `${editable.textContent ?? ''}${text}`;
+      }
+    }
+    editable.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+    editable.dispatchEvent(new Event('change', { bubbles: true }));
+    if (submit) {
+      editable.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+      editable.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+      const form = editable.closest('form');
+      form?.requestSubmit?.();
+    }
+    return;
   }
   throw new Error(`Element ${ref} is not a text input`);
 }
+
 
 async function doPress(key: string, modifiersText: string, ref?: string): Promise<void> {
   const target = ref ? resolve(ref) : activeTarget();
@@ -195,11 +227,17 @@ function dispatchEditorInput(target: HTMLElement, data?: string): void {
 async function doSelect(ref: string, value: string): Promise<void> {
   const el = resolve(ref);
   if (!(el instanceof HTMLSelectElement)) throw new Error(`Element ${ref} is not a <select>`);
+  const lowerVal = value.trim().toLowerCase();
   const match = Array.from(el.options).find(
-    (o) => o.value === value || o.textContent?.trim() === value.trim(),
+    (o) =>
+      o.value === value ||
+      o.textContent?.trim() === value.trim() ||
+      o.value.toLowerCase() === lowerVal ||
+      o.textContent?.trim().toLowerCase() === lowerVal,
   );
   if (!match) throw new Error(`Option "${value}" not found`);
   el.value = match.value;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
   el.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
@@ -291,7 +329,12 @@ function extractVisibleText(maxItems = 80): ExtractedItem[] {
   return candidates
     .sort((a, b) => b.score - a.score || a.top - b.top)
     .slice(0, maxItems)
-    .map(({ score: _score, top: _top, ...item }) => item);
+    .map((item) => ({
+      ref: item.ref,
+      text: item.text,
+      ...(item.value ? { value: item.value } : {}),
+      ...(item.href ? { href: item.href } : {}),
+    }));
 }
 
 function isVisibleElement(el: HTMLElement): boolean {
@@ -334,7 +377,45 @@ function cssPath(el: HTMLElement): string {
   return `${tag}:nth-of-type(${siblings.indexOf(el) + 1})`;
 }
 
-function tick(): Promise<void> { return new Promise((r) => setTimeout(r, 50)); }
+export function waitForSettledDom(maxWaitMs = 1200, quietMs = 100): Promise<void> {
+  return new Promise((resolve) => {
+    let timer: number | null = null;
+    let maxTimeout: number | null = null;
+    let observer: MutationObserver | null = null;
+
+    const cleanup = () => {
+      if (timer !== null) clearTimeout(timer);
+      if (maxTimeout !== null) clearTimeout(maxTimeout);
+      if (observer) observer.disconnect();
+    };
+
+    const done = () => {
+      cleanup();
+      resolve();
+    };
+
+    try {
+      if (typeof MutationObserver !== 'undefined' && document?.documentElement) {
+        observer = new MutationObserver(() => {
+          if (timer !== null) clearTimeout(timer);
+          timer = window.setTimeout(done, quietMs);
+        });
+        observer.observe(document.documentElement, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          characterData: true,
+        });
+      }
+      timer = window.setTimeout(done, quietMs);
+      maxTimeout = window.setTimeout(done, maxWaitMs);
+    } catch {
+      setTimeout(done, quietMs);
+    }
+  });
+}
+
+function tick(): Promise<void> { return waitForSettledDom(600, 50); }
 function sleep(ms: number): Promise<void> { return new Promise((r) => setTimeout(r, ms)); }
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {

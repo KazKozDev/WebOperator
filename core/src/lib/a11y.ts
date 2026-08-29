@@ -30,6 +30,8 @@ export function buildSnapshot(opts: SnapshotOptions = {}): A11ySnapshot {
     if (!isVisible(el)) continue;
     const role = computeRole(el);
     if (!role) continue;
+    const name = accessibleName(el);
+    if (role === 'generic' && !name && !el.getAttribute('aria-label') && !el.getAttribute('title')) continue;
     const rect = el.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) continue;
     const inViewport = rect.bottom > 0 && rect.right > 0 && rect.top < viewportH && rect.left < viewportW;
@@ -37,7 +39,7 @@ export function buildSnapshot(opts: SnapshotOptions = {}): A11ySnapshot {
 
     const ref = `@e${counter++}`;
     refMap.set(el, ref);
-    nodes.push(buildNode(el, ref, role, rect, true));
+    nodes.push(buildNode(el, ref, role, name, rect, true));
     (el as HTMLElement).dataset.agentRef = ref;
   }
 
@@ -49,12 +51,14 @@ export function buildSnapshot(opts: SnapshotOptions = {}): A11ySnapshot {
       if (refMap.has(el)) continue;
       const role = computeRole(el);
       if (!role) continue;
+      const name = accessibleName(el);
+      if (role === 'generic' && !name && !el.getAttribute('aria-label') && !el.getAttribute('title')) continue;
       const rect = el.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) continue;
 
       const ref = `@e${counter++}`;
       refMap.set(el, ref);
-      nodes.push(buildNode(el, ref, role, rect, false));
+      nodes.push(buildNode(el, ref, role, name, rect, false));
       (el as HTMLElement).dataset.agentRef = ref;
     }
   }
@@ -222,11 +226,11 @@ function readState(el: HTMLElement): string[] {
   return s;
 }
 
-function buildNode(el: HTMLElement, ref: string, role: A11yRole, rect: DOMRect, inViewport: boolean): A11yNode {
+function buildNode(el: HTMLElement, ref: string, role: A11yRole, name: string, rect: DOMRect, inViewport: boolean): A11yNode {
   const node: A11yNode = {
     ref,
     role,
-    name: accessibleName(el),
+    name,
     bbox: { x: Math.round(rect.left), y: Math.round(rect.top), w: Math.round(rect.width), h: Math.round(rect.height) },
     inViewport,
   };

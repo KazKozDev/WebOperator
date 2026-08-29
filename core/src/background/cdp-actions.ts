@@ -17,14 +17,25 @@ interface GoogleSheetsGridMetrics {
 
 export async function runCdpAction(tabId: number, snapshot: A11ySnapshot, call: ToolCall): Promise<ActionResult> {
   const started = performance.now();
+  if (!chrome.debugger?.attach) {
+
+    return {
+      ok: false,
+      durationMs: performance.now() - started,
+      error: 'Chrome debugger API is unavailable or permission was not granted',
+    };
+  }
+
   const target: Debuggee = { tabId };
   let attached = false;
   let extracted: unknown;
 
   try {
+
     await chrome.debugger.attach(target, '1.3');
     attached = true;
     await send(target, 'Runtime.evaluate', { expression: 'document.activeElement && document.activeElement.blur()' });
+
 
     if (call.name === 'click') {
       await cdpClick(target, snapshot, String(call.arguments.ref ?? ''));

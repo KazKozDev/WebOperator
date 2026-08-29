@@ -7,10 +7,18 @@ export const PROFILE_TO_MODEL: Record<ModelProfile, string> = {
   quality: 'gemma4:31b',
 };
 
+/** Resolve the Ollama model: a non-empty free-text override wins over the profile mapping. */
+export function resolveOllamaModel(ollamaModelOverride: string, profileModel: string): string {
+  const override = ollamaModelOverride.trim();
+  return override || profileModel;
+}
+
 export type VisualTokenBudget = 70 | 140 | 280 | 560 | 1120;
 
 export interface Settings {
   ollamaUrl: string;
+  /** Free-text override. When non-empty, used as the Ollama model instead of the profile mapping (supports any pulled model, e.g. MLX models served by Ollama). */
+  ollamaModel: string;
   profile: ModelProfile;
   planningProfile: ModelProfile | 'same';
   thinkingPolicy: 'auto' | 'always' | 'never';
@@ -23,15 +31,23 @@ export interface Settings {
   confirmKeywords: string[];
   useActionCache: boolean;
   cacheTtlDays: number;
-  provider: 'ollama' | 'openai' | 'xai' | 'openrouter' | 'mlx';
+  provider: 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'xai' | 'openrouter' | 'mlx' | 'deepseek';
   openaiApiKey: string;
   openaiModel: string;
+  anthropicApiKey: string;
+  anthropicModel: string;
+  geminiApiKey: string;
+  geminiModel: string;
   xaiApiKey: string;
   xaiModel: string;
   openRouterApiKey: string;
   openRouterModel: string;
   mlxApiKey: string;
   mlxModel: string;
+  deepseekApiKey: string;
+  deepseekModel: string;
+  /** Smart context compression for long tasks. 'off' = deterministic only; 'same' = compress folded history with the active model; 'cloud' = use DeepSeek/Gemini if a key is set. */
+  contextCompressor: 'off' | 'same' | 'cloud';
   enabledSkills: SkillId[];
   autoSkills: boolean;
   autoResumeTimeoutMs: number;
@@ -41,6 +57,7 @@ export type SkillId = string;
 
 export const DEFAULT_SETTINGS: Settings = {
   ollamaUrl: 'http://127.0.0.1:11434',
+  ollamaModel: '',
   profile: 'fast',
   planningProfile: 'same',
   thinkingPolicy: 'auto',
@@ -51,30 +68,36 @@ export const DEFAULT_SETTINGS: Settings = {
   whitelist: [],
   blacklist: [],
   confirmKeywords: [
-    'delete', 'remove', 'pay', 'submit', 'purchase', 'buy',
-    'post', 'tweet', 'reply', 'repost', 'retweet', 'like', 'follow', 'unfollow',
-    'publish', 'unpublish', 'story', 'send', 'comment', 'save',
-    'удалить', 'оплатить', 'отправить', 'купить', 'заказать',
-    'пост', 'твит', 'ответить', 'репост', 'лайк', 'подписаться', 'отписаться',
-    'опубликовать', 'публикация', 'снять с публикации', 'комментарий', 'сохранить',
+    'delete', 'remove', 'pay', 'purchase', 'buy', 'checkout',
+    'удалить', 'оплатить', 'купить', 'оформить заказ',
   ],
+
   useActionCache: true,
   cacheTtlDays: 30,
   provider: 'ollama',
   openaiApiKey: '',
   openaiModel: '',
+  anthropicApiKey: '',
+  anthropicModel: 'claude-3-7-sonnet-20250219',
+  geminiApiKey: '',
+  geminiModel: 'gemini-2.5-flash',
   xaiApiKey: '',
   xaiModel: 'grok-4-1-fast-non-reasoning',
   openRouterApiKey: '',
   openRouterModel: '',
   mlxApiKey: '',
   mlxModel: '',
+  deepseekApiKey: '',
+  deepseekModel: 'deepseek-v4-flash',
+  contextCompressor: 'off',
   enabledSkills: [],
   autoSkills: true,
   autoResumeTimeoutMs: 30_000,
 };
 
-export const SETTINGS_VERSION = 10;
+
+export const SETTINGS_VERSION = 15;
+
 
 export type A11yRole =
   | 'button' | 'link' | 'textbox' | 'searchbox' | 'combobox'
@@ -111,7 +134,11 @@ export type AgentActionName =
   | 'paste_table' | 'fill_cells' | 'select_cell' | 'set_cell'
   | 'define_sheet_contract' | 'read_cells'
   | 'fill_login_credentials'
+  | 'solve_captcha'
+  | 'read_downloaded_file'
   | 'start_subtask' | 'finish_subtask' | 'fail_subtask' | 'update_task_memory';
+
+
 
 export interface ToolCall {
   name: AgentActionName;
@@ -237,7 +264,9 @@ export type SWMessage =
   | { kind: 'task:resume'; id: string }
   | { kind: 'task:stop'; id: string }
   | { kind: 'task:confirm'; id: string; allow: boolean }
+  | { kind: 'task:resume_checkpoint'; id: string }
   | { kind: 'settings:get' }
+
   | { kind: 'settings:update'; patch: Partial<Settings> }
   | { kind: 'task:list' }
   | { kind: 'task:get'; id: string }
@@ -264,12 +293,15 @@ export type SWEvent =
   | { kind: 'skills:detected'; taskId: string; skills: { id: SkillId; reason: string; auto: boolean }[] };
 
 export type CSMessage =
+  | { kind: 'ping' }
   | { kind: 'snapshot:take'; options?: { allElements?: boolean } }
   | { kind: 'action:run'; action: ToolCall }
   | { kind: 'overlay:show'; refs: string[] }
   | { kind: 'overlay:hide' }
+  | { kind: 'agent-glow:set'; active: boolean }
   | { kind: 'som:render'; snapshot: A11ySnapshot }
   | { kind: 'som:clear' };
+
 
 export type CSResponse =
   | { kind: 'snapshot'; snapshot: A11ySnapshot }

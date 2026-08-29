@@ -2,6 +2,22 @@ import { AGENT_TOOLS } from './tools';
 import type { ToolCall } from './types';
 import type { OllamaChatOptions, OllamaChatResult } from './ollama-client';
 
+type ChatCompletionChunk = {
+  choices?: Array<{
+    delta?: {
+      content?: unknown;
+      reasoning_content?: unknown;
+      tool_calls?: Array<{
+        index: number;
+        id?: string;
+        function?: { name?: string; arguments?: string };
+      }>;
+    };
+  }>;
+};
+
+let syntheticToolCallIdSeq = 0;
+
 export async function chatOpenRouter(opts: OllamaChatOptions, apiKey: string, model: string): Promise<OllamaChatResult> {
   if (!apiKey.trim()) throw new Error('OpenRouter API key is empty');
   if (!model.trim()) throw new Error('OpenRouter model is empty');
@@ -83,7 +99,7 @@ export async function chatOpenRouter(opts: OllamaChatOptions, apiKey: string, mo
       toolCall = {
         name: func.name as ToolCall['name'],
         arguments: safeJson(func.arguments),
-        id: msg.tool_calls[0].id,
+        id: normalizeToolCallId(msg.tool_calls[0].id, func.name),
       };
     }
 
@@ -127,7 +143,7 @@ async function readStreamingResponseOpenRouter(res: Response, opts: OllamaChatOp
       if (!trimmed || !trimmed.startsWith('data: ')) continue;
       if (trimmed === 'data: [DONE]') continue;
 
-      const chunk = safeJsonAny(trimmed.slice(6)) as any;
+      const chunk = safeJsonAny(trimmed.slice(6)) as ChatCompletionChunk | undefined;
       const delta = chunk?.choices?.[0]?.delta;
       if (!delta) continue;
 
@@ -155,7 +171,7 @@ async function readStreamingResponseOpenRouter(res: Response, opts: OllamaChatOp
     toolCall = {
       name: func.name as ToolCall['name'],
       arguments: safeJson(func.arguments),
-      id: lastToolCalls[0].id,
+      id: normalizeToolCallId(lastToolCalls[0].id, func.name),
     };
   }
 
@@ -196,8 +212,23 @@ function parseToolCallFromText(text: string): ToolCall | undefined {
   return undefined;
 }
 
-function safeJson(raw: string): Record<string, unknown> {
-  try { return JSON.parse(raw); } catch { return {}; }
+function normalizeToolCallId(id: unknown, name: unknown): string {
+  const rawId = typeof id === 'string' ? id.trim() : '';
+  if (rawId) return rawId;
+  const rawName = typeof name === 'string' && name.trim() ? name.trim() : 'tool';
+  syntheticToolCallIdSeq += 1;
+  return `call_${rawName}_${syntheticToolCallIdSeq}`;
+}
+
+function safeJson(raw: unknown): Record<string, unknown> {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, unknown>;
+  if (typeof raw !== 'string') return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
 }
 
 function safeJsonAny(raw: string): unknown {

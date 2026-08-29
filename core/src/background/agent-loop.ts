@@ -1,14 +1,29 @@
 import { chat, OllamaError, type OllamaChatOptions, type OllamaChatResult, type OllamaMessage } from '@/lib/ollama-client';
 import { chatOpenAI } from '@/lib/openai-client';
+import { chatGemini } from '@/lib/gemini-client';
 import { chatXai } from '@/lib/xai-client';
 import { chatOpenRouter } from '@/lib/openrouter-client';
 import { chatMlx } from '@/lib/mlx-client';
+import { chatDeepSeek } from '@/lib/deepseek-client';
+import { chatAnthropic } from '@/lib/anthropic-client';
+
+import {
+  collapseOldObservations,
+  contextTokenBudget,
+  foldBoundary,
+  historyTokens,
+  pruneObservationRefs,
+  snapshotSummary,
+  trackObservation,
+  type ObservationRef,
+} from '@/lib/context-compression';
 import { formatSnapshot } from '@/lib/a11y';
 import { buildSystemPrompt, PLANNING_PROMPT, UNTRUSTED_CONTENT_CLOSE, UNTRUSTED_CONTENT_OPEN } from '@/lib/prompts';
 import { sendToContent, broadcastEvent } from '@/lib/messaging';
 import {
   DEFAULT_SETTINGS,
   PROFILE_TO_MODEL,
+  resolveOllamaModel,
   type A11ySnapshot,
   type AgentPlan,
   type AgentOrchestrationState,
@@ -19,6 +34,7 @@ import {
   type StepTimings,
   type ToolCall,
 } from '@/lib/types';
+import { actionMayOpenTab, addOpenedTabsToResult, findOpenedTabs, shouldFollowOpenedTab, type BrowserTabSummary } from '@/lib/tab-sync';
 import { findCredentialForUrl, saveStep as saveStepRaw, saveTask } from '@/lib/storage';
 
 async function saveStep(taskId: string, step: AgentStep): Promise<void> {
@@ -43,7 +59,19 @@ import { parsePlanSteps, advancePlan, completePlan, planContext, markPlanStepFai
 import { decideRetry } from '@/lib/retry';
 import { learnFromSuccess, getCookieHint, getSearchHint, getRecoveryHint } from '@/lib/semantic-memory';
 import { learnFromTask, memoryContext } from '@/lib/memory';
-import { classifyTask, skillPrompts } from '@/lib/skills';
+import { getRecentSessionContext } from '@/lib/session-memory';
+import { classifyTaskNeural, skillPrompts } from '@/lib/skills';
+import { isBotChallengePage, solveCloudflareChallenge } from '@/lib/captcha-solver';
+import { readLatestDownload } from '@/lib/file-reader';
+
+
+
+
+
+
+
+
+
 import {
   CheckpointManager,
   TabManager,
@@ -86,6 +114,13 @@ interface LoopState {
   modelRequestedReasoning: boolean;
 }
 
+interface ActionRecord {
+  name: string;
+  argsStr: string;
+  domHash: string;
+  url: string;
+}
+
 interface SheetTaskContract {
   startCell: string;
   rows: number;
@@ -96,9 +131,12 @@ interface SheetTaskContract {
 
 export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTask> {
   const settings = deps.settings ?? DEFAULT_SETTINGS;
-  const stepModel = PROFILE_TO_MODEL[task.profile] ?? PROFILE_TO_MODEL.balanced;
+  const profileStepModel = PROFILE_TO_MODEL[task.profile] ?? PROFILE_TO_MODEL.balanced;
   const planningProfile: ModelProfile = settings.planningProfile === 'same' ? task.profile : settings.planningProfile;
-  const planningModel = PROFILE_TO_MODEL[planningProfile] ?? stepModel;
+  const profilePlanningModel = PROFILE_TO_MODEL[planningProfile] ?? profileStepModel;
+  // A free-text Ollama model override (when set) wins over the profile mapping for both step and planning calls.
+  const stepModel = resolveOllamaModel(settings.ollamaModel, profileStepModel);
+  const planningModel = resolveOllamaModel(settings.ollamaModel, profilePlanningModel);
   task.provider = settings.provider;
   task.modelUsed = providerModel(settings, stepModel);
 
@@ -115,13 +153,6 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
 
   const intent = computeIntentHash(task.goal);
 
-  // Reset page to clean state before starting a new task
-  if (tab.url && !tab.url.startsWith('chrome://')) {
-    await chrome.tabs.update(task.tabId, { url: tab.url });
-    await waitForTabComplete(task.tabId);
-    await sleep(500);
-  }
-
   task.status = 'running';
   task.updatedAt = Date.now();
   await saveTask(task);
@@ -135,6 +166,12 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
     history[0].content += `\n\n[SHEET CONTRACT]\nExpected range: ${sheetContract.startCell}:${rangeEndCell(sheetContract)} (${sheetContract.rows} rows x ${sheetContract.columns} columns). This is mandatory. Verification cells are only an audit; do not call done until the full range is written.`;
   }
 
+  // Inject session memory (previous turns, goals, extracted findings in this tab/session)
+  const sessionCtx = await getRecentSessionContext(task.tabId, tab.url);
+  if (sessionCtx) {
+    history.push({ role: 'user', content: sessionCtx });
+  }
+
   // Inject memory context for this site
   const memCtx = await memoryContext(tab.url ?? '');
   if (memCtx) {
@@ -143,9 +180,11 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
 
   history.push({ role: 'user', content: `GOAL: ${task.goal}\n\n${PLANNING_PROMPT}` });
 
-  // ── Auto-detect skills from task ──
-  const classified = settings.autoSkills !== false ? classifyTask(task.goal, settings) : [];
+
+  // ── Auto-detect skills from task (Neural HF + Semantic Router) ──
+  const classified = settings.autoSkills !== false ? await classifyTaskNeural(task.goal) : [];
   const manualSkills = new Set(settings.enabledSkills ?? []);
+
   const autoSkills = classified.filter((c) => !manualSkills.has(c.id)).map((c) => c.id);
   if (autoSkills.length > 0) {
     const prompts = skillPrompts(autoSkills);
@@ -164,6 +203,9 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
   let cachedRemaining: ToolCall[] | null = null;
   let cachedExpectedDomHash: string | null = null;
   const loop: LoopState = { lastStepFailed: false, modelRequestedVision: false, modelRequestedReasoning: false };
+  const actionHistory: ActionRecord[] = [];
+  // Page snapshots pushed into `history`, tracked so older ones can be collapsed (context compression).
+  const observationRefs: ObservationRef[] = [];
 
   // ── Planner state ──
   let plan: AgentPlan | null = null;
@@ -176,6 +218,18 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
 
   // ── Multi-tab support ──
   let activeTabId = task.tabId;
+  let glowTabId: number | null = null;
+  const setActiveAgentGlow = async (tabId: number | null) => {
+    if (glowTabId !== null && glowTabId !== tabId) {
+      await sendToContent(glowTabId, { kind: 'agent-glow:set', active: false }).catch(() => {});
+    }
+    glowTabId = tabId;
+    if (tabId !== null) {
+      await sendToContent(tabId, { kind: 'agent-glow:set', active: true }).catch(() => {});
+    }
+  };
+  await setActiveAgentGlow(activeTabId);
+
   const tabMgr = new TabManager();
   tabMgr.setPrimaryTab(task.tabId, tab.url ?? '', tab.title ?? '');
 
@@ -193,103 +247,11 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
     }
   }
 
-  if (!planWasSetByModel && !orchPlanParsed) {
-    task.status = 'planning';
-    task.updatedAt = Date.now();
-    await saveTask(task);
-    broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
+  task.status = 'running';
+  task.updatedAt = Date.now();
+  await saveTask(task);
+  broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
 
-    let planningResp;
-    const planningStartedAt = Date.now();
-    const planningT0 = performance.now();
-    try {
-      planningResp = await requestModelResponse(settings, {
-        url: settings.ollamaUrl,
-        model: planningModel,
-        messages: [
-          ...history,
-          {
-            role: 'user',
-            content: `[PLANNING CALL]
-Understand the user's intent and call set_task_plan only.
-The plan must be 3-8 numbered steps and must cover:
-1. What the user wants
-2. How you will achieve it
-3. What evidence or page data must be collected
-4. How completeness will be verified
-5. When final done is allowed
-
-Do not browse yet. Do not answer the user yet.`,
-          },
-        ],
-        thinking: true,
-      });
-    } catch (err) {
-      const msg = err instanceof OllamaError ? err.message : err instanceof Error ? err.message : String(err);
-      task.status = 'failed';
-      task.error = `Planning failed: ${msg}`;
-      task.updatedAt = Date.now();
-      await saveTask(task);
-      broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
-      broadcastEvent({ kind: 'task:error', taskId: task.id, error: `Planning failed: ${msg}` });
-      return task;
-    }
-
-    if (planningResp.toolCall?.name === 'set_task_plan') {
-      const planningResult = applyModelTaskPlan(task, planningResp.toolCall, orchPlan);
-      if (planningResult.ok) {
-        const planningStep: AgentStep = {
-          id: `${task.id}-${stepSerial}`,
-          index: stepSerial,
-          status: 'ok',
-          startedAt: planningStartedAt,
-          finishedAt: Date.now(),
-          thought: true,
-          modelUsed: providerModel(settings, planningModel),
-          thinking: planningResp.thinking,
-          toolCall: planningResp.toolCall,
-          result: { ok: true, durationMs: 0, extracted: planningResult.plan },
-          note: 'Preflight plan accepted',
-          timings: {
-            llmMs: planningResp.totalMs,
-            totalMs: performance.now() - planningT0,
-          },
-        };
-        task.steps.push(planningStep);
-        await saveStep(task.id, planningStep);
-        broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(planningStep) });
-        stepSerial++;
-
-        plan = planningResult.plan;
-        planWasSetByModel = true;
-        await saveTask(task);
-        broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
-        history.push({
-          role: 'assistant',
-          content: '',
-          tool_calls: [{
-            id: planningResp.toolCall.id ?? planningResp.toolCall.name,
-            function: { name: planningResp.toolCall.name, arguments: planningResp.toolCall.arguments },
-          }],
-          ...(planningResp.thinking ? { reasoning_content: planningResp.thinking } : {}),
-        });
-        history.push({
-          role: 'tool',
-          content: `Plan accepted. Intent: ${plan.intent ?? ''}`,
-          tool_call_id: planningResp.toolCall.id ?? planningResp.toolCall.name,
-        });
-        history.push({
-          role: 'user',
-          content: '[PLAN] Preflight intent and plan accepted. Start executing the first active plan step with browser tool calls.',
-        });
-      }
-    }
-
-    task.status = 'running';
-    task.updatedAt = Date.now();
-    await saveTask(task);
-    broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
-  }
 
   // ── Retry tracking per step ──
   let stepRetryCount = 0;
@@ -360,6 +322,10 @@ Do not browse yet. Do not answer the user yet.`,
       if (availableCredential) {
         memoryHints.push(`[LOGIN] Session credential available for ${availableCredential.origin} as ${availableCredential.username}. Use fill_login_credentials when username/password fields are visible; do not ask for or reveal the password.`);
       }
+      if (isBotChallengePage(snapshot.title, snapshot.url)) {
+        memoryHints.push('[BOT CHALLENGE] Cloudflare Turnstile / Bot Verification Challenge detected on this page. Call solve_captcha() to pass the challenge automatically.');
+      }
+
 
       // ── Parse plan after planning step ──
       // ── Action cache ──
@@ -378,6 +344,7 @@ Do not browse yet. Do not answer the user yet.`,
 
       let llmMs = 0;
       let screenshotMs = 0;
+      let chatOpts: OllamaChatOptions | undefined;
 
       if (cachedRemaining && cachedRemaining.length > 0) {
         toolCall = cachedRemaining.shift();
@@ -426,26 +393,33 @@ Do not browse yet. Do not answer the user yet.`,
         const memoryBlock = memoryHints.length > 0 ? `\n[MEMORY HINTS]\n${memoryHints.join('\n')}` : '';
         const observation = formatObservation(snapshot, vision.reason, images.length > 0) + planBlock + orchPlanBlock + memoryBlock;
         step.prompt = observation;
-        history.push({ role: 'user', content: observation });
+        const observationMsg: OllamaMessage = { role: 'user', content: observation };
+        history.push(observationMsg);
+        trackObservation(observationRefs, observationMsg, snapshotSummary(snapshot));
+
+        // ── Context compression: collapse old snapshots, fold older steps if over budget ──
+        await enforceContextBudget(history, observationRefs, settings, stepModel, task, plan, orchPlan);
 
         const useThinking = shouldThink(settings, planWasSetByModel ? stepIndex + 1 : stepIndex, loop);
         step.thought = useThinking;
         const modelForStep = stepIndex === 0 ? planningModel : stepModel;
         step.modelUsed = modelForStep;
         if (settings.provider === 'openai') step.modelUsed = settings.openaiModel;
+        if (settings.provider === 'gemini') step.modelUsed = settings.geminiModel;
         if (settings.provider === 'xai') step.modelUsed = settings.xaiModel;
         if (settings.provider === 'openrouter') step.modelUsed = settings.openRouterModel;
         if (settings.provider === 'mlx') step.modelUsed = settings.mlxModel;
+        if (settings.provider === 'deepseek') step.modelUsed = settings.deepseekModel;
 
         const llmT0 = performance.now();
-        const chatOpts = {
+        chatOpts = {
           url: settings.ollamaUrl,
           model: modelForStep,
           messages: history,
           thinking: useThinking,
           images,
           visualTokens: vision.attach ? vision.visualTokens : undefined,
-          onUpdate: (partial: any) => {
+          onUpdate: (partial) => {
             step.thinking = partial.thinking;
             step.note = partial.content ? truncate(partial.content, 200) : step.note;
             broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
@@ -488,7 +462,7 @@ Do not browse yet. Do not answer the user yet.`,
               { role: 'assistant', content: truncate(resp.content || '(empty response)', 2_000) },
               { role: 'user', content: TOOL_CALL_REPAIR_PROMPT },
             ],
-            onUpdate: (partial: any) => {
+            onUpdate: (partial) => {
               step.thinking = partial.thinking;
               step.note = partial.content ? `Repair: ${truncate(partial.content, 200)}` : step.note;
               broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
@@ -549,29 +523,20 @@ Do not browse yet. Do not answer the user yet.`,
 
       if (!toolCall) throw new Error('Tool call missing');
 
-      if (!planWasSetByModel && !step.cached && toolCall.name !== 'set_task_plan') {
-        const msg = 'First action must set a visible task plan. Call set_task_plan with 3-8 numbered steps covering user intent, approach, evidence collection, verification, and final answer criteria.';
-        step.result = { ok: true, durationMs: 0, extracted: msg };
-        step.status = 'ok';
-        step.note = 'Blocked action before plan';
-        step.finishedAt = Date.now();
-        step.timings = finalizeTimings(stepStart, { snapshotMs, screenshotMs, llmMs });
-        await saveStep(task.id, step);
-        broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
-        history.push({
-          role: 'tool',
-          content: msg,
-          tool_call_id: toolCall.id ?? toolCall.name,
-        });
-        history.push({
-          role: 'user',
-          content: `[PLAN REQUIRED] ${msg}\nDo not browse, type, click, extract, or call done until set_task_plan is accepted.`,
-        });
-        advanceStepCounters();
-        task.updatedAt = Date.now();
-        await saveTask(task);
-        continue;
+      if (!planWasSetByModel && toolCall.name !== 'set_task_plan') {
+        plan = {
+          goal: task.goal,
+          steps: [{ index: 1, description: task.goal, status: 'active' }],
+          currentStep: 0,
+          createdAt: Date.now(),
+        };
+        planWasSetByModel = true;
+        task.plan = plan;
+        syncVisiblePlans(task, plan, orchPlan);
+        broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
       }
+
+
 
       // ── Pre-action sanity check: ref must exist in snapshot ──
       const actionRef = String(toolCall.arguments.ref ?? '');
@@ -599,7 +564,12 @@ Do not browse yet. Do not answer the user yet.`,
       }
 
       // ── Execute action ──
+
       const actionT0 = performance.now();
+      const postToolUserMessages: string[] = [];
+      const tabsBeforeAction = actionMayOpenTab(toolCall.name)
+        ? await listBrowserTabs(false).catch(() => [])
+        : [];
       if (toolCall.name === 'set_task_plan') {
         const planResult = applyModelTaskPlan(task, toolCall, orchPlan);
         if (!planResult.ok) {
@@ -618,8 +588,9 @@ Do not browse yet. Do not answer the user yet.`,
           });
           history.push({
             role: 'user',
-            content: `[PLAN REQUIRED] ${msg}\nCall set_task_plan again with 3-8 numbered steps.`,
+            content: `[PLAN REQUIRED] ${msg}\nCall set_task_plan again with 2-5 concise numbered action steps.`,
           });
+
           advanceStepCounters();
           task.updatedAt = Date.now();
           await saveTask(task);
@@ -658,6 +629,7 @@ Do not browse yet. Do not answer the user yet.`,
         await chrome.tabs.update(tab.id!, { url });
         await waitForTabComplete(tab.id!, 20_000);
         activeTabId = tab.id!;
+        await setActiveAgentGlow(activeTabId);
         tabMgr.setPrimaryTab(tab.id!, url, '');
         step.result = {
           ok: true,
@@ -675,6 +647,7 @@ Do not browse yet. Do not answer the user yet.`,
           await waitForTabComplete(switchToId);
         }
         activeTabId = switchToId;
+        await setActiveAgentGlow(activeTabId);
         step.result = {
           ok: true,
           durationMs: 0,
@@ -696,7 +669,10 @@ Do not browse yet. Do not answer the user yet.`,
         await chrome.tabs.remove(tabIds);
         if (tabIds.includes(activeTabId)) {
           const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
-          if (active?.id) activeTabId = active.id;
+          if (active?.id) {
+            activeTabId = active.id;
+            await setActiveAgentGlow(activeTabId);
+          }
         }
         step.result = {
           ok: true,
@@ -855,7 +831,32 @@ Do not browse yet. Do not answer the user yet.`,
           extracted: { origin: credential.origin, username: credential.username, passwordFilled: true },
         };
         step.note = `Filled login credentials for ${credential.origin}`;
+      } else if (toolCall.name === 'solve_captcha') {
+        const captchaResult = await solveCloudflareChallenge(activeTabId);
+        await sleep(2500);
+        step.result = {
+          ok: captchaResult.success,
+          durationMs: 2500,
+          extracted: captchaResult.message,
+          error: captchaResult.success ? undefined : captchaResult.message,
+        };
+        step.note = captchaResult.message;
+      } else if (toolCall.name === 'read_downloaded_file') {
+        const query = typeof toolCall.arguments.query === 'string' ? toolCall.arguments.query : undefined;
+        const maxChars = typeof toolCall.arguments.maxCharacters === 'number' ? toolCall.arguments.maxCharacters : 8000;
+        const fileResult = await readLatestDownload(query, maxChars);
+        step.result = {
+          ok: fileResult.ok,
+          durationMs: 50,
+          extracted: fileResult.content,
+          error: fileResult.error,
+        };
+        step.note = fileResult.ok
+          ? `Read file ${fileResult.filename} (${fileResult.fileSize} bytes)`
+          : `Failed to read download: ${fileResult.error}`;
       } else if (toolCall.name === 'done') {
+
+
         const hasDoneSuccess = Object.prototype.hasOwnProperty.call(toolCall.arguments, 'success');
         const success = String(toolCall.arguments.success ?? 'false') === 'true';
         const doneSummary = String(toolCall.arguments.summary ?? '');
@@ -1034,7 +1035,7 @@ Do not browse yet. Do not answer the user yet.`,
           }, settings.cacheTtlDays);
 
           // ── Learn patterns from successful execution ──
-          learnFromSuccess(snapshot, executedCalls, task.goal).catch(() => {});
+          learnFromSuccess(snapshot, executedCalls).catch(() => {});
         }
 
         history.push({
@@ -1046,6 +1047,23 @@ Do not browse yet. Do not answer the user yet.`,
       } else {
         step.result = await runBrowserAction(activeTabId, snapshot, toolCall);
         if (step.result.ok) executedCalls.push(toolCall);
+      }
+
+      if (step.result?.ok && tabsBeforeAction.length > 0) {
+        const openedTabs = await waitForOpenedTabs(tabsBeforeAction);
+        if (openedTabs.length > 0) {
+          step.result = addOpenedTabsToResult(step.result, openedTabs);
+          step.note = `${step.note ? `${step.note} | ` : ''}Opened tab${openedTabs.length === 1 ? '' : 's'}: ${openedTabs.map((tab) => tab.tabId).join(', ')}`;
+
+          const followTab = shouldFollowOpenedTab(toolCall.name, openedTabs);
+          if (followTab) {
+            activeTabId = followTab.tabId;
+            await setActiveAgentGlow(activeTabId);
+            tabMgr.setPrimaryTab(followTab.tabId, followTab.url, followTab.title);
+            await waitForTabComplete(followTab.tabId, 20_000).catch(() => {});
+            postToolUserMessages.push(`[TAB SYNC] The previous ${toolCall.name} opened a new tab. Continue from tabId ${followTab.tabId} (${followTab.url || 'loading'}). Use switch_tab if you need to return to another tab.`);
+          }
+        }
       }
       const actionMs = performance.now() - actionT0;
 
@@ -1068,6 +1086,9 @@ Do not browse yet. Do not answer the user yet.`,
           content: toolResultContent,
           tool_call_id: toolCall.id ?? toolCall.name,
         });
+      }
+      for (const message of postToolUserMessages) {
+        history.push({ role: 'user', content: message });
       }
 
       if (isOrchestratorControlTool(toolCall.name)) {
@@ -1095,14 +1116,31 @@ Do not browse yet. Do not answer the user yet.`,
 
       // ── Verification ──
       // Brief delay to let dynamic content settle after UI actions
-      if (toolCall.name === 'click' || toolCall.name === 'type' || toolCall.name === 'press' || toolCall.name === 'select') {
-        await sleep(500);
+      if (toolCall?.name === 'click' || toolCall?.name === 'type' || toolCall?.name === 'press' || toolCall?.name === 'select') {
+        await sleep(200);
       }
       const snapshotAfter = await takeSnapshot(activeTabId).catch(() => undefined);
       step.snapshotAfter = snapshotAfter;
 
-      const verification = verify(snapshot, snapshotAfter, step.result, toolCall.name);
+      const toolCallName = toolCall?.name ?? 'unknown';
+      const verification = verify(snapshot, snapshotAfter, step.result, toolCallName);
       step.note = (step.note ?? '') + ` | ${describeVerification(verification)}`;
+
+      const capturedToolCall = toolCall;
+      const currentCallSignature = capturedToolCall ? `${capturedToolCall.name}:${JSON.stringify(capturedToolCall.arguments)}` : 'none';
+      let sameActionOccurrences = 0;
+      if (capturedToolCall) {
+        sameActionOccurrences = actionHistory.filter(
+          (a) => a.name === capturedToolCall.name && a.argsStr === currentCallSignature && a.domHash === snapshot.domHash,
+        ).length;
+        actionHistory.push({
+          name: capturedToolCall.name,
+          argsStr: currentCallSignature,
+          domHash: snapshot.domHash,
+          url: snapshot.url,
+        });
+        if (actionHistory.length > 20) actionHistory.shift();
+      }
 
       // ── Decide on retry ──
       if (step.result?.ok && verification.status === 'success') {
@@ -1160,7 +1198,7 @@ Do not browse yet. Do not answer the user yet.`,
           step.note = (step.note ?? '') + ` | retry #${stepRetryCount}: ${retry.strategy}`;
           loop.lastStepFailed = true;
           if (plan) {
-            markPlanStepFailed(plan, toolCall.name);
+            markPlanStepFailed(plan);
             syncVisiblePlans(task, plan, orchPlan);
             await saveTask(task);
             broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
@@ -1200,7 +1238,12 @@ Do not browse yet. Do not answer the user yet.`,
           const hint = verification.popupDetected
             ? `Action succeeded but a popup was noted (${verification.popupRefs?.join(', ') ?? 'unknown'}). Handle it if needed, then continue.`
             : verificationToPrompt(verification);
-          history.push({ role: 'user', content: `[REVIEW] ∼ ${hint}` });
+          let loopWarning = '';
+          if ((verification.status === 'partial' || verification.status === 'uncertain') && sameActionOccurrences >= 1) {
+            loop.modelRequestedReasoning = true;
+            loopWarning = `\n[LOOP WARNING] You have executed "${toolCall?.name ?? 'the action'}" with identical arguments multiple times without any observable DOM change. Stop repeating this action. Try scrolling, targeting a different element, or altering your strategy.`;
+          }
+          history.push({ role: 'user', content: `[REVIEW] ∼ ${hint}${loopWarning}` });
         }
       }
 
@@ -1227,19 +1270,16 @@ Do not browse yet. Do not answer the user yet.`,
         }
       }
 
-      // ── Max retries exceeded — pause and ask user ──
+      // ── Max retries exceeded — report failure cleanly without deadlocking ──
       if (consecutiveFailures >= MAX_STEP_RETRIES) {
-        deps.requestPause?.(task.id);
-        task.status = 'paused';
+        task.status = 'failed';
+        task.error = `Max retries (${MAX_STEP_RETRIES}) exceeded: action verification could not confirm progress.`;
         task.updatedAt = Date.now();
         await saveTask(task);
         broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
-        await waitUntilResumedOrStopped(task.id, deps, settings.autoResumeTimeoutMs);
-        if (deps.isStopped(task.id)) { task.status = 'failed'; break; }
-        consecutiveFailures = 0;
-        stepRetryCount = 0;
-        task.status = 'running';
-        broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
+        broadcastEvent({ kind: 'task:error', taskId: task.id, error: task.error });
+        await setActiveAgentGlow(null);
+        return task;
       }
     } catch (err) {
       const msg = err instanceof OllamaError ? err.message : err instanceof Error ? err.message : String(err);
@@ -1257,33 +1297,19 @@ Do not browse yet. Do not answer the user yet.`,
       }
       history.push({ role: 'user', content: `[REVIEW] ✗ Step error: ${msg}. Retry ${Math.min(consecutiveFailures + 1, MAX_STEP_RETRIES)} of ${MAX_STEP_RETRIES}. Re-evaluate.` });
 
-      if (err instanceof OllamaError) {
-        deps.requestPause?.(task.id);
-        task.status = 'paused';
+      consecutiveFailures += 1;
+      if (consecutiveFailures >= MAX_STEP_RETRIES) {
+        task.status = 'failed';
+        task.error = `Task failed after ${MAX_STEP_RETRIES} attempts: ${msg}`;
         task.updatedAt = Date.now();
         await saveTask(task);
         broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
-        await waitUntilResumedOrStopped(task.id, deps, settings.autoResumeTimeoutMs);
-        if (deps.isStopped(task.id)) { task.status = 'failed'; break; }
-        task.status = 'running';
-        broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
-      } else {
-        consecutiveFailures += 1;
-        if (consecutiveFailures >= MAX_STEP_RETRIES) {
-          deps.requestPause?.(task.id);
-          task.status = 'paused';
-          task.updatedAt = Date.now();
-          await saveTask(task);
-          broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
-          await waitUntilResumedOrStopped(task.id, deps, settings.autoResumeTimeoutMs);
-          if (deps.isStopped(task.id)) { task.status = 'failed'; break; }
-          consecutiveFailures = 0;
-          stepRetryCount = 0;
-          task.status = 'running';
-          broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
-        }
+        broadcastEvent({ kind: 'task:error', taskId: task.id, error: task.error });
+        await setActiveAgentGlow(null);
+        return task;
       }
     }
+
 
     advanceStepCounters();
     task.updatedAt = Date.now();
@@ -1296,13 +1322,14 @@ Do not browse yet. Do not answer the user yet.`,
     tab.url ?? '',
     task.goal,
     task.status === 'done',
-    (lastStep?.result as any)?.extracted ?? task.status,
+    String(lastStep?.result?.extracted ?? task.status),
     task.steps.map(s => ({ toolCall: s.toolCall, result: s.result, note: s.note })),
   ).catch(() => {});
 
   task.updatedAt = Date.now();
   await saveTask(task);
   broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
+  await setActiveAgentGlow(null);
   return task;
 }
 
@@ -1363,14 +1390,7 @@ function compactHistoryForResume(
   maxResumes: number,
 ): OllamaMessage[] {
   const system = history.find((msg) => msg.role === 'system') ?? history[0];
-  const recentSteps = task.steps.slice(-12).map((step) => {
-    const call = step.toolCall ? `${step.toolCall.name}(${formatCompactArgs(step.toolCall.arguments)})` : 'no tool';
-    const result = step.result?.ok
-      ? step.result.extracted !== undefined ? ` -> ${truncate(formatCompactValue(step.result.extracted), 180)}` : ' -> ok'
-      : step.result?.error ? ` -> error: ${truncate(step.result.error, 180)}` : '';
-    const note = step.note ? ` | ${truncate(step.note, 140)}` : '';
-    return `#${step.index + 1} ${step.status}: ${call}${result}${note}`;
-  });
+  const recentSteps = task.steps.slice(-12).map(formatStepLine);
 
   const parts = [
     `[AUTO-RESUME ${resumeCount}/${maxResumes}] Reached ${MAX_STEPS} steps. Continue the long task from this compact state.`,
@@ -1385,6 +1405,99 @@ function compactHistoryForResume(
     { role: 'system', content: system?.content ?? buildSystemPrompt(DEFAULT_SETTINGS) },
     { role: 'user', content: parts.join('\n\n') },
   ];
+}
+
+function formatStepLine(step: AgentStep): string {
+  const call = step.toolCall ? `${step.toolCall.name}(${formatCompactArgs(step.toolCall.arguments)})` : 'no tool';
+  const result = step.result?.ok
+    ? step.result.extracted !== undefined ? ` -> ${truncate(formatCompactValue(step.result.extracted), 180)}` : ' -> ok'
+    : step.result?.error ? ` -> error: ${truncate(step.result.error, 180)}` : '';
+  const note = step.note ? ` | ${truncate(step.note, 140)}` : '';
+  return `#${step.index + 1} ${step.status}: ${call}${result}${note}`;
+}
+
+/**
+ * Keep the running context bounded during a long task (paper: "Acon", arXiv:2510.00615):
+ *  #1 collapse page snapshots older than the window to a one-line summary;
+ *  #2 if still over the token budget, fold older whole steps into one progress summary,
+ *     optionally rewritten by a model when `settings.contextCompressor` is enabled.
+ * Mutates `history` and `observationRefs` in place.
+ */
+async function enforceContextBudget(
+  history: OllamaMessage[],
+  observationRefs: ObservationRef[],
+  settings: Settings,
+  stepModel: string,
+  task: AgentTask,
+  plan: AgentPlan | null,
+  orchPlan: OrchestrationPlan | null,
+): Promise<void> {
+  collapseOldObservations(observationRefs);
+
+  if (historyTokens(history) <= contextTokenBudget(settings)) return;
+  const cut = foldBoundary(history, observationRefs);
+  if (cut < 0) return;
+
+  const system = history.find((msg) => msg.role === 'system') ?? history[0];
+  const folded = history.slice(1, cut).filter((msg) => msg.role !== 'system');
+  const summary = await summarizeFoldedHistory(folded, settings, stepModel, task, plan, orchPlan);
+  const head: OllamaMessage = { role: 'user', content: `[EARLIER PROGRESS — older turns compressed to save context]\n${summary}` };
+  history.splice(0, cut, system ?? { role: 'system', content: buildSystemPrompt(settings) }, head);
+  pruneObservationRefs(history, observationRefs);
+}
+
+function stepsDigest(task: AgentTask, plan: AgentPlan | null, orchPlan: OrchestrationPlan | null): string {
+  const steps = task.steps.slice(-16).map(formatStepLine);
+  return [
+    `GOAL: ${task.goal}`,
+    plan ? planContext(plan) : '',
+    orchPlan ? orchPlanSummary(orchPlan) : '',
+    steps.length > 0 ? `[STEPS SO FAR]\n${steps.join('\n')}` : '',
+  ].filter(Boolean).join('\n\n');
+}
+
+async function summarizeFoldedHistory(
+  folded: OllamaMessage[],
+  settings: Settings,
+  stepModel: string,
+  task: AgentTask,
+  plan: AgentPlan | null,
+  orchPlan: OrchestrationPlan | null,
+): Promise<string> {
+  const digest = stepsDigest(task, plan, orchPlan);
+  if (settings.contextCompressor === 'off' || folded.length === 0) return digest;
+  try {
+    const target = compressorSettings(settings);
+    const transcript = folded
+      .map((m) => `${m.role}: ${truncate(m.content ?? '', 1200)}`)
+      .join('\n')
+      .slice(0, 24_000);
+    const resp = await requestModelResponse(target, {
+      url: target.ollamaUrl,
+      model: stepModel,
+      thinking: false,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You compress an AI web agent\'s earlier steps. Produce a concise plain-text summary (max ~180 words) that preserves: visited URLs, element refs/ids, extracted values, and which actions were taken with their results. Do not call any tool. Output only the summary.',
+        },
+        { role: 'user', content: `GOAL: ${task.goal}\n\nEARLIER TURNS:\n${transcript}` },
+      ],
+    });
+    const text = resp.content?.trim();
+    return text ? text : digest;
+  } catch {
+    return digest;
+  }
+}
+
+/** Pick the provider used for compression. 'cloud' prefers a configured DeepSeek/Gemini key. */
+function compressorSettings(settings: Settings): Settings {
+  if (settings.contextCompressor !== 'cloud') return settings;
+  if (settings.deepseekApiKey.trim()) return { ...settings, provider: 'deepseek' };
+  if (settings.geminiApiKey.trim()) return { ...settings, provider: 'gemini' };
+  return settings;
 }
 
 function formatCompactArgs(args: Record<string, unknown>): string {
@@ -1430,8 +1543,15 @@ function serializeOrchestration(plan: OrchestrationPlan): AgentOrchestrationStat
 }
 
 async function requestModelResponse(settings: Settings, opts: OllamaChatOptions): Promise<OllamaChatResult> {
+  if (settings.provider === 'anthropic') {
+    return chatAnthropic(opts, settings.anthropicApiKey, settings.anthropicModel);
+  }
   if (settings.provider === 'openai') {
     return chatOpenAI(opts, settings.openaiApiKey, settings.openaiModel);
+  }
+
+  if (settings.provider === 'gemini') {
+    return chatGemini({ ...opts, onUpdate: undefined }, settings.geminiApiKey, settings.geminiModel);
   }
   if (settings.provider === 'xai') {
     return chatXai(opts, settings.xaiApiKey, settings.xaiModel);
@@ -1441,6 +1561,9 @@ async function requestModelResponse(settings: Settings, opts: OllamaChatOptions)
   }
   if (settings.provider === 'mlx') {
     return chatMlx(opts, settings.mlxApiKey, settings.mlxModel);
+  }
+  if (settings.provider === 'deepseek') {
+    return chatDeepSeek(opts, settings.deepseekApiKey, settings.deepseekModel);
   }
   return chat(opts);
 }
@@ -1549,9 +1672,13 @@ function isOrchestratorControlTool(name: ToolCall['name']): boolean {
     name === 'fail_subtask' ||
     name === 'update_task_memory' ||
     name === 'define_sheet_contract' ||
-    name === 'fill_login_credentials'
+    name === 'fill_login_credentials' ||
+    name === 'solve_captcha' ||
+    name === 'read_downloaded_file'
   );
 }
+
+
 
 function looksLikePrematureCompletion(summary: string): boolean {
   const lower = summary.toLowerCase();
@@ -1756,24 +1883,15 @@ function truncate(s: string, n: number): string { return s.length > n ? `${s.sli
 
 function providerModel(settings: Settings, ollamaModel: string): string {
   if (settings.provider === 'openai') return settings.openaiModel;
+  if (settings.provider === 'gemini') return settings.geminiModel;
   if (settings.provider === 'xai') return settings.xaiModel;
   if (settings.provider === 'openrouter') return settings.openRouterModel;
   if (settings.provider === 'mlx') return settings.mlxModel;
+  if (settings.provider === 'deepseek') return settings.deepseekModel;
   return ollamaModel;
 }
 
-type TabSummary = {
-  tabId: number;
-  windowId: number;
-  index: number;
-  title: string;
-  url: string;
-  active: boolean;
-  pinned: boolean;
-  groupId: number;
-};
-
-async function listBrowserTabs(currentWindow: boolean): Promise<TabSummary[]> {
+async function listBrowserTabs(currentWindow: boolean): Promise<BrowserTabSummary[]> {
   const tabs = await chrome.tabs.query(currentWindow ? { currentWindow: true } : {});
   return tabs
     .filter((tab): tab is chrome.tabs.Tab & { id: number; windowId: number; index: number } => typeof tab.id === 'number')
@@ -1787,6 +1905,20 @@ async function listBrowserTabs(currentWindow: boolean): Promise<TabSummary[]> {
       pinned: Boolean(tab.pinned),
       groupId: typeof tab.groupId === 'number' ? tab.groupId : -1,
     }));
+}
+
+async function waitForOpenedTabs(before: BrowserTabSummary[], timeoutMs = 1_500): Promise<BrowserTabSummary[]> {
+  const startedAt = Date.now();
+  let openedTabs: BrowserTabSummary[] = [];
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const after = await listBrowserTabs(false).catch(() => []);
+    openedTabs = findOpenedTabs(before, after);
+    if (openedTabs.length > 0) return openedTabs;
+    await sleep(150);
+  }
+
+  return openedTabs;
 }
 
 function parseTabIds(value: unknown): number[] {
@@ -1834,13 +1966,3 @@ function isTabGroupColor(value: string): value is chrome.tabGroups.ColorEnum {
   return ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan'].includes(value);
 }
 
-async function waitUntilResumedOrStopped(taskId: string, deps: AgentDeps, timeoutMs?: number): Promise<void> {
-  const deadline = timeoutMs ? Date.now() + timeoutMs : null;
-  while (deps.isPaused(taskId) && !deps.isStopped(taskId)) {
-    if (deadline && Date.now() >= deadline) {
-      deps.requestResume?.(taskId);
-      return;
-    }
-    await sleep(500);
-  }
-}

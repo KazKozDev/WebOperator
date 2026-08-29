@@ -110,18 +110,26 @@ textarea:disabled {
 }
 
 .model-chip {
-  max-width: 140px;
+  max-width: 150px;
   overflow: hidden;
-  padding: 5px 8px;
-  border: 1px solid rgba(223, 206, 179, 0.12);
-  border-radius: 7px;
+  padding: 5px 9px;
+  border: 1px solid rgba(223, 206, 179, 0.14);
+  border-radius: 8px;
   background: rgba(28, 22, 21, 0.72);
+  backdrop-filter: blur(8px);
   color: var(--text2);
   font-size: 11px;
   line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: all 0.15s ease;
 }
+
+.model-chip:hover {
+  border-color: rgba(212, 162, 78, 0.3);
+  color: var(--text);
+}
+
 
 .brand-mark {
   position: relative;
@@ -349,10 +357,12 @@ textarea:disabled {
 
 .answer-panel {
   position: relative;
-  padding: 13px 15px 14px;
-  border: 1px solid rgba(223, 206, 179, 0.12);
-  border-radius: 8px;
-  background: linear-gradient(180deg, rgba(28, 22, 21, 0.98), rgba(24, 18, 17, 0.98));
+  padding: 14px 16px 16px;
+  border: 1px solid rgba(223, 206, 179, 0.14);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(32, 25, 23, 0.98), rgba(24, 18, 17, 0.98));
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   color: var(--text);
 }
 
@@ -370,6 +380,7 @@ textarea:disabled {
 .answer-panel.success::before {
   background: var(--success);
 }
+
 
 .answer-panel.failure {
   background: rgba(183, 123, 107, 0.07);
@@ -493,8 +504,41 @@ textarea:disabled {
   font-size: 12px;
 }
 
+.answer-list-body {
+  min-width: 0;
+}
+
 .answer-text a {
   color: var(--accent2);
+}
+
+.answer-table-fit {
+  max-width: 100%;
+  margin: 10px 0;
+}
+
+.answer-text table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  line-height: 1.35;
+  table-layout: fixed;
+}
+
+.answer-text th,
+.answer-text td {
+  padding: 6px 8px;
+  border: 1px solid rgba(223, 206, 179, 0.1);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.answer-text th {
+  color: var(--text3);
+  background: rgba(223, 206, 179, 0.06);
+  font-weight: 600;
 }
 
 .answer-panel.pending .answer-text,
@@ -503,10 +547,16 @@ textarea:disabled {
 }
 
 .plan-panel {
-  padding: 12px;
-  border: 1px solid rgba(223, 206, 179, 0.12);
-  border-radius: 8px;
-  background: rgba(24, 21, 18, 0.72);
+  border: 1px solid rgba(223, 206, 179, 0.14);
+  border-radius: 12px;
+  background: rgba(26, 21, 19, 0.88);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+
+.plan-content {
+  padding: 0 12px 12px;
 }
 
 .plan-head,
@@ -520,7 +570,32 @@ textarea:disabled {
 
 .plan-head {
   min-height: 22px;
-  margin-bottom: 8px;
+}
+
+.plan-collapse summary {
+  padding: 10px 12px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.plan-collapse summary::-webkit-details-marker {
+  display: none;
+}
+
+.plan-collapse summary::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 5px 0 5px 6px;
+  border-color: transparent transparent transparent currentColor;
+  color: var(--text2);
+  transition: transform 0.15s ease;
+}
+
+.plan-collapse[open] summary::before {
+  transform: rotate(90deg);
 }
 
 .plan-title,
@@ -743,23 +818,30 @@ textarea:disabled {
 
 .prompt-chip {
   width: 100%;
-  padding: 8px 14px;
-  border: 1px solid rgba(223, 206, 179, 0.1);
+  padding: 10px 14px;
+  border: 1px solid rgba(223, 206, 179, 0.12);
   border-radius: 12px;
-  background: rgba(20, 18, 16, 0.64);
-  color: rgba(223, 206, 179, 0.54);
+  background: rgba(26, 22, 20, 0.7);
+  backdrop-filter: blur(8px);
+  color: rgba(223, 206, 179, 0.7);
   font-size: 13px;
   font-weight: 400;
   line-height: 1.4;
   text-align: left;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .prompt-chip:hover {
-  border-color: rgba(212, 162, 78, 0.28);
-  background: rgba(33, 29, 23, 0.8);
+  border-color: rgba(212, 162, 78, 0.4);
+  background: rgba(38, 30, 27, 0.9);
   color: var(--text);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
 }
+
 
 .step {
   position: relative;
@@ -920,11 +1002,20 @@ textarea:disabled {
   align-items: stretch;
   gap: 10px;
   min-height: 88px;
-  padding: 13px 12px 10px;
-  border: 1px solid rgba(223, 206, 179, 0.16);
+  padding: 13px 14px 10px;
+  border: 1px solid rgba(223, 206, 179, 0.18);
   border-radius: 16px;
-  background: #2a2925;
+  background: rgba(38, 30, 28, 0.92);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
+
+.input-row:focus-within {
+  border-color: rgba(212, 162, 78, 0.5);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(212, 162, 78, 0.2);
+}
+
 
 .input-main {
   display: flex;
@@ -1044,6 +1135,49 @@ textarea:disabled {
   background: var(--error);
   color: #fff;
 }
+
+.voice-btn {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-end;
+  width: 30px;
+  height: 30px;
+  margin-bottom: 1px;
+  margin-right: 6px;
+  border: 1px solid rgba(223, 206, 179, 0.16);
+  border-radius: 50%;
+  background: rgba(223, 206, 179, 0.06);
+  color: var(--text2);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.voice-btn:hover {
+  background: rgba(223, 206, 179, 0.14);
+  color: var(--text);
+}
+
+.voice-btn.recording {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #ef4444;
+  color: #ef4444;
+  animation: pulse-voice 1.5s infinite ease-in-out;
+}
+
+@keyframes pulse-voice {
+  0% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
 
 .composer-disclaimer {
   padding: 5px 2px 0;
@@ -1726,6 +1860,12 @@ button.danger {
   -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 6 6 18M6 6l12 12'/%3E%3C/svg%3E");
   mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 6 6 18M6 6l12 12'/%3E%3C/svg%3E");
 }
+
+.i-mic {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8'/%3E%3C/svg%3E");
+}
+
 
 /* Detected skills chips */
 .detected-skills {
