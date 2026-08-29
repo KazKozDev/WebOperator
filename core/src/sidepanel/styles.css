@@ -1489,6 +1489,20 @@ button.danger {
   border-bottom: none;
 }
 
+.history-item .controls {
+  margin-top: 8px;
+  gap: 5px;
+}
+
+.history-item .controls button {
+  padding: 4px 8px;
+  font-size: 11px;
+  line-height: 1.2;
+  border-radius: 5px;
+  min-height: 24px;
+}
+
+
 
 .step-head {
   display: flex;
