@@ -592,11 +592,12 @@ function HistoryView({ onReplay, onOpen, onResumeCheckpoint }: { onReplay: (goal
                     )}
                     <button className="secondary" onClick={() => onReplay(t.goal)}>Replay</button>
                     <button className="secondary" onClick={() => exportTask(t.id)}>Export</button>
-                    <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <div className="history-meta">
                       <span className="item-meta step-detail">{new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                       <span className={`status-pill status-${t.status}`}>{t.status}</span>
                     </div>
                   </div>
+
                 </div>
 
 

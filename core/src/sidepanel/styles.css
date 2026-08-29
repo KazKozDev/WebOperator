@@ -1536,11 +1536,20 @@ button.danger {
 
 .history-item .controls {
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
   margin-top: 8px;
   gap: 5px;
 }
 
+.history-item .history-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 
 .history-item .controls button {
   padding: 3px 8px;
@@ -1549,6 +1558,7 @@ button.danger {
   border-radius: 5px;
   min-height: 22px;
 }
+
 
 
 
