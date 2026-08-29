@@ -322,9 +322,10 @@ function ScheduleView({ onOpenTask }: { onOpenTask: (task: AgentTask) => void })
         ) : items.map((item) => (
           <div key={item.id} className="ui-list-item history-item">
             <div className="item-head step-head">
-              <span className="status-pill">{item.enabled ? item.repeat : 'paused'}</span>
               <span className="item-meta step-detail">{item.lastStatus ?? (item.enabled ? 'enabled' : 'paused')}</span>
+              <span className="status-pill">{item.enabled ? item.repeat : 'paused'}</span>
             </div>
+
             <div className="item-title history-goal">{item.name}</div>
             <div className="item-meta step-detail">{item.goal}</div>
             <div className="item-meta step-detail">{item.startUrl}</div>
@@ -894,10 +895,11 @@ function VaultView() {
         ) : entries.map((entry) => (
           <div key={entry.id} className="ui-list-item history-item">
             <div className="item-head step-head">
-              <span className="status-pill">{entry.label || 'Credential'}</span>
               <span className="item-meta step-detail">{new Date(entry.updatedAt).toLocaleString()}</span>
+              <span className="status-pill">{entry.label || 'Credential'}</span>
             </div>
             <div className="item-title history-goal">{entry.origin}</div>
+
             <div className="item-meta step-detail">{entry.username} · password saved for session</div>
             <div className="action-row controls">
               <button className="secondary" onClick={() => remove(entry.id)}>Delete</button>

@@ -1514,6 +1514,14 @@ button.danger {
   align-items: center;
 }
 
+.history-item .item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+
 .history-goal {
   margin-top: 6px;
   color: var(--text);
