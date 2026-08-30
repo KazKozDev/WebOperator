@@ -311,15 +311,17 @@ function ScheduleView({ onOpenTask }: { onOpenTask: (task: AgentTask) => void })
       <div className="ui-form schedule-form">
         <input value={name} placeholder="Task name" onChange={(e) => setName(e.target.value)} />
         <input value={startUrl} placeholder="Start URL" onChange={(e) => setStartUrl(e.target.value)} />
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-          <input type="datetime-local" value={runAt} onChange={(e) => setRunAt(e.target.value)} />
-          <select value={repeat} onChange={(e) => setRepeat(e.target.value as ScheduleRepeat)}>
-            <option value="once">Repeat: Once</option>
-            <option value="hourly">Repeat: Hourly</option>
-            <option value="daily">Repeat: Daily</option>
-            <option value="weekly">Repeat: Weekly</option>
-          </select>
-        </div>
+        <input type="datetime-local" value={runAt} onChange={(e) => setRunAt(e.target.value)} />
+        <SelectField
+          value={repeat}
+          onChange={(value) => setRepeat(value as ScheduleRepeat)}
+          options={[
+            { value: 'once', label: 'Repeat: Once' },
+            { value: 'hourly', label: 'Repeat: Hourly' },
+            { value: 'daily', label: 'Repeat: Daily' },
+            { value: 'weekly', label: 'Repeat: Weekly' },
+          ]}
+        />
         <textarea value={goal} placeholder="Goal" onChange={(e) => setGoal(e.target.value)} style={{ minHeight: '70px' }} />
 
 
@@ -394,7 +396,6 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
   const running = isStarting || task?.status === 'running' || task?.status === 'planning';
   const paused = task?.status === 'paused';
   const awaitingConfirm = task?.status === 'awaiting_confirm';
-  const selectedStep = task?.steps.find((s) => s.id === selectedStepId) ?? null;
   const finalAnswer = getTaskAnswer(task);
   const taskId = task?.id;
   const taskStatus = task?.status;
@@ -487,7 +488,7 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
                 <span className="trace-meta">{task.steps.length} steps</span>
               </summary>
               <div className="steps-container">
-                {task.steps.map((s) => <StepRow key={s.id} step={s} profile={task.profile} onOpen={() => setSelectedStepId(s.id)} />)}
+                {task.steps.map((s) => <StepRow key={s.id} step={s} profile={task.profile} expanded={s.id === selectedStepId} onToggle={() => setSelectedStepId((id) => (id === s.id ? null : s.id))} />)}
               </div>
             </details>
           </>
@@ -566,9 +567,6 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
       </div>
 
 
-      {selectedStep && (
-        <StepDetails step={selectedStep} onClose={() => setSelectedStepId(null)} />
-      )}
     </section>
   );
 }
@@ -778,11 +776,7 @@ function SkillsView({ settings, updateSetting }: {
       <div className="page-note">Reusable domain playbooks. Enabled skills guide the agent's actions when relevant sites or tasks are matched.</div>
 
 
-      <div className="section-header">
-        <h4 className="section-title">Built-in Skills</h4>
-      </div>
-
-      <div className="ui-list skills-list">
+      <div className="ui-list skills-list skills-list--built-in">
         {BUILT_IN_SKILLS.map((skill) => {
           const active = enabled.has(skill.id);
           const open = expanded.has(skill.id);
@@ -809,20 +803,16 @@ function SkillsView({ settings, updateSetting }: {
         })}
       </div>
 
-      <div className="section-header" style={{ marginTop: '22px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span className="section-title">Custom Skills</span>
-          <span className="status-pill" style={{ padding: '2px 6px', fontSize: '10px' }}>{customSkills.length}</span>
-        </div>
-        <button
-          type="button"
-          className="secondary"
-          style={{ fontSize: '11px', padding: '3px 8px', fontWeight: 500 }}
-          onClick={() => setIsCreating((prev) => !prev)}
-        >
-          {isCreating ? 'Cancel' : '+ Add custom skill'}
-        </button>
-      </div>
+      <button
+        type="button"
+        className={isCreating ? 'section-toggle open' : 'section-toggle'}
+        aria-expanded={isCreating}
+        title={isCreating ? 'Cancel' : 'Add custom skill'}
+        onClick={() => setIsCreating((prev) => !prev)}
+      >
+        <span className="section-title">Custom Skills</span>
+        <span className="section-toggle-count">{customSkills.length}</span>
+      </button>
 
       {isCreating && (
         <form onSubmit={handleSaveCustomSkill} className="ui-form custom-skill-form" style={{ marginTop: '12px' }}>
@@ -872,7 +862,7 @@ function SkillsView({ settings, updateSetting }: {
                 <div className="skill-row" onClick={() => toggleExpand(skill.id)}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span className="item-title skill-title">{skill.name}</span>
-                    <span className="status-pill" style={{ padding: '1px 5px', fontSize: '9px' }}>Custom</span>
+                    <span className="status-pill" style={{ padding: '1px 5px', fontSize: '10px' }}>Custom</span>
                   </div>
                   <button
                     type="button"
@@ -884,11 +874,11 @@ function SkillsView({ settings, updateSetting }: {
                   </button>
                 </div>
                 {open && (
-                  <div className="skill-detail" style={{ marginTop: '8px' }}>
+                  <div className="skill-detail custom-skill-detail" style={{ marginTop: '8px' }}>
                     <p className="item-meta skill-desc" style={{ marginBottom: '4px' }}>{skill.summary}</p>
                     {skill.domains.length > 0 && <div style={{ fontSize: '11px', color: 'var(--text2)', marginBottom: '2px' }}>Domains: {skill.domains.join(', ')}</div>}
                     {skill.keywords.length > 0 && <div style={{ fontSize: '11px', color: 'var(--text2)', marginBottom: '4px' }}>Keywords: {skill.keywords.join(', ')}</div>}
-                    <pre style={{ background: 'rgba(0,0,0,0.2)', padding: '6px', borderRadius: '4px', fontSize: '10px', whiteSpace: 'pre-wrap' }}>{skill.prompt}</pre>
+                    <pre className="custom-skill-instructions">{skill.prompt}</pre>
                   </div>
                 )}
               </article>
@@ -988,27 +978,60 @@ function VaultView() {
 }
 
 
+type SelectOption<T extends string | number> = { value: T; label: string };
+
+function SelectField<T extends string | number>({ value, options, onChange }: {
+  value: T;
+  options: SelectOption<T>[];
+  onChange: (value: T) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = options.find((option) => option.value === value);
+  return (
+    <details className="select-field" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary className="select-field-summary">{current ? current.label : String(value)}</summary>
+      <div className="select-field-options">
+        {options.map((option) => (
+          <button
+            key={String(option.value)}
+            type="button"
+            className={option.value === value ? 'select-field-option active' : 'select-field-option'}
+            onClick={() => { onChange(option.value); setOpen(false); }}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+
 function SettingsPanel({ settings, updateSetting }: {
   settings: Settings;
   updateSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
 }) {
+  const [cacheMessage, setCacheMessage] = useState('');
   return (
     <section className="view active page-view settings-view">
       <div className="page-note">Configure AI model providers, API credentials, vision modes, and browser execution policies.</div>
       <div className="ui-form settings">
 
-      <select value={settings.provider} onChange={(e) => updateSetting('provider', e.target.value as Settings['provider'])}>
-
-        <option value="anthropic">Provider: Anthropic (Claude)</option>
-        <option value="deepseek">Provider: DeepSeek</option>
-        <option value="gemini">Provider: Google Gemini</option>
-        <option value="mlx">Provider: MLX (Local)</option>
-        <option value="ollama">Provider: Ollama (Local)</option>
-        <option value="openai">Provider: OpenAI</option>
-        <option value="openrouter">Provider: OpenRouter</option>
-        <option value="siliconflow">Provider: SiliconFlow</option>
-        <option value="xai">Provider: xAI</option>
-      </select>
+      <SelectField
+        value={settings.provider}
+        onChange={(value) => updateSetting('provider', value as Settings['provider'])}
+        options={[
+          { value: 'anthropic', label: 'Provider: Anthropic (Claude)' },
+          { value: 'deepseek', label: 'Provider: DeepSeek' },
+          { value: 'gemini', label: 'Provider: Google Gemini' },
+          { value: 'mlx', label: 'Provider: MLX (Local)' },
+          { value: 'ollama', label: 'Provider: Ollama (Local)' },
+          { value: 'openai', label: 'Provider: OpenAI' },
+          { value: 'openrouter', label: 'Provider: OpenRouter' },
+          { value: 'siliconflow', label: 'Provider: SiliconFlow' },
+          { value: 'xai', label: 'Provider: xAI' },
+        ]}
+      />
 
 
       {settings.provider === 'anthropic' && (
@@ -1108,33 +1131,45 @@ function SettingsPanel({ settings, updateSetting }: {
       <details className="settings-advanced">
         <summary>Advanced Settings</summary>
         <div className="settings-advanced-body">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-            <select value={settings.screenshotPolicy} onChange={(e) => updateSetting('screenshotPolicy', e.target.value as Settings['screenshotPolicy'])}>
-              <option value="auto">Vision: Auto</option>
-              <option value="always">Vision: Always</option>
-              <option value="never">Vision: Never</option>
-            </select>
-            <input type="number" value={settings.actionTimeoutMs} onChange={(e) => updateSetting('actionTimeoutMs', Number(e.target.value))} placeholder="Timeout, ms" />
-          </div>
-          <select value={settings.thinkingPolicy} onChange={(e) => updateSetting('thinkingPolicy', e.target.value as Settings['thinkingPolicy'])}>
-            <option value="auto">Thinking: Auto</option>
-            <option value="always">Thinking: Always</option>
-            <option value="never">Thinking: Never</option>
-          </select>
+          <SelectField
+            value={settings.screenshotPolicy}
+            onChange={(value) => updateSetting('screenshotPolicy', value as Settings['screenshotPolicy'])}
+            options={[
+              { value: 'auto', label: 'Vision: Auto' },
+              { value: 'always', label: 'Vision: Always' },
+              { value: 'never', label: 'Vision: Never' },
+            ]}
+          />
+          <input type="number" value={settings.actionTimeoutMs} onChange={(e) => updateSetting('actionTimeoutMs', Number(e.target.value))} placeholder="Timeout, ms" />
+          <SelectField
+            value={settings.thinkingPolicy}
+            onChange={(value) => updateSetting('thinkingPolicy', value as Settings['thinkingPolicy'])}
+            options={[
+              { value: 'auto', label: 'Thinking: Auto' },
+              { value: 'always', label: 'Thinking: Always' },
+              { value: 'never', label: 'Thinking: Never' },
+            ]}
+          />
 
-          <select value={settings.contextCompressor} onChange={(e) => updateSetting('contextCompressor', e.target.value as Settings['contextCompressor'])}>
-            <option value="off">Context compressor: Off (deterministic)</option>
-            <option value="same">Context compressor: Same model</option>
-            <option value="cloud">Context compressor: Cloud (DeepSeek/Gemini)</option>
-          </select>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-            <select value={settings.visualTokenBudget} onChange={(e) => updateSetting('visualTokenBudget', Number(e.target.value) as Settings['visualTokenBudget'])}>
-              {[70, 140, 280, 560, 1120].map((n) => <option key={n} value={n}>Vision: {n} tokens</option>)}
-            </select>
-            <select value={settings.visualTokenBudgetVerify} onChange={(e) => updateSetting('visualTokenBudgetVerify', Number(e.target.value) as Settings['visualTokenBudgetVerify'])}>
-              {[70, 140, 280, 560, 1120].map((n) => <option key={n} value={n}>Verify: {n} tokens</option>)}
-            </select>
-          </div>
+          <SelectField
+            value={settings.contextCompressor}
+            onChange={(value) => updateSetting('contextCompressor', value as Settings['contextCompressor'])}
+            options={[
+              { value: 'off', label: 'Context compressor: Off (deterministic)' },
+              { value: 'same', label: 'Context compressor: Same model' },
+              { value: 'cloud', label: 'Context compressor: Cloud (DeepSeek/Gemini)' },
+            ]}
+          />
+          <SelectField
+            value={settings.visualTokenBudget}
+            onChange={(value) => updateSetting('visualTokenBudget', value as Settings['visualTokenBudget'])}
+            options={[70, 140, 280, 560, 1120].map((n) => ({ value: n, label: `Vision: ${n} tokens` }))}
+          />
+          <SelectField
+            value={settings.visualTokenBudgetVerify}
+            onChange={(value) => updateSetting('visualTokenBudgetVerify', value as Settings['visualTokenBudgetVerify'])}
+            options={[70, 140, 280, 560, 1120].map((n) => ({ value: n, label: `Verify: ${n} tokens` }))}
+          />
           <input
             value={settings.whitelist.join(', ')}
             placeholder="Domain whitelist (e.g. example.com, *.mysite.org)"
@@ -1145,20 +1180,18 @@ function SettingsPanel({ settings, updateSetting }: {
             placeholder="Domain blacklist (e.g. bank.com, *.paypal.com)"
             onChange={(e) => updateSetting('blacklist', splitList(e.target.value))}
           />
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 2px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text2)' }}>Action cache</span>
+          <div className="settings-toggle-row">
+            <span>Action cache</span>
             <input
               type="checkbox"
-              style={{ width: '16px', height: '16px', cursor: 'pointer' }}
               checked={settings.useActionCache}
               onChange={(e) => updateSetting('useActionCache', e.target.checked)}
             />
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 2px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text2)' }}>Reload page before task</span>
+          <div className="settings-toggle-row">
+            <span>Reload page before task</span>
             <input
               type="checkbox"
-              style={{ width: '16px', height: '16px', cursor: 'pointer' }}
               checked={settings.resetPageOnStart}
               onChange={(e) => updateSetting('resetPageOnStart', e.target.checked)}
             />
@@ -1174,9 +1207,10 @@ function SettingsPanel({ settings, updateSetting }: {
           <div className="action-row controls" style={{ marginTop: '4px' }}>
             <button className="secondary" onClick={async () => {
               const res = await sendToSW<{ ok: boolean; removed: number }>({ kind: 'cache:clear' });
-              alert(`Removed entries: ${res.removed}`);
+              setCacheMessage(`Removed entries: ${res.removed}`);
             }}>Clear action cache</button>
           </div>
+          {cacheMessage && <div className="settings-note">{cacheMessage}</div>}
         </div>
       </details>
 
@@ -1306,7 +1340,7 @@ function compactModelLabel(value: string): string {
 }
 
 
-function StepRow({ step, profile, onOpen }: { step: AgentStep; profile: AgentTask['profile']; onOpen: () => void }) {
+function StepRow({ step, profile, expanded, onToggle }: { step: AgentStep; profile: AgentTask['profile']; expanded: boolean; onToggle: () => void }) {
   const name = step.toolCall?.name ?? (step.status === 'running' ? '…' : '—');
   const args = step.toolCall ? Object.entries(step.toolCall.arguments).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(' ') : '';
   const badges: string[] = [];
@@ -1317,7 +1351,12 @@ function StepRow({ step, profile, onOpen }: { step: AgentStep; profile: AgentTas
   const lat = latencyTarget(step, profile);
   const statusIcon = step.status === 'ok' ? 'check-circle' : step.status === 'fail' ? 'x-circle' : step.status === 'running' ? 'bolt' : 'info';
   return (
-    <button className={`step step-button ${step.status === 'fail' ? 'error' : step.status === 'running' ? 'thinking' : 'action'}`} onClick={onOpen}>
+    <div className={expanded ? 'step-item expanded' : 'step-item'}>
+    <button
+      className={`step step-button ${step.status === 'fail' ? 'error' : step.status === 'running' ? 'thinking' : 'action'}`}
+      aria-expanded={expanded}
+      onClick={onToggle}
+    >
       <div className="step-header">
         <Icon name={statusIcon} />
         <span className="step-index">#{step.index + 1}</span>
@@ -1340,30 +1379,26 @@ function StepRow({ step, profile, onOpen }: { step: AgentStep; profile: AgentTas
         <img src={step.screenshotDataUrl} alt="viewport" style={{ maxWidth: '100%', marginTop: 4, borderRadius: 2 }} />
       )}
     </button>
+    {expanded && <StepDetails step={step} />}
+    </div>
   );
 }
 
-function StepDetails({ step, onClose }: { step: AgentStep; onClose: () => void }) {
+function StepDetails({ step }: { step: AgentStep }) {
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <strong>Step #{step.index + 1}</strong>
-          <button className="icon-btn" title="Close" aria-label="Close" onClick={onClose}><Icon name="x" /></button>
+    <div className="step-details">
+      <DetailBlock title="Tool call" value={step.toolCall} />
+      <DetailBlock title="Result" value={step.result} />
+      <DetailBlock title="Prompt" value={step.prompt} />
+      <DetailBlock title="Thinking" value={step.thinking} />
+      <DetailBlock title="Snapshot before" value={step.snapshot} />
+      <DetailBlock title="Snapshot after" value={step.snapshotAfter} />
+      {step.screenshotDataUrl && (
+        <div className="detail-block">
+          <strong>Screenshot</strong>
+          <img src={step.screenshotDataUrl} alt="viewport" />
         </div>
-        <DetailBlock title="Tool call" value={step.toolCall} />
-        <DetailBlock title="Result" value={step.result} />
-        <DetailBlock title="Prompt" value={step.prompt} />
-        <DetailBlock title="Thinking" value={step.thinking} />
-        <DetailBlock title="Snapshot before" value={step.snapshot} />
-        <DetailBlock title="Snapshot after" value={step.snapshotAfter} />
-        {step.screenshotDataUrl && (
-          <div className="detail-block">
-            <strong>Screenshot</strong>
-            <img src={step.screenshotDataUrl} alt="viewport" />
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }
@@ -1394,4 +1429,3 @@ function toDatetimeLocal(timestamp: number): string {
 }
 
 export { renderMarkdown } from './utils/markdown';
-

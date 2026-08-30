@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createLoopGuardState,
   detectLoopGuardCycle,
+  detectRepeatedVisit,
   recordLoopGuardOutcome,
   toolCallSignature,
 } from './loop-guard';
@@ -87,5 +88,36 @@ describe('loop guard', () => {
   it('normalizes argument key order in signatures', () => {
     expect(toolCallSignature(call('type', { ref: '@e1', text: 'hello' })))
       .toBe(toolCallSignature(call('type', { text: 'hello', ref: '@e1' })));
+  });
+
+  it('blocks touring the same page over and over across navigations', () => {
+    const state = createLoopGuardState();
+    const url = 'https://www.philamuseum.org/tickets?keyword=Admission';
+    const click = call('click', { ref: '@e22' });
+    // The cycle check never sees this: every navigation in between "changes the page".
+    expect(detectRepeatedVisit(state, url, click)).toBeNull();
+    expect(detectRepeatedVisit(state, 'https://www.philamuseum.org/faq', call('click', { ref: '@e3' }))).toBeNull();
+    expect(detectRepeatedVisit(state, url, click)).toBeNull();
+    expect(detectRepeatedVisit(state, url, click)).toBeNull();
+    expect(detectRepeatedVisit(state, url, click)).toContain('already been tried');
+  });
+
+  it('blocks a long scroll run and points at the iframe case', () => {
+    const state = createLoopGuardState();
+    const url = 'https://www.philamuseum.org/members';
+    const scroll = (amountPx: number) => call('scroll', { amountPx, direction: amountPx > 0 ? 'down' : 'up' });
+    // Different amounts each time, so every signature differs and the cycle check stays quiet.
+    for (const amount of [600, -600, -800, -1200, -1200, -1200]) {
+      expect(detectRepeatedVisit(state, url, scroll(amount))).toBeNull();
+    }
+    expect(detectRepeatedVisit(state, url, scroll(-1200))).toContain('scrolls in a row');
+  });
+
+  it('lets an interrupted scroll run start over', () => {
+    const state = createLoopGuardState();
+    const scroll = call('scroll', { amountPx: 600, direction: 'down' });
+    for (let i = 0; i < 6; i++) expect(detectRepeatedVisit(state, 'https://a.example', scroll)).toBeNull();
+    expect(detectRepeatedVisit(state, 'https://a.example', call('click', { ref: '@e1' }))).toBeNull();
+    expect(detectRepeatedVisit(state, 'https://a.example', scroll)).toBeNull();
   });
 });

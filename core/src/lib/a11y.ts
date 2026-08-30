@@ -10,10 +10,12 @@ const INTERACTIVE_ROLES = new Set([
 export interface SnapshotOptions {
   includeOutsideViewport?: boolean;
   maxNodes?: number;
+  /** Namespaces refs so snapshots merged from several frames cannot collide (`@f3e1`). */
+  refPrefix?: string;
 }
 
 export function buildSnapshot(opts: SnapshotOptions = {}): A11ySnapshot {
-  const { includeOutsideViewport = false, maxNodes = 400 } = opts;
+  const { includeOutsideViewport = false, maxNodes = 400, refPrefix = '' } = opts;
   const viewportW = window.innerWidth;
   const viewportH = window.innerHeight;
   const nodes: A11yNode[] = [];
@@ -37,7 +39,7 @@ export function buildSnapshot(opts: SnapshotOptions = {}): A11ySnapshot {
     const inViewport = rect.bottom > 0 && rect.right > 0 && rect.top < viewportH && rect.left < viewportW;
     if (!inViewport) continue;
 
-    const ref = `@e${counter++}`;
+    const ref = `@${refPrefix}e${counter++}`;
     refMap.set(el, ref);
     nodes.push(buildNode(el, ref, role, name, rect, true));
     (el as HTMLElement).dataset.agentRef = ref;
@@ -56,7 +58,7 @@ export function buildSnapshot(opts: SnapshotOptions = {}): A11ySnapshot {
       const rect = el.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) continue;
 
-      const ref = `@e${counter++}`;
+      const ref = `@${refPrefix}e${counter++}`;
       refMap.set(el, ref);
       nodes.push(buildNode(el, ref, role, name, rect, false));
       (el as HTMLElement).dataset.agentRef = ref;

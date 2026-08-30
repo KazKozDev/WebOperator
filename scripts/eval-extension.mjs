@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { createServer } from 'node:http';
 import { readFile, mkdir, rm, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
@@ -14,9 +15,14 @@ const distDir = path.join(coreDir, 'dist');
 const evalDir = path.join(root, 'evals');
 const fixtureDir = path.join(evalDir, 'fixtures');
 const traceDir = path.join(evalDir, 'traces');
-const tasks = JSON.parse(await readFile(path.join(evalDir, 'tasks.json'), 'utf8'));
-
 const args = parseArgs(process.argv.slice(2));
+const tasksPath = args.tasks ? path.resolve(root, args.tasks) : path.join(evalDir, 'tasks.json');
+const tasks = JSON.parse(await readFile(tasksPath, 'utf8'));
+// A benchmark file (AssistantBench and friends) carries gold answers and live start URLs.
+// Those runs are scored and reported rather than asserted pass/fail: partial credit is the
+// point there, and a hard gate would only ever say "the open web is hard".
+const scored = tasks.some((task) => task.goldAnswer);
+
 const selectedTasks = args.task ? tasks.filter((task) => task.id === args.task) : tasks;
 if (selectedTasks.length === 0) {
   throw new Error(`No eval task matched ${args.task}`);
@@ -39,8 +45,7 @@ try {
   await rm(userDataDir, { recursive: true, force: true });
   await mkdir(userDataDir, { recursive: true });
 
-  const chromeApp = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-  const executablePath = existsSync(chromeApp) ? chromeApp : undefined;
+  const executablePath = resolveChrome(args);
 
   context = await chromium.launchPersistentContext(userDataDir, {
     headless: false,
@@ -50,6 +55,9 @@ try {
       `--load-extension=${distDir}`,
       '--no-first-run',
       '--no-default-browser-check',
+      // Chrome disabled --load-extension by default; without this the extension is
+      // launched but never registers, and getExtensionId times out waiting for its worker.
+      '--disable-features=DisableLoadExtensionCommandLineSwitch',
     ],
   });
 
@@ -63,19 +71,43 @@ try {
   for (const task of selectedTasks) {
     const result = await runTaskEval(controlPage, task);
     results.push(result);
-    const marker = result.ok ? 'ok' : 'fail';
-    console.log(`${marker}: ${task.id}`);
-    if (!result.ok) {
-      for (const error of result.errors) console.log(`  - ${error}`);
+    if (scored) {
+      console.log(`${result.score.toFixed(2)}  ${task.id}  ${task.title ?? ''}`);
+      if (result.errors.length > 0) console.log(`      ${result.errors.join(' | ')}`);
+    } else {
+      console.log(`${result.ok ? 'ok' : 'fail'}: ${task.id}`);
+      if (!result.ok) for (const error of result.errors) console.log(`  - ${error}`);
     }
   }
 
-  const failed = results.filter((result) => !result.ok);
-  if (failed.length > 0) {
-    throw new Error(`${failed.length}/${results.length} extension evals failed`);
-  }
+  if (scored) {
+    const total = results.reduce((sum, result) => sum + result.score, 0);
+    const exact = results.filter((result) => result.score >= 1).length;
+    const accuracy = results.length > 0 ? total / results.length : 0;
+    console.log('');
+    console.log(`Score: ${(accuracy * 100).toFixed(1)}% partial credit, ${exact}/${results.length} fully correct`);
 
-  console.log(`Extension evals ok: ${results.length} tasks`);
+    const reportPath = path.join(evalDir, 'reports', `benchmark-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+    await mkdir(path.dirname(reportPath), { recursive: true });
+    await writeFile(reportPath, JSON.stringify({
+      tasks: path.relative(root, tasksPath),
+      settings: evalSettingsPatch,
+      accuracy,
+      exact,
+      count: results.length,
+      results,
+    }, null, 2));
+    console.log(`Report: ${path.relative(root, reportPath)}`);
+    if (args.strict && exact < results.length) {
+      throw new Error(`${results.length - exact}/${results.length} benchmark tasks not fully correct`);
+    }
+  } else {
+    const failed = results.filter((result) => !result.ok);
+    if (failed.length > 0) {
+      throw new Error(`${failed.length}/${results.length} extension evals failed`);
+    }
+    console.log(`Extension evals ok: ${results.length} tasks`);
+  }
 } finally {
   if (context) await context.close().catch(() => {});
   await new Promise((resolve) => server.close(resolve));
@@ -83,24 +115,27 @@ try {
 }
 
 async function runTaskEval(controlPage, task) {
-  const startUrl = `${server.origin}/${task.fixture}`;
+  const startUrl = task.startUrl ?? `${server.origin}/${task.fixture}`;
   const started = await sendEvalMessage(controlPage, {
     kind: 'eval:startTask',
     goal: task.prompt,
     startUrl,
     settingsPatch: evalSettingsPatch,
   });
-  if (started?.error) return { ok: false, errors: [started.error] };
+  if (started?.error) return { ok: false, errors: [started.error], score: 0, id: task.id, answer: '', gold: task.goldAnswer ?? null };
 
-  const finalTask = await waitForTask(controlPage, started.id, Number(args.timeoutMs ?? 180_000));
+  const defaultTimeoutMs = task.goldAnswer ? 600_000 : 180_000;
+  const finalTask = await waitForTask(controlPage, started.id, Number(args.timeoutMs ?? defaultTimeoutMs));
 
   const errors = validateTaskResult(task, finalTask);
+  const answer = finalAnswer(finalTask);
+  const score = task.goldAnswer ? scoreAnswer(task.goldAnswer, answer) : (errors.length === 0 ? 1 : 0);
   await writeFile(
     path.join(traceDir, `${task.id}.json`),
-    JSON.stringify({ task, result: finalTask, errors }, null, 2),
+    JSON.stringify({ task, result: finalTask, errors, answer, score }, null, 2),
   );
 
-  return { ok: errors.length === 0, errors };
+  return { ok: errors.length === 0, errors, score, id: task.id, answer, gold: task.goldAnswer ?? null };
 }
 
 function validateTaskResult(definition, task) {
@@ -132,7 +167,7 @@ function validateTaskResult(definition, task) {
     errors.push('done tool call was not the final recorded step');
   }
 
-  const summary = String(doneStep?.toolCall?.arguments?.summary ?? doneStep?.result?.extracted ?? '');
+  const summary = finalAnswer(task);
   if (/^\s*\{[\s\S]*"success"[\s\S]*\}\s*$/.test(summary)) {
     errors.push('final answer looks like raw JSON instead of a done summary');
   }
@@ -159,6 +194,59 @@ function validateTaskResult(definition, task) {
   return errors;
 }
 
+function finalAnswer(task) {
+  const steps = Array.isArray(task?.steps) ? task.steps : [];
+  const doneStep = [...steps].reverse().find((step) => step.toolCall?.name === 'done');
+  const value = doneStep?.toolCall?.arguments?.summary ?? doneStep?.result?.extracted ?? '';
+  return typeof value === 'string' ? value : JSON.stringify(value);
+}
+
+/**
+ * Approximate AssistantBench scoring — NOT the official metric. The paper scores answers by
+ * type (numbers by relative distance, strings by token F1, JSON field by field); this keeps
+ * the shape of that idea in a few lines:
+ *   single number  -> 1 if some number in the answer is within 1% (or 0.05 absolute) of gold
+ *   multi-line gold -> fraction of gold lines that appear in the answer
+ *   single string  -> 1 if gold appears in the answer, else word overlap
+ * Use it to compare runs against each other, not to quote a leaderboard number.
+ */
+function scoreAnswer(gold, answer) {
+  const goldText = String(gold ?? '').trim();
+  const hay = normalizeText(answer);
+  if (!goldText || !hay) return 0;
+
+  const goldLines = goldText.split('\n').map((line) => line.trim()).filter(Boolean);
+  if (goldLines.length > 1) {
+    const hits = goldLines.filter((line) => hay.includes(normalizeText(line))).length;
+    return hits / goldLines.length;
+  }
+
+  const goldNumber = parseNumber(goldText);
+  if (goldNumber !== null) {
+    const tolerance = Math.max(Math.abs(goldNumber) * 0.01, 0.05);
+    return numbersIn(answer).some((n) => Math.abs(n - goldNumber) <= tolerance) ? 1 : 0;
+  }
+
+  const goldNorm = normalizeText(goldText);
+  if (hay.includes(goldNorm)) return 1;
+  const goldWords = goldNorm.split(' ').filter((word) => word.length > 2);
+  if (goldWords.length === 0) return 0;
+  return goldWords.filter((word) => hay.includes(word)).length / goldWords.length;
+}
+
+function normalizeText(value) {
+  return String(value ?? '').toLowerCase().replace(/[^a-z0-9а-яё.,%\s-]/gi, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function parseNumber(value) {
+  const match = String(value).replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
+  return match ? Number(match[0]) : null;
+}
+
+function numbersIn(value) {
+  return (String(value).replace(/,/g, '').match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+}
+
 async function sendEvalMessage(page, message) {
   return page.evaluate((payload) => chrome.runtime.sendMessage(payload), message);
 }
@@ -176,7 +264,7 @@ async function waitForTask(page, id, timeoutMs) {
 
 async function getExtensionId(context) {
   let worker = context.serviceWorkers()[0];
-  if (!worker) worker = await context.waitForEvent('serviceworker', { timeout: 10_000 });
+  if (!worker) worker = await context.waitForEvent('serviceworker', { timeout: 30_000 });
   const url = worker.url();
   const match = url.match(/^chrome-extension:\/\/([^/]+)\//);
   if (!match) throw new Error(`Could not parse extension id from service worker URL: ${url}`);
@@ -273,6 +361,36 @@ function run(command, commandArgs, options) {
   });
 }
 
+/**
+ * Stable Chrome dropped --load-extension support, so the extension silently never registers
+ * there and getExtensionId times out waiting for its service worker. Chrome for Testing still
+ * honours the switch. Playwright's pinned build can also unpack incomplete (a stub binary with
+ * no Frameworks directory, which dies with SIGABRT on launch), so fall back to the newest
+ * complete Chrome for Testing in the browser cache.
+ */
+function resolveChrome(args) {
+  if (args.chrome) return args.chrome;
+  if (process.env.WEBOPERATOR_CHROME) return process.env.WEBOPERATOR_CHROME;
+
+  const stable = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  if (args.chromeStable && existsSync(stable)) return stable;
+  if (process.platform !== 'darwin') return undefined;
+
+  const cache = path.join(os.homedir(), 'Library', 'Caches', 'ms-playwright');
+  if (!existsSync(cache)) return undefined;
+
+  const builds = readdirSync(cache)
+    .filter((name) => /^chromium-\d+$/.test(name))
+    .sort((a, b) => Number(b.split('-')[1]) - Number(a.split('-')[1]));
+
+  for (const build of builds) {
+    const app = path.join(cache, build, 'chrome-mac-arm64', 'Google Chrome for Testing.app', 'Contents');
+    const binary = path.join(app, 'MacOS', 'Google Chrome for Testing');
+    if (existsSync(binary) && existsSync(path.join(app, 'Frameworks'))) return binary;
+  }
+  return undefined;
+}
+
 function parseArgs(argv) {
   const parsed = {};
   for (let i = 0; i < argv.length; i++) {
@@ -284,6 +402,10 @@ function parseArgs(argv) {
     else if (arg === '--model') parsed.model = argv[++i];
     else if (arg === '--api-key') parsed.apiKey = argv[++i];
     else if (arg === '--vision') parsed.vision = argv[++i];
+    else if (arg === '--tasks') parsed.tasks = argv[++i];
+    else if (arg === '--strict') parsed.strict = true;
+    else if (arg === '--chrome-stable') parsed.chromeStable = true;
+    else if (arg === '--chrome') parsed.chrome = argv[++i];
   }
   return parsed;
 }

@@ -140,6 +140,9 @@ export interface A11yNode {
   state?: string[];
   bbox: { x: number; y: number; w: number; h: number };
   inViewport: boolean;
+  // Frame the element lives in. Absent or 0 means the top document; for a child frame the
+  // bbox is in that frame's own coordinates, not the page's.
+  frameId?: number;
 }
 
 export interface A11ySnapshot {
@@ -342,7 +345,7 @@ export type SWEvent =
 
 export type CSMessage =
   | { kind: 'ping' }
-  | { kind: 'snapshot:take'; options?: { allElements?: boolean } }
+  | { kind: 'snapshot:take'; options?: { allElements?: boolean; refPrefix?: string; maxNodes?: number } }
   | { kind: 'action:run'; action: ToolCall }
   | { kind: 'overlay:show'; refs: string[] }
   | { kind: 'overlay:hide' }
@@ -387,8 +390,9 @@ export interface AgentOrchestrationState {
   status: 'planning' | 'running' | 'paused' | 'done' | 'failed';
   subtasks: AgentOrchestrationSubtask[];
   updatedAt: number;
-  // True only when the model explicitly drove subtasks. When false the
-  // subtasks merely mirror the plan steps, so the UI hides them as duplicates.
+  // True only when the model explicitly drove subtasks. Subtasks are never listed
+  // in the UI (they mirror the plan steps); only their result/error is surfaced,
+  // folded into the matching plan step.
   managed: boolean;
 }
 

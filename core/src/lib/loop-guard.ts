@@ -3,8 +3,19 @@ import type { ToolCall } from './types';
 const LOOP_GUARD_WINDOW = 8;
 const MAX_CYCLE_LENGTH = 4;
 
+// The cycle check above only fires on an identical call while the page stays put, so it misses
+// the two ways a run actually spins: scrolling a page over and over looking for content that is
+// not in the snapshot, and touring the same handful of URLs — each navigation "changes the page"
+// and resets the cycle state. These two bound both.
+const REVISIT_LIMIT = 3;
+const SCROLL_RUN_LIMIT = 6;
+
 export interface LoopGuardState {
   noEffectSignatures: string[];
+  /** How many times a (url, tool, ref) triple has been attempted across the whole task. */
+  visits: Record<string, number>;
+  /** Consecutive scrolls on one URL. */
+  scrollRun: { url: string; count: number };
 }
 
 export interface LoopGuardDecision {
@@ -14,7 +25,40 @@ export interface LoopGuardDecision {
 }
 
 export function createLoopGuardState(): LoopGuardState {
-  return { noEffectSignatures: [] };
+  return { noEffectSignatures: [], visits: {}, scrollRun: { url: '', count: 0 } };
+}
+
+/**
+ * Records this attempt and returns a corrective message when the agent is going in circles:
+ * the same action on the same page for the third time, or a long run of scrolling that keeps
+ * not finding anything. Returns null while the run still looks like progress.
+ */
+export function detectRepeatedVisit(state: LoopGuardState, url: string, call: ToolCall): string | null {
+  if (call.name === 'scroll') {
+    state.scrollRun = state.scrollRun.url === url
+      ? { url, count: state.scrollRun.count + 1 }
+      : { url, count: 1 };
+    if (state.scrollRun.count > SCROLL_RUN_LIMIT) {
+      return `Loop detected: ${state.scrollRun.count} scrolls in a row on ${url} without finding the content. It is probably not in the accessibility snapshot at all — often a widget inside an iframe. Stop scrolling: extract what is visible, open the underlying page directly, or look for the data on another site.`;
+    }
+    return null;
+  }
+
+  state.scrollRun = { url: '', count: 0 };
+
+  const ref = typeof call.arguments.ref === 'string' ? call.arguments.ref : '';
+  const target = call.name === 'navigate' || call.name === 'open_tab'
+    ? String(call.arguments.url ?? '')
+    : ref;
+  const key = `${url}|${call.name}|${target}`;
+  const count = (state.visits[key] ?? 0) + 1;
+  state.visits[key] = count;
+
+  if (count > REVISIT_LIMIT) {
+    const label = target ? `${call.name}(${target})` : call.name;
+    return `Loop detected: ${label} has already been tried ${count - 1} times on this page and did not get you closer. Revisiting it again will not help — extract the evidence you already have, or take a different route entirely.`;
+  }
+  return null;
 }
 
 export function isLoopGuardEligible(call: ToolCall): boolean {

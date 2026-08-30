@@ -28,7 +28,8 @@ import { clearCache } from '@/lib/action-cache';
 import { broadcastEvent, ensureContentScript, onLocalSWEvent, registerPortHost } from '@/lib/messaging';
 
 import { AgentPortHost } from '@/lib/port-channel';
-import type { ActionResult, AgentStep, AgentTask, ScheduledTask, SWEvent, SWMessage, ToolCall } from '@/lib/types';
+import type { ActionResult, AgentStep, AgentTask, CSResponse, ScheduledTask, SWEvent, SWMessage, ToolCall } from '@/lib/types';
+import { frameIdFromRef, takeFrameSnapshot } from '@/lib/frames';
 import { solveCaptcha, type CaptchaDetection } from '@/lib/captcha-solver';
 
 
@@ -641,8 +642,12 @@ async function executeBridgeRequest(type: string, payload: Record<string, unknow
     case 'browser.snapshot': {
       const tabId = await activeTabIdFromPayload(payload);
       await ensureContentScript(tabId);
-      const resp = await chrome.tabs.sendMessage(tabId, { kind: 'snapshot:take', options: { allElements: payload.allElements === true } });
-      return resp;
+      const snapshot = await takeFrameSnapshot(
+        tabId,
+        (msg) => chrome.tabs.sendMessage(tabId, msg) as Promise<CSResponse>,
+        { allElements: payload.allElements === true },
+      );
+      return { kind: 'snapshot', snapshot } satisfies CSResponse;
     }
     case 'browser.screenshot': {
       const tab = await activeTabFromPayload(payload);
@@ -670,7 +675,10 @@ async function executeBridgeRequest(type: string, payload: Record<string, unknow
       await ensureContentScript(tabId);
       const action = bridgePayloadToToolCall(type, payload);
       return recordBridgeActionStep(tabId, action, `External Agent: ${describeToolCall(action)}`, async () => {
-        const resp = await chrome.tabs.sendMessage(tabId, { kind: 'action:run', action });
+        const frameId = frameIdFromRef(String(action.arguments.ref ?? ''));
+        const resp = frameId === 0
+          ? await chrome.tabs.sendMessage(tabId, { kind: 'action:run', action })
+          : await chrome.tabs.sendMessage(tabId, { kind: 'action:run', action }, { frameId });
         return resp;
       });
     }
@@ -679,7 +687,8 @@ async function executeBridgeRequest(type: string, payload: Record<string, unknow
       const captchaType = typeof payload.type === 'string' ? (payload.type as CaptchaDetection['type']) : undefined;
       const action: ToolCall = { name: 'solve_captcha', arguments: { type: captchaType } };
       return recordBridgeActionStep(tabId, action, 'External Agent: solve_captcha', async () => {
-        const res = await solveCaptcha(tabId, captchaType);
+        const settings = await getSettings();
+        const res = await solveCaptcha(tabId, captchaType, { settings });
         return { ok: res.success, message: res.message, type: res.type };
       });
     }

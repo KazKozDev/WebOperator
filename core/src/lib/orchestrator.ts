@@ -257,6 +257,18 @@ export function buildOrchestrationPlan(
 
 // ── Plan Progress ─────────────────────────────────────────────────────
 
+// One-line progress, for prompts that already carry the [PLAN] block. Subtasks mirror
+// the plan steps 1:1, so listing them there would send the same step list twice.
+export function planProgressLine(plan: OrchestrationPlan): string {
+  const total = plan.subtasks.length;
+  const done = plan.subtasks.filter((s) => s.status === 'done').length;
+  const failed = plan.subtasks.filter((s) => s.status === 'failed').length;
+  const running = plan.subtasks.find((s) => s.status === 'running');
+  const parts = [`[ORCHESTRATOR] ${done}/${total} sub-tasks done${failed > 0 ? `, ${failed} failed` : ''}`];
+  if (running) parts.push(`running #${running.index}`);
+  return parts.join(' · ');
+}
+
 export function planSummary(plan: OrchestrationPlan): string {
   const total = plan.subtasks.length;
   const done = plan.subtasks.filter((s) => s.status === 'done').length;

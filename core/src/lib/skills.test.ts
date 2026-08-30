@@ -18,12 +18,18 @@ describe('skills', () => {
 
     const extractResults = classifyTask('extract all product prices and list them');
     expect(extractResults.some((s) => s.id === 'data-extractor')).toBe(true);
+
+    const searchResults = classifyTask('search for the latest AI agent papers and compare findings');
+    expect(searchResults.some((s) => s.id === 'researcher')).toBe(true);
   });
 
   it('classifies tasks automatically using Russian keywords', () => {
     const sheetResults = classifyTask('найди цены на ноутбуки и собери в гугл таблицы');
     expect(sheetResults.some((s) => s.id === 'google-sheets')).toBe(true);
     expect(sheetResults.some((s) => s.id === 'data-extractor')).toBe(true);
+
+    const researchResults = classifyTask('погугли информацию о новых релизах и сравни источники');
+    expect(researchResults.some((s) => s.id === 'researcher')).toBe(true);
 
     const formResults = classifyTask('заполни анкету на сайте');
     expect(formResults.some((s) => s.id === 'form-filler')).toBe(true);

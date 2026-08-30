@@ -1,12 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  callCaptchaLLM,
   detectPageCaptcha,
   isBotChallengePage,
   solveCaptcha,
   solveCloudflareChallenge,
   solveGenericChallenge,
   solveHcaptchaChallenge,
+  solveHcaptchaImageChallenge,
   solveRecaptchaChallenge,
+  solveRecaptchaImageChallenge,
   solveSliderCaptcha,
   solveVisualTextCaptcha,
 } from './captcha-solver';
@@ -24,6 +27,18 @@ describe('captcha-solver', () => {
     expect(isBotChallengePage('Checking your browser', 'https://example.com')).toBe(true);
     expect(isBotChallengePage('Cloudflare Bot Challenge', 'https://example.com')).toBe(true);
     expect(isBotChallengePage('Normal Title', 'https://challenges.cloudflare.com/challenge-platform')).toBe(true);
+  });
+
+  it('detects an in-place PerimeterX challenge from the page body', () => {
+    const title = 'Human Verification';
+    const url = 'https://www.redfin.com/neighborhood/2212/WA/Seattle/Queen-Anne/recently-sold';
+    const body = "Let's confirm you are human Complete the security check before continuing. "
+      + 'This step verifies that you are not a bot, which helps to protect your account and prevent spam. Begin';
+    expect(isBotChallengePage(title, url, body)).toBe(true);
+    expect(isBotChallengePage(title, url)).toBe(true);
+    expect(isBotChallengePage('Listings', url, body)).toBe(true);
+    expect(isBotChallengePage('Press & Hold', 'https://example.com')).toBe(false);
+    expect(isBotChallengePage('Listings', url, 'Press & Hold to confirm you are a human')).toBe(true);
   });
 
   it('returns false for ordinary pages even with recaptcha/hcaptcha in content', () => {
@@ -125,21 +140,28 @@ describe('captcha-solver', () => {
   });
 
   it('handles solveSliderCaptcha with chrome scripting mock', async () => {
-    const mockExecuteScript = vi.fn().mockResolvedValue([
-      { result: { found: true, distance: 200 } },
-    ]);
+    const mockExecuteScript = vi.fn()
+      .mockResolvedValueOnce([
+        { result: { found: true, trackWidth: 300, buttonWidth: 40, imageSrc: 'data:image/png;base64,mock' } },
+      ])
+      .mockResolvedValueOnce([
+        { result: { dragged: true, distance: 155 } },
+      ]);
+
     vi.stubGlobal('chrome', {
       scripting: {
         executeScript: mockExecuteScript,
       },
     });
 
-    const res = await solveSliderCaptcha(123);
+    const mockLLM = vi.fn().mockResolvedValue('155');
+    const res = await solveSliderCaptcha(123, { llmCaller: mockLLM });
     expect(res.success).toBe(true);
-    expect(res.message).toContain('Slider puzzle dragged smoothly');
+    expect(res.message).toContain('Slider puzzle dragged smoothly by 155px');
+    expect(mockLLM).toHaveBeenCalled();
   });
 
-  it('handles solveVisualTextCaptcha with chrome scripting mock', async () => {
+  it('handles solveVisualTextCaptcha with fast-path attribute code', async () => {
     const mockExecuteScript = vi.fn().mockResolvedValue([
       { result: { found: true, solved: true, code: '7G9X' } },
     ]);
@@ -152,6 +174,115 @@ describe('captcha-solver', () => {
     const res = await solveVisualTextCaptcha(123);
     expect(res.success).toBe(true);
     expect(res.message).toContain('7G9X');
+  });
+
+  it('solves visual text captcha via LLM Vision OCR when image is extracted', async () => {
+    const mockExecuteScript = vi.fn()
+      .mockResolvedValueOnce([
+        { result: { found: true, solved: false, imageBase64: 'data:image/png;base64,mockImage' } },
+      ])
+      .mockResolvedValueOnce([
+        { result: undefined },
+      ]);
+
+    vi.stubGlobal('chrome', {
+      scripting: {
+        executeScript: mockExecuteScript,
+      },
+    });
+
+    const mockLLM = vi.fn().mockResolvedValue('K9X4M');
+    const res = await solveVisualTextCaptcha(123, { llmCaller: mockLLM });
+
+    expect(res.success).toBe(true);
+    expect(res.code).toBe('K9X4M');
+    expect(res.message).toContain('K9X4M');
+    expect(mockLLM).toHaveBeenCalled();
+  });
+
+  it('solves reCAPTCHA v2 image challenge via LLM Vision tile selection', async () => {
+    const mockExecuteScript = vi.fn()
+      // 1. extraction
+      .mockResolvedValueOnce([
+        {
+          result: {
+            found: true,
+            instruction: 'Select all images with traffic lights',
+            gridDim: 3,
+            totalTiles: 9,
+            imageSrc: 'data:image/jpeg;base64,mockTileGrid',
+            hasTiles: true,
+          },
+        },
+      ])
+      // 2. tile clicking
+      .mockResolvedValueOnce([{ result: undefined }])
+      // 3. verify button click
+      .mockResolvedValueOnce([{ result: undefined }])
+      // 4. check if solved
+      .mockResolvedValueOnce([{ result: { solved: true } }]);
+
+    vi.stubGlobal('chrome', {
+      scripting: {
+        executeScript: mockExecuteScript,
+      },
+    });
+
+    const mockLLM = vi.fn().mockResolvedValue('[1, 5, 9]');
+    const res = await solveRecaptchaImageChallenge(123, { llmCaller: mockLLM });
+
+    expect(res.success).toBe(true);
+    expect(res.message).toContain('reCAPTCHA visual challenge solved');
+    expect(mockLLM).toHaveBeenCalledWith(
+      expect.stringContaining('Select all images with traffic lights'),
+      ['data:image/jpeg;base64,mockTileGrid'],
+    );
+  });
+
+  it('solves hCaptcha image challenge via LLM Vision selection', async () => {
+    const mockExecuteScript = vi.fn()
+      // Round 1 extraction
+      .mockResolvedValueOnce([
+        {
+          result: {
+            found: true,
+            promptText: 'Please click each image containing a cat',
+            taskCount: 9,
+            imageUrls: ['http://example.com/cat1.jpg', 'http://example.com/cat2.jpg'],
+          },
+        },
+      ])
+      // Tile clicks
+      .mockResolvedValueOnce([{ result: undefined }])
+      // Submit click
+      .mockResolvedValueOnce([{ result: undefined }])
+      // Round 2 extraction - finished
+      .mockResolvedValueOnce([
+        { result: { found: false } },
+      ]);
+
+    vi.stubGlobal('chrome', {
+      scripting: {
+        executeScript: mockExecuteScript,
+      },
+    });
+
+    const mockLLM = vi.fn().mockResolvedValue('[2, 4]');
+    const res = await solveHcaptchaImageChallenge(123, { llmCaller: mockLLM });
+
+    expect(res.success).toBe(true);
+    expect(res.message).toContain('hCaptcha visual challenge executed');
+    expect(mockLLM).toHaveBeenCalledWith(
+      expect.stringContaining('Please click each image containing a cat'),
+      ['http://example.com/cat1.jpg', 'http://example.com/cat2.jpg'],
+    );
+  });
+
+  it('calls custom LLM caller in callCaptchaLLM', async () => {
+    const mockLLM = vi.fn().mockResolvedValue('solved_code_123');
+    const result = await callCaptchaLLM('Solve this', ['base64_data'], { llmCaller: mockLLM });
+    expect(result).toBe('solved_code_123');
+    expect(mockLLM).toHaveBeenCalledWith('Solve this', ['base64_data']);
   });
 
   it('dispatches solveCaptcha correctly by type', async () => {

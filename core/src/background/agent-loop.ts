@@ -21,6 +21,8 @@ import {
 import { formatSnapshot } from '@/lib/a11y';
 import { buildSystemPrompt, PLANNING_PROMPT, UNTRUSTED_CONTENT_CLOSE, UNTRUSTED_CONTENT_OPEN } from '@/lib/prompts';
 import { sendToContent, broadcastEvent } from '@/lib/messaging';
+import { frameIdFromRef, takeFrameSnapshot } from '@/lib/frames';
+import type { CSResponse } from '@/lib/types';
 import {
   DEFAULT_SETTINGS,
   PROFILE_TO_MODEL,
@@ -48,6 +50,7 @@ import { parseHints } from '@/lib/hints';
 import {
   createLoopGuardState,
   detectLoopGuardCycle,
+  detectRepeatedVisit,
   isLoopGuardEligible,
   recordLoopGuardOutcome,
   toolCallSignature,
@@ -87,6 +90,7 @@ import {
   buildOrchestrationPlanFromPlan,
   mirrorPlanProgress,
   planSummary as orchPlanSummary,
+  planProgressLine,
   allSubtasksComplete,
   advanceOrchPlan,
   nextPendingSubtask,
@@ -99,6 +103,10 @@ import type { OrchestrationPlan } from '@/lib/orchestrator-types';
 
 const MAX_STEPS = 60;
 const MAX_STEP_RETRIES = 3;
+// Steps in a row where the model answered with prose instead of a tool call before the task
+// is stopped. Marked with STUCK_PREFIX so the step-failure handler can tell it from a retryable error.
+const MAX_NO_TOOL_CALL_STEPS = 3;
+const STUCK_PREFIX = '[STUCK] ';
 // How many times one task may be handed back to the person for a bot challenge
 // before it gives up. A site that keeps re-challenging is not going to yield.
 const MAX_BOT_CHALLENGE_HANDOFFS = 2;
@@ -124,6 +132,7 @@ interface LoopState {
   lastStepFailed: boolean;
   modelRequestedVision: boolean;
   modelRequestedReasoning: boolean;
+  noToolCallStreak: number;
 }
 
 interface ActionRecord {
@@ -225,7 +234,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
   const loopGuard = createLoopGuardState();
   let cachedRemaining: ToolCall[] | null = null;
   let cachedExpectedDomHash: string | null = null;
-  const loop: LoopState = { lastStepFailed: false, modelRequestedVision: false, modelRequestedReasoning: false };
+  const loop: LoopState = { lastStepFailed: false, modelRequestedVision: false, modelRequestedReasoning: false, noToolCallStreak: 0 };
   const actionHistory: ActionRecord[] = [];
   // Page snapshots pushed into `history`, tracked so older ones can be collapsed (context compression).
   const observationRefs: ObservationRef[] = [];
@@ -358,14 +367,18 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         memoryHints.push(`[LOGIN] Session credential available for ${availableCredential.origin} as ${availableCredential.username}. Use fill_login_credentials when username/password fields are visible; do not ask for or reveal the password.`);
       }
       // ── Bot challenge detection & automated solver with graceful human handoff ──
-      const isChallengeUrlOrTitle = isBotChallengePage(snapshot.title, snapshot.url);
+      const isChallengeUrlOrTitle = isBotChallengePage(
+        snapshot.title,
+        snapshot.url,
+        [...(snapshot.textSnippets ?? []), ...snapshot.nodes.map((node) => node.name ?? '')].join(' '),
+      );
       const captchaDetection = isChallengeUrlOrTitle
         ? { detected: true, type: 'cloudflare' as const, details: 'Bot challenge detected from page metadata' }
         : await detectPageCaptcha(activeTabId);
 
       if (captchaDetection.detected) {
         // First try solving/clicking the challenge widget automatically
-        const autoSolveResult = await solveCaptcha(activeTabId, captchaDetection.type);
+        const autoSolveResult = await solveCaptcha(activeTabId, captchaDetection.type, { settings });
         if (autoSolveResult.success) {
           step.note = `Auto-solved ${autoSolveResult.type ?? captchaDetection.type} challenge: ${autoSolveResult.message}`;
           await sleep(2500);
@@ -502,7 +515,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         // ── Build observation with plan + memory hints ──
         const planBlock = plan ? `\n${planContext(plan)}` : '';
         const orchPlanBlock = orchPlan && subtaskToolsUsed
-          ? `\n${orchPlanSummary(orchPlan)}\nStay on the running subtask until it is finished. Before moving to another subtask, call finish_subtask or fail_subtask.`
+          ? `\n${orchContext(orchPlan, plan)}\nStay on the running subtask until it is finished. Before moving to another subtask, call finish_subtask or fail_subtask.`
           : '';
         const memoryBlock = memoryHints.length > 0 ? `\n[MEMORY HINTS]\n${memoryHints.join('\n')}` : '';
         const observation = formatObservation(snapshot, vision.reason, images.length > 0) + planBlock + orchPlanBlock + memoryBlock;
@@ -573,7 +586,14 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
             : step.note;
         }
 
-        if (!resp.toolCall) throw new Error('Model did not return a tool call after repair. Response: ' + truncate(resp.content, 200));
+        if (!resp.toolCall) {
+          loop.noToolCallStreak += 1;
+          const stuck = loop.noToolCallStreak >= MAX_NO_TOOL_CALL_STEPS;
+          throw new Error(
+            `${stuck ? STUCK_PREFIX : ''}Model did not return a tool call after repair. Response: ${truncate(resp.content, 200)}`,
+          );
+        }
+        loop.noToolCallStreak = 0;
         toolCall = resp.toolCall;
         toolCallSource = resp.toolCallSource;
         step.toolCall = toolCall;
@@ -583,11 +603,14 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         loop.modelRequestedReasoning = hints.needReasoning;
         loop.modelRequestedVision = hints.needVision;
 
+        // The model's thinking is kept on the step for the UI trace but never fed back into
+        // history: the next step reasons from a fresh page snapshot rather than re-reading it,
+        // NEED_REASONING / NEED_VISION hints are already parsed out above, and replaying it
+        // would re-bill every past step's reasoning on every later request.
         if (toolCallSource === 'content') {
           history.push({
             role: 'assistant',
             content: resp.content || JSON.stringify({ name: toolCall.name, arguments: toolCall.arguments }),
-            ...(resp.thinking ? { reasoning_content: resp.thinking } : {}),
           });
         } else {
           history.push({
@@ -597,7 +620,6 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
               id: toolCall.id ?? toolCall.name,
               function: { name: toolCall.name, arguments: toolCall.arguments },
             }],
-            ...(resp.thinking ? { reasoning_content: resp.thinking } : {}),
           });
         }
       }
@@ -666,16 +688,23 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       const loopDecision = loopGuardEligible && !step.cached
         ? detectLoopGuardCycle(loopGuard, actionSignature)
         : { blocked: false, cycleLength: 0, noEffectActions: 0 };
-      if (loopDecision.blocked) {
+      // Circling that the cycle check cannot see: the same action tried again and again across
+      // page changes, or a long scroll run hunting for content that is not in the snapshot.
+      const revisitMsg = loopGuardEligible && !step.cached && !loopDecision.blocked
+        ? detectRepeatedVisit(loopGuard, snapshot.url, toolCall)
+        : null;
+      if (loopDecision.blocked || revisitMsg) {
         const actionLabel = `${toolCall.name}(${actionRef || formatCompactArgs(toolCall.arguments)})`;
-        const msg = loopDecision.cycleLength === 1
+        const msg = revisitMsg ?? (loopDecision.cycleLength === 1
           ? `Loop detected: ${actionLabel} was already tried ${loopDecision.noEffectActions - 1} times and the page did not change. This element does not respond to this action. Do something different: for dropdowns use select(ref, value) instead of click; otherwise try press, scroll, a different element, or navigate with URL parameters.`
-          : `Loop detected: ${actionLabel} would repeat a ${loopDecision.cycleLength}-step no-effect cycle (${loopDecision.noEffectActions} actions total). The page did not change after this pattern. Do something different: try a different element, press, scroll, select(ref, value), extract visible evidence, or navigate with URL parameters.`;
+          : `Loop detected: ${actionLabel} would repeat a ${loopDecision.cycleLength}-step no-effect cycle (${loopDecision.noEffectActions} actions total). The page did not change after this pattern. Do something different: try a different element, press, scroll, select(ref, value), extract visible evidence, or navigate with URL parameters.`);
         step.result = { ok: true, durationMs: 0, extracted: msg };
         step.status = 'ok';
-        step.note = loopDecision.cycleLength === 1
-          ? `Blocked repeated no-effect action (${loopDecision.noEffectActions - 1}x)`
-          : `Blocked repeated no-effect cycle (${loopDecision.cycleLength} steps)`;
+        step.note = revisitMsg
+          ? `Blocked circling: ${truncate(msg, 90)}`
+          : loopDecision.cycleLength === 1
+            ? `Blocked repeated no-effect action (${loopDecision.noEffectActions - 1}x)`
+            : `Blocked repeated no-effect cycle (${loopDecision.cycleLength} steps)`;
         step.finishedAt = Date.now();
         step.timings = finalizeTimings(stepStart, { snapshotMs, screenshotMs, llmMs });
         await saveStep(task.id, step);
@@ -771,7 +800,6 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
           history.push({
             role: 'assistant',
             content: repairedResp.content || JSON.stringify({ name: toolCall.name, arguments: toolCall.arguments }),
-            ...(repairedResp.thinking ? { reasoning_content: repairedResp.thinking } : {}),
           });
         } else {
           history.push({
@@ -781,7 +809,6 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
               id: toolCall.id ?? toolCall.name,
               function: { name: toolCall.name, arguments: toolCall.arguments },
             }],
-            ...(repairedResp.thinking ? { reasoning_content: repairedResp.thinking } : {}),
           });
         }
       }
@@ -834,7 +861,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         step.result = {
           ok: true,
           durationMs: 0,
-          extracted: { reason: plan.intent, steps: plan.steps.map((s) => s.description) },
+          extracted: { reason: plan.intent, stepCount: plan.steps.length },
         };
         step.note = `Plan set: ${truncate(plan.intent ?? '', 140)}`;
         await saveTask(task);
@@ -981,7 +1008,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         step.result = {
           ok: true,
           durationMs: 0,
-          extracted: { subtaskId: st.id, result, progress: orchPlanSummary(orchPlan) },
+          extracted: { subtaskId: st.id, result, progress: planProgressLine(orchPlan) },
         };
         step.note = `Finished subtask ${st.index}`;
         const nextSt = nextPendingSubtask(orchPlan);
@@ -1002,7 +1029,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         step.result = {
           ok: true,
           durationMs: 0,
-          extracted: { subtaskId: st.id, error, progress: orchPlanSummary(orchPlan) },
+          extracted: { subtaskId: st.id, error, progress: planProgressLine(orchPlan) },
         };
         step.note = `Failed subtask ${st.index}`;
         const nextSt = nextPendingSubtask(orchPlan);
@@ -1071,7 +1098,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         step.note = `Filled login credentials for ${credential.origin}`;
       } else if (toolCall.name === 'solve_captcha') {
         const typeArg = typeof toolCall.arguments.type === 'string' ? (toolCall.arguments.type as CaptchaDetection['type']) : undefined;
-        const captchaResult = await solveCaptcha(activeTabId, typeArg);
+        const captchaResult = await solveCaptcha(activeTabId, typeArg, { settings });
         await sleep(2500);
         step.result = {
           ok: captchaResult.success,
@@ -1338,7 +1365,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         await saveStep(task.id, step);
         broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
 
-        const orchCtx = orchPlan ? `\n${orchPlanSummary(orchPlan)}` : '';
+        const orchCtx = orchPlan ? `\n${orchContext(orchPlan, plan)}` : '';
         const controlPrefix = toolCall.name === 'set_task_plan' ? '[PLAN]' : '[ORCHESTRATOR]';
         const controlMessage = toolCall.name === 'set_task_plan'
           ? 'Plan accepted. Start with the first active plan step. Keep the plan updated through progress and only call done after verification.'
@@ -1420,15 +1447,8 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         if (!step.cached) {
           const successfulExtract = toolCall.name === 'extract' && step.result.extracted !== undefined;
 
-          // ── Orchestrator: inject sub-task context ──
-          let orchCtx = '';
-          if (orchPlan) {
-            orchCtx = `\n${orchPlanSummary(orchPlan)}`;
-            const nextSt = nextPendingSubtask(orchPlan);
-            if (nextSt) {
-              orchCtx += `\nNext sub-task: ${nextSt.description}`;
-            }
-          }
+          // ── Orchestrator: inject sub-task progress ──
+          const orchCtx = orchPlan ? `\n${orchContext(orchPlan, plan)}` : '';
 
           const review = successfulExtract
             ? `[REVIEW] ✓ ${toolCall.name} — data extracted. If this satisfies every requested item and verification criterion, call done; otherwise continue with exactly one tool call for the next active plan step. For multi-tab work, call open_tab once per URL.`
@@ -1539,6 +1559,14 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
       broadcastEvent({ kind: 'task:error', taskId: task.id, error: msg });
 
+      // The model is answering with prose instead of acting — usually a page it cannot
+      // operate (an interstitial, a challenge). Retrying just spends the step budget.
+      if (msg.startsWith(STUCK_PREFIX)) {
+        task.status = 'failed';
+        task.error = `Model stopped issuing tool calls for ${MAX_NO_TOOL_CALL_STEPS} steps on ${step.snapshot?.url ?? 'the current page'}. ${msg.slice(STUCK_PREFIX.length)}`;
+        break;
+      }
+
       // Auth/billing/quota errors will not go away on retry — fail fast
       // instead of burning the remaining step budget on the same error.
       if (isFatalProviderError(msg)) {
@@ -1601,9 +1629,7 @@ async function takeSnapshot(tabId: number): Promise<A11ySnapshot> {
     break;
   }
 
-  const resp = await sendToContent(tabId, { kind: 'snapshot:take' });
-  if (resp.kind !== 'snapshot') throw new Error('Snapshot failed');
-  return resp.snapshot;
+  return takeFrameSnapshot(tabId, (msg) => sendToContent(tabId, msg));
 }
 
 function syncVisiblePlans(task: AgentTask, plan: AgentPlan | null, orchPlan: OrchestrationPlan | null): void {
@@ -1651,7 +1677,7 @@ function compactHistoryForResume(
     `[AUTO-RESUME ${resumeCount}/${maxResumes}] Reached ${MAX_STEPS} steps. Continue the long task from this compact state.`,
     `GOAL: ${task.goal}`,
     plan ? planContext(plan) : '',
-    orchPlan ? `${orchPlanSummary(orchPlan)}\nStay on the running subtask until it is finished. Before moving to another subtask, call finish_subtask or fail_subtask.` : '',
+    orchPlan ? `${orchContext(orchPlan, plan)}\nStay on the running subtask until it is finished. Before moving to another subtask, call finish_subtask or fail_subtask.` : '',
     recentSteps.length > 0 ? `[RECENT STEPS]\n${recentSteps.join('\n')}` : '',
     'Use the next fresh page snapshot. Do not repeat completed plan items. Keep working unless the goal is fully verified, then call done.',
   ].filter(Boolean);
@@ -1706,7 +1732,7 @@ function stepsDigest(task: AgentTask, plan: AgentPlan | null, orchPlan: Orchestr
   return [
     `GOAL: ${task.goal}`,
     plan ? planContext(plan) : '',
-    orchPlan ? orchPlanSummary(orchPlan) : '',
+    orchPlan ? orchContext(orchPlan, plan) : '',
     steps.length > 0 ? `[STEPS SO FAR]\n${steps.join('\n')}` : '',
   ].filter(Boolean).join('\n\n');
 }
@@ -1854,7 +1880,10 @@ async function runBrowserAction(tabId: number, snapshot: A11ySnapshot, call: Too
 }
 
 async function runContentAction(tabId: number, call: ToolCall) {
-  const actionResp = await sendToContent(tabId, { kind: 'action:run', action: call });
+  const frameId = frameIdFromRef(String(call.arguments.ref ?? ''));
+  const actionResp = frameId === 0
+    ? await sendToContent(tabId, { kind: 'action:run', action: call })
+    : await chrome.tabs.sendMessage(tabId, { kind: 'action:run', action: call }, { frameId }) as CSResponse;
   if (actionResp.kind !== 'action:result') throw new Error('Unexpected content response');
   return actionResp.result;
 }
@@ -1902,6 +1931,14 @@ function collectEvidenceText(task: AgentTask, currentSnapshot: A11ySnapshot): st
     if (step.prompt) parts.push(step.prompt);
   }
   return parts.join('\n');
+}
+
+// The [PLAN] block already lists every step and subtasks mirror it 1:1, so alongside a
+// plan the orchestrator contributes only a progress line. Without a plan — a task resumed
+// from a checkpoint — its own listing is the only structure the model gets.
+function orchContext(orchPlan: OrchestrationPlan | null, plan: AgentPlan | null): string {
+  if (!orchPlan) return '';
+  return plan ? planProgressLine(orchPlan) : orchPlanSummary(orchPlan);
 }
 
 function shouldThink(settings: Settings, stepIndex: number, loop: LoopState): boolean {

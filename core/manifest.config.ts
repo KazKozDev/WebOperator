@@ -64,7 +64,9 @@ export default defineManifest({
       matches: ['<all_urls>'],
       js: ['src/content/content-script.ts'],
       run_at: 'document_idle',
-      all_frames: false,
+      // Ticket widgets, booking flows and payment forms live in iframes; without this the
+      // snapshot stops at the top document and the agent cannot see them at all.
+      all_frames: true,
     },
   ],
   icons: {

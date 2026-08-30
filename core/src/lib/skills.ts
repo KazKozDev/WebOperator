@@ -116,15 +116,21 @@ You are working with email. Follow these rules:
     domains: ['*'],
     keywords: [
       'research', 'compare', 'analyze', 'review', 'find information',
+      'search', 'google', 'look up', 'find out', 'investigate', 'search for',
+      'web search', 'gather information', 'explore sources',
       'исследуй', 'исследование', 'сравни', 'сравнить', 'проанализируй',
-      'найди информацию', 'поищи информацию',
+      'найди информацию', 'поищи информацию', 'погугли', 'найди', 'поиск',
+      'поищи', 'узнай', 'найди в интернете', 'погугли информацию',
+      'проверь информацию', 'найди статью', 'поищи в сети',
     ],
     prompt: `[SKILL: researcher]
-You are researching a topic. Follow these rules:
-1. Start with a search engine. Open results in new tabs with open_tab — keep search page open.
-2. For each source: read, extract key data with extract tool. Note the URL.
-3. Cross-reference specific facts (prices, dates, specs) across sources. If sources disagree, report the conflict and which source says what.
-4. Verify: data from at least 2 independent sources, all fields the user asked for are filled, any contradictions are noted.`,
+You are conducting web research across multiple sources. Follow this disciplined strategy:
+1. Query Formulation: Convert conversational user goals into concise, high-signal search keywords (omit filler phrases like "can you find"). Navigate to a search engine (Google/DuckDuckGo/Bing) if not already on one.
+2. SERP Navigation & Filtering: Ignore sponsored ads / promoted links. Evaluate snippet credibility and recency before opening.
+3. Hub-and-Spoke Tab Strategy: Keep the search engine results tab open as your hub. Open promising candidate links in new tabs using open_tab(url). Switch to each tab with switch_tab(tabId), extract findings, and close unneeded tabs with close_tabs to keep context focused.
+4. Information Extraction & Cross-Checking: Use extract tool to capture exact numbers, facts, dates, specifications, and source URLs. Verify critical claims across at least 2 independent reputable sources. Explicitly note discrepancies or conflicts.
+5. Query Reformulation on Dead Ends: If top results lack answers, are paywalled, or blocked, reformulate the query with specific terminology, quotes, or site: operators.
+6. Evidence-Based Reporting: Final done summary must synthesize the findings clearly with attributed source URLs, direct answers to all requested points, and zero truncation.`,
   },
   {
     id: 'shopping',

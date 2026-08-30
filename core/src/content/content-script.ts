@@ -27,7 +27,11 @@ async function handle(msg: CSMessage): Promise<CSResponse> {
     }
     case 'snapshot:take': {
 
-      const snapshot = buildSnapshot({ includeOutsideViewport: msg.options?.allElements });
+      const snapshot = buildSnapshot({
+        includeOutsideViewport: msg.options?.allElements,
+        refPrefix: msg.options?.refPrefix,
+        ...(msg.options?.maxNodes ? { maxNodes: msg.options.maxNodes } : {}),
+      });
       return { kind: 'snapshot', snapshot };
     }
     case 'action:run': {

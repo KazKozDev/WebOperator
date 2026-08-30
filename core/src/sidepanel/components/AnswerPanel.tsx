@@ -72,7 +72,7 @@ export function AnswerPanel({
           <button
             type="button"
             className="secondary"
-            style={{ fontSize: '11px', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '5px', fontWeight: 500 }}
+            style={{ fontSize: '11px', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
             onClick={() => onResumeCheckpoint(task.id)}
             title="Resume from last successful step"
           >
