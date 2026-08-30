@@ -141,6 +141,6 @@ Run `npm --prefix core run dev` for watch builds, or `./scripts/check.sh` for th
 
 ![Chrome 120+](https://img.shields.io/badge/Chrome_120+-333?style=flat-square&logo=googlechrome&logoColor=fff) ![Brave](https://img.shields.io/badge/Brave-333?style=flat-square&logo=brave&logoColor=fff) [![Check](https://img.shields.io/github/actions/workflow/status/KazKozDev/WebOperator/check.yml?branch=main&style=flat-square&label=check)](https://github.com/KazKozDev/WebOperator/actions/workflows/check.yml) [![Version](https://img.shields.io/badge/version-1.4.0-333?style=flat-square)](core/package.json) [![License](https://img.shields.io/badge/license-MIT-333?style=flat-square)](LICENSE)
 
-[Issues](https://github.com/KazKozDev/WebOperator/issues) · [License](LICENSE) · [API](docs/api.md) · [Requirements](docs/requirements.md) · [Architecture](docs/architecture.md) · [Agent protocol](docs/agent-protocol.md) · [Limitations](docs/known-limitations.md)
+[Issues](https://github.com/KazKozDev/WebOperator/issues) · [License](LICENSE) · [API](docs/api.md) · [Architecture](docs/architecture.md) · [Agent protocol](docs/agent-protocol.md)
 
 </div>
