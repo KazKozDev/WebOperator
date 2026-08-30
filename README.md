@@ -81,6 +81,8 @@ goal → page snapshot → model tool call → verified action → trace
 
 The manifest requests `<all_urls>` and `activeTab`/`tabs`/`scripting` to read and act on the page you point it at, `debugger` to drive Chrome DevTools Protocol actions the DOM API cannot perform, `sidePanel` for the UI, `storage` for settings and history, `alarms` for scheduled tasks, `downloads` for the file-downloader skill, and `nativeMessaging` for the MCP bridge. `bookmarks` and `tabGroups` are optional and requested only when used.
 
+Because of `debugger`, Chrome shows a yellow "WebOperator started debugging this browser" bar while an action runs. That bar is Chrome's, not the extension's, and it disappears when the agent detaches.
+
 ## Configuration
 
 | Option | Default | What it does |
