@@ -2,9 +2,11 @@
   "name": "weboperator",
   "version": "1.4.0",
   "private": true,
-
   "description": "AI browser agent and MCP server for Chrome automation",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "vite build --watch --mode development",
     "build": "tsc --noEmit && vite build",

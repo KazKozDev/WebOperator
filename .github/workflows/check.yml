@@ -29,7 +29,8 @@ jobs:
 
       - uses: actions/setup-node@v5
         with:
-          node-version: lts/*
+          # Single source of truth for the Node version: .nvmrc
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: core/package-lock.json
 
