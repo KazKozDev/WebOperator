@@ -1,0 +1,47 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Report both platforms even when one fails: the point of the matrix is
+      # to tell macOS-only breakage apart from Linux-only breakage.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: core/package-lock.json
+
+      # Ubuntu runners ship shellcheck; macOS runners do not.
+      - name: Install shellcheck (macOS)
+        if: runner.os == 'macOS'
+        run: brew install shellcheck
+
+      - name: Install dependencies
+        run: npm --prefix core ci
+
+      # Fixture evals, bridge smoke test, typecheck, lint, unit tests,
+      # dead-code scan, shellcheck and the production build.
+      - name: Run the full gate
+        run: ./scripts/check.sh
