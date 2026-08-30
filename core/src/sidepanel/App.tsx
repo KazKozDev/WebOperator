@@ -424,15 +424,33 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
           <>
             {task?.pauseReason?.kind === 'bot_challenge' && (
               <div className="challenge-handoff">
-                <div className="challenge-handoff-title">Verification needed</div>
+                <div className="challenge-handoff-header">
+                  <span className="challenge-handoff-badge">Action required</span>
+                  <span className="challenge-handoff-title">Human Verification / CAPTCHA</span>
+                </div>
                 <p className="challenge-handoff-note">{task.pauseReason.note}</p>
-                <p className="challenge-handoff-url">{task.pauseReason.url}</p>
-                <button
-                  className="primary"
-                  onClick={() => sendToSW({ kind: 'task:resume', id: task.id })}
-                >
-                  I have solved it — resume
-                </button>
+                <div className="challenge-handoff-tab-info">
+                  <span className="challenge-handoff-tab-title">{task.pauseReason.title || 'Challenge page'}</span>
+                  <span className="challenge-handoff-url">{task.pauseReason.url}</span>
+                </div>
+                <div className="challenge-handoff-actions">
+                  {typeof task.pauseReason.tabId === 'number' && (
+                    <button
+                      type="button"
+                      className="secondary challenge-tab-btn"
+                      onClick={() => chrome.tabs.update(task.pauseReason!.tabId!, { active: true })}
+                    >
+                      Show challenge tab
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="primary challenge-resume-btn"
+                    onClick={() => sendToSW({ kind: 'task:resume', id: task.id })}
+                  >
+                    I have solved it — Resume task
+                  </button>
+                </div>
               </div>
             )}
             <AnswerPanel answer={finalAnswer} task={task} isConfirmationCheckpoint={isConfirmationCheckpoint} onResumeCheckpoint={onResumeCheckpoint} />
@@ -466,6 +484,21 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
 
       {awaitingConfirm && task && (
         <ConfirmBox task={task} onDecide={(allow) => sendToSW({ kind: 'task:confirm', id: task.id, allow })} />
+      )}
+
+      {task?.pauseReason?.kind === 'bot_challenge' && (
+        <div className="challenge-sticky-banner">
+          <div className="challenge-sticky-text">
+            <strong>Verification needed:</strong> Solve the challenge in the tab, then resume.
+          </div>
+          <button
+            type="button"
+            className="primary challenge-sticky-btn"
+            onClick={() => sendToSW({ kind: 'task:resume', id: task.id })}
+          >
+            Resume task
+          </button>
+        </div>
       )}
 
       <div className="input-area">

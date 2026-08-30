@@ -410,10 +410,13 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
             break;
           }
 
+          // Automatically switch to the challenge tab so the user sees it immediately
+          await chrome.tabs.update(activeTabId, { active: true }).catch(() => {});
+
           botChallengeHandoffs++;
           step.status = 'skipped';
           step.finishedAt = Date.now();
-          step.note = 'Paused: verification challenge — waiting for the user.';
+          step.note = `Paused for verification on "${snapshot.title || snapshot.url}". Complete the challenge in the tab and press Resume.`;
           await saveStep(task.id, step);
           broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
           advanceStepCounters();
@@ -423,7 +426,8 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
             kind: 'bot_challenge',
             url: snapshot.url,
             title: snapshot.title,
-            note: 'This page is asking to verify you are human. Solve it in the tab, then press Resume.',
+            tabId: activeTabId,
+            note: 'Verification required. We focused the challenge tab for you. Complete the verification in that tab and press Resume.',
             since: Date.now(),
           };
           task.updatedAt = Date.now();

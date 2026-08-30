@@ -259,6 +259,7 @@ export interface TaskPauseReason {
   kind: 'bot_challenge';
   url: string;
   title: string;
+  tabId?: number;
   note: string;
   since: number;
 }
