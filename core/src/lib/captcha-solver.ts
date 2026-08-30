@@ -61,177 +61,333 @@ export function isBotChallengePage(title: string, url: string, bodySnippet = '')
  * Injects a script into the tab to detect and solve Cloudflare Turnstile & Checkbox CAPTCHAs.
  */
 export async function solveCloudflareChallenge(tabId: number): Promise<{ success: boolean; message: string }> {
-  try {
-    const results = await chrome.scripting.executeScript({
-      target: { tabId, allFrames: true },
-      func: () => {
-        function queryDeep(selector: string, root: Document | Element | ShadowRoot = document): Element[] {
-          const res: Element[] = Array.from(root.querySelectorAll(selector));
-          const allEls = root.querySelectorAll('*');
-          for (let i = 0; i < allEls.length; i++) {
-            const el = allEls[i];
-            if (el && el.shadowRoot) {
-              res.push(...queryDeep(selector, el.shadowRoot));
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        func: () => {
+          function queryDeep(selector: string, root: Document | Element | ShadowRoot = document): Element[] {
+            const res: Element[] = Array.from(root.querySelectorAll(selector));
+            const allEls = root.querySelectorAll('*');
+            for (let i = 0; i < allEls.length; i++) {
+              const el = allEls[i];
+              if (el && el.shadowRoot) {
+                res.push(...queryDeep(selector, el.shadowRoot));
+              }
             }
+            return res;
           }
-          return res;
-        }
 
-        // 1. Search for Cloudflare Turnstile iframe
-        const iframes = queryDeep('iframe') as HTMLIFrameElement[];
-        for (const iframe of iframes) {
-          const src = iframe.src || '';
-          if (src.includes('challenges.cloudflare.com') || src.includes('turnstile') || src.includes('cf-chl')) {
-            const rect = iframe.getBoundingClientRect();
+          function dispatchClick(el: Element, cx?: number, cy?: number) {
+            const rect = el.getBoundingClientRect();
+            const x = cx ?? Math.round(rect.x + (rect.width > 0 ? Math.min(28, rect.width / 2) : 10));
+            const y = cy ?? Math.round(rect.y + (rect.height > 0 ? rect.height / 2 : 10));
+            const opts = { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window };
+            el.dispatchEvent(new PointerEvent('pointerover', opts));
+            el.dispatchEvent(new PointerEvent('pointerdown', opts));
+            el.dispatchEvent(new MouseEvent('mousedown', opts));
+            if (el instanceof HTMLElement) el.focus({ preventScroll: true });
+            el.dispatchEvent(new PointerEvent('pointerup', opts));
+            el.dispatchEvent(new MouseEvent('mouseup', opts));
+            el.dispatchEvent(new MouseEvent('click', opts));
+          }
+
+          // 1. Search for interactive checkbox inside frame / shadow roots
+          const checkboxes = queryDeep('input[type="checkbox"], .ctp-checkbox-label, .ctp-checkbox-container, #challenge-stage input') as HTMLElement[];
+          for (const cb of checkboxes) {
+            const rect = cb.getBoundingClientRect();
             if (rect.width > 0 && rect.height > 0) {
-              return { foundIframe: true, rect: { x: rect.x, y: rect.y, w: rect.width, h: rect.height } };
+              dispatchClick(cb);
+              return { clickedCheckbox: true };
             }
           }
-        }
 
-        // 2. Search for shadow root / turnstile wrappers
-        const wrappers = queryDeep('.cf-turnstile, #challenge-stage, [data-sitekey]');
-        for (const w of wrappers) {
-          const rect = w.getBoundingClientRect();
-          if (rect.width > 0 && rect.height > 0) {
-            return { foundWrapper: true, rect: { x: rect.x, y: rect.y, w: rect.width, h: rect.height } };
-          }
-        }
-
-        // 3. Search for checkbox inside current frame / shadow roots
-        const checkboxes = queryDeep('input[type="checkbox"], .ctp-checkbox-label, .ctp-checkbox-container') as HTMLElement[];
-        if (checkboxes.length > 0 && checkboxes[0]) {
-          checkboxes[0].click();
-          return { clickedCheckbox: true };
-        }
-
-        return { none: true };
-      },
-    });
-
-    // Check if any frame clicked or found the challenge
-    for (const r of results) {
-      const res = r.result as Record<string, unknown> | null;
-      if (res?.clickedCheckbox) {
-        return { success: true, message: 'Cloudflare checkbox clicked successfully.' };
-      }
-    }
-
-    // Try finding by coordinate click on the primary challenge container
-    for (const r of results) {
-      const res = r.result as { foundIframe?: boolean; foundWrapper?: boolean; rect?: { x: number; y: number; w: number; h: number } } | null;
-      if (res?.rect) {
-        const clickX = Math.round(res.rect.x + Math.min(30, res.rect.w / 2));
-        const clickY = Math.round(res.rect.y + res.rect.h / 2);
-
-        await chrome.scripting.executeScript({
-          target: { tabId },
-          func: (x, y) => {
-            const el = document.elementFromPoint(x, y);
-            if (el) {
-              const opts = { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window };
-              el.dispatchEvent(new MouseEvent('mousedown', opts));
-              el.dispatchEvent(new MouseEvent('mouseup', opts));
-              el.dispatchEvent(new MouseEvent('click', opts));
+          // 2. Search for Cloudflare Turnstile iframe
+          const iframes = queryDeep('iframe') as HTMLIFrameElement[];
+          for (const iframe of iframes) {
+            const src = iframe.src || '';
+            if (src.includes('challenges.cloudflare.com') || src.includes('turnstile') || src.includes('cf-chl')) {
+              const rect = iframe.getBoundingClientRect();
+              if (rect.width > 0 && rect.height > 0) {
+                return { foundIframe: true, rect: { x: rect.x, y: rect.y, w: rect.width, h: rect.height } };
+              }
             }
-          },
-          args: [clickX, clickY],
-        });
+          }
 
-        return { success: true, message: `Cloudflare challenge clicked at (${clickX}, ${clickY}).` };
+          // 3. Search for shadow root / turnstile stage wrappers
+          const wrappers = queryDeep('.cf-turnstile, #challenge-stage, [data-sitekey]');
+          for (const w of wrappers) {
+            const rect = w.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+              return { foundWrapper: true, rect: { x: rect.x, y: rect.y, w: rect.width, h: rect.height } };
+            }
+          }
+
+          return { none: true };
+        },
+      });
+
+      for (const r of results) {
+        const res = r.result as Record<string, unknown> | null;
+        if (res?.clickedCheckbox) {
+          return { success: true, message: 'Cloudflare Turnstile checkbox clicked successfully.' };
+        }
       }
-    }
 
-    return { success: false, message: 'Cloudflare challenge element not found in DOM.' };
-  } catch (err) {
-    return { success: false, message: err instanceof Error ? err.message : String(err) };
+      for (const r of results) {
+        const res = r.result as { foundIframe?: boolean; foundWrapper?: boolean; rect?: { x: number; y: number; w: number; h: number } } | null;
+        if (res?.rect) {
+          const clickX = Math.round(res.rect.x + Math.min(30, res.rect.w / 2));
+          const clickY = Math.round(res.rect.y + res.rect.h / 2);
+
+          await chrome.scripting.executeScript({
+            target: { tabId },
+            func: (x, y) => {
+              const el = document.elementFromPoint(x, y);
+              if (el) {
+                const opts = { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window };
+                el.dispatchEvent(new PointerEvent('pointerover', opts));
+                el.dispatchEvent(new PointerEvent('pointerdown', opts));
+                el.dispatchEvent(new MouseEvent('mousedown', opts));
+                if (el instanceof HTMLElement) el.focus({ preventScroll: true });
+                el.dispatchEvent(new PointerEvent('pointerup', opts));
+                el.dispatchEvent(new MouseEvent('mouseup', opts));
+                el.dispatchEvent(new MouseEvent('click', opts));
+              }
+            },
+            args: [clickX, clickY],
+          });
+
+          return { success: true, message: `Cloudflare challenge clicked at (${clickX}, ${clickY}).` };
+        }
+      }
+
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 600));
+    } catch (err) {
+      if (attempt === 2) return { success: false, message: err instanceof Error ? err.message : String(err) };
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    }
   }
+
+  return { success: false, message: 'Cloudflare challenge element not found in DOM.' };
 }
 
 /**
  * Injects a script into the tab to detect and click Google reCAPTCHA v2 / Enterprise checkbox.
  */
 export async function solveRecaptchaChallenge(tabId: number): Promise<{ success: boolean; message: string }> {
-  try {
-    const results = await chrome.scripting.executeScript({
-      target: { tabId, allFrames: true },
-      func: () => {
-        function queryDeep(selector: string, root: Document | Element | ShadowRoot = document): Element[] {
-          const res: Element[] = Array.from(root.querySelectorAll(selector));
-          const allEls = root.querySelectorAll('*');
-          for (let i = 0; i < allEls.length; i++) {
-            const el = allEls[i];
-            if (el && el.shadowRoot) {
-              res.push(...queryDeep(selector, el.shadowRoot));
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        func: () => {
+          function queryDeep(selector: string, root: Document | Element | ShadowRoot = document): Element[] {
+            const res: Element[] = Array.from(root.querySelectorAll(selector));
+            const allEls = root.querySelectorAll('*');
+            for (let i = 0; i < allEls.length; i++) {
+              const el = allEls[i];
+              if (el && el.shadowRoot) {
+                res.push(...queryDeep(selector, el.shadowRoot));
+              }
             }
+            return res;
           }
-          return res;
-        }
 
-        // Look for checkbox inside frame / shadow root
-        const checkboxes = queryDeep('#recaptcha-anchor, .recaptcha-checkbox, [role="checkbox"][aria-labelledby*="recaptcha"]') as HTMLElement[];
-        if (checkboxes.length > 0 && checkboxes[0]) {
-          checkboxes[0].click();
-          return { clickedCheckbox: true };
-        }
+          function dispatchClick(el: Element) {
+            const rect = el.getBoundingClientRect();
+            const x = Math.round(rect.x + (rect.width > 0 ? Math.min(28, rect.width / 2) : 10));
+            const y = Math.round(rect.y + (rect.height > 0 ? rect.height / 2 : 10));
+            const opts = { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window };
+            el.dispatchEvent(new PointerEvent('pointerover', opts));
+            el.dispatchEvent(new PointerEvent('pointerdown', opts));
+            el.dispatchEvent(new MouseEvent('mousedown', opts));
+            if (el instanceof HTMLElement) el.focus({ preventScroll: true });
+            el.dispatchEvent(new PointerEvent('pointerup', opts));
+            el.dispatchEvent(new MouseEvent('mouseup', opts));
+            el.dispatchEvent(new MouseEvent('click', opts));
+          }
 
-        // Look for reCAPTCHA iframe
-        const iframes = queryDeep('iframe') as HTMLIFrameElement[];
-        for (const iframe of iframes) {
-          const src = iframe.src || '';
-          if (src.includes('google.com/recaptcha') || src.includes('recaptcha/api2/anchor')) {
-            const rect = iframe.getBoundingClientRect();
+          // Look for checkbox inside frame / shadow root
+          const checkboxes = queryDeep('#recaptcha-anchor, .recaptcha-checkbox, .recaptcha-checkbox-border, [role="checkbox"][aria-labelledby*="recaptcha"]') as HTMLElement[];
+          for (const cb of checkboxes) {
+            const rect = cb.getBoundingClientRect();
             if (rect.width > 0 && rect.height > 0) {
-              return { foundIframe: true, rect: { x: rect.x, y: rect.y, w: rect.width, h: rect.height } };
+              dispatchClick(cb);
+              return { clickedCheckbox: true };
             }
           }
-        }
 
-        return { none: true };
-      },
-    });
-
-    for (const r of results) {
-      const res = r.result as Record<string, unknown> | null;
-      if (res?.clickedCheckbox) {
-        return { success: true, message: 'reCAPTCHA checkbox clicked successfully.' };
-      }
-    }
-
-    for (const r of results) {
-      const res = r.result as { foundIframe?: boolean; rect?: { x: number; y: number; w: number; h: number } } | null;
-      if (res?.rect) {
-        const clickX = Math.round(res.rect.x + Math.min(28, res.rect.w / 2));
-        const clickY = Math.round(res.rect.y + res.rect.h / 2);
-
-        await chrome.scripting.executeScript({
-          target: { tabId },
-          func: (x, y) => {
-            const el = document.elementFromPoint(x, y);
-            if (el) {
-              const opts = { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window };
-              el.dispatchEvent(new MouseEvent('mousedown', opts));
-              el.dispatchEvent(new MouseEvent('mouseup', opts));
-              el.dispatchEvent(new MouseEvent('click', opts));
+          // Look for reCAPTCHA iframe
+          const iframes = queryDeep('iframe') as HTMLIFrameElement[];
+          for (const iframe of iframes) {
+            const src = iframe.src || '';
+            if (src.includes('google.com/recaptcha') || src.includes('recaptcha/api2/anchor')) {
+              const rect = iframe.getBoundingClientRect();
+              if (rect.width > 0 && rect.height > 0) {
+                return { foundIframe: true, rect: { x: rect.x, y: rect.y, w: rect.width, h: rect.height } };
+              }
             }
-          },
-          args: [clickX, clickY],
-        });
+          }
 
-        return { success: true, message: `reCAPTCHA checkbox clicked at (${clickX}, ${clickY}).` };
+          return { none: true };
+        },
+      });
+
+      for (const r of results) {
+        const res = r.result as Record<string, unknown> | null;
+        if (res?.clickedCheckbox) {
+          return { success: true, message: 'reCAPTCHA checkbox clicked successfully.' };
+        }
       }
-    }
 
-    return { success: false, message: 'reCAPTCHA checkbox element not found in DOM.' };
-  } catch (err) {
-    return { success: false, message: err instanceof Error ? err.message : String(err) };
+      for (const r of results) {
+        const res = r.result as { foundIframe?: boolean; rect?: { x: number; y: number; w: number; h: number } } | null;
+        if (res?.rect) {
+          const clickX = Math.round(res.rect.x + Math.min(28, res.rect.w / 2));
+          const clickY = Math.round(res.rect.y + res.rect.h / 2);
+
+          await chrome.scripting.executeScript({
+            target: { tabId },
+            func: (x, y) => {
+              const el = document.elementFromPoint(x, y);
+              if (el) {
+                const opts = { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window };
+                el.dispatchEvent(new PointerEvent('pointerover', opts));
+                el.dispatchEvent(new PointerEvent('pointerdown', opts));
+                el.dispatchEvent(new MouseEvent('mousedown', opts));
+                if (el instanceof HTMLElement) el.focus({ preventScroll: true });
+                el.dispatchEvent(new PointerEvent('pointerup', opts));
+                el.dispatchEvent(new MouseEvent('mouseup', opts));
+                el.dispatchEvent(new MouseEvent('click', opts));
+              }
+            },
+            args: [clickX, clickY],
+          });
+
+          return { success: true, message: `reCAPTCHA checkbox clicked at (${clickX}, ${clickY}).` };
+        }
+      }
+
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 600));
+    } catch (err) {
+      if (attempt === 2) return { success: false, message: err instanceof Error ? err.message : String(err) };
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    }
   }
+
+  return { success: false, message: 'reCAPTCHA checkbox element not found in DOM.' };
 }
 
 /**
  * Injects a script into the tab to detect and click hCaptcha checkbox.
  */
 export async function solveHcaptchaChallenge(tabId: number): Promise<{ success: boolean; message: string }> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        func: () => {
+          function queryDeep(selector: string, root: Document | Element | ShadowRoot = document): Element[] {
+            const res: Element[] = Array.from(root.querySelectorAll(selector));
+            const allEls = root.querySelectorAll('*');
+            for (let i = 0; i < allEls.length; i++) {
+              const el = allEls[i];
+              if (el && el.shadowRoot) {
+                res.push(...queryDeep(selector, el.shadowRoot));
+              }
+            }
+            return res;
+          }
+
+          function dispatchClick(el: Element) {
+            const rect = el.getBoundingClientRect();
+            const x = Math.round(rect.x + (rect.width > 0 ? Math.min(28, rect.width / 2) : 10));
+            const y = Math.round(rect.y + (rect.height > 0 ? rect.height / 2 : 10));
+            const opts = { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window };
+            el.dispatchEvent(new PointerEvent('pointerover', opts));
+            el.dispatchEvent(new PointerEvent('pointerdown', opts));
+            el.dispatchEvent(new MouseEvent('mousedown', opts));
+            if (el instanceof HTMLElement) el.focus({ preventScroll: true });
+            el.dispatchEvent(new PointerEvent('pointerup', opts));
+            el.dispatchEvent(new MouseEvent('mouseup', opts));
+            el.dispatchEvent(new MouseEvent('click', opts));
+          }
+
+          // Look for checkbox inside hCaptcha frame / shadow root
+          const checkboxes = queryDeep('#checkbox, [aria-label*="hCaptcha"][role="checkbox"], div#anchor') as HTMLElement[];
+          for (const cb of checkboxes) {
+            const rect = cb.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+              dispatchClick(cb);
+              return { clickedCheckbox: true };
+            }
+          }
+
+          // Look for hCaptcha iframe
+          const iframes = queryDeep('iframe') as HTMLIFrameElement[];
+          for (const iframe of iframes) {
+            const src = iframe.src || '';
+            if (src.includes('hcaptcha.com') || src.includes('newassets.hcaptcha.com')) {
+              const rect = iframe.getBoundingClientRect();
+              if (rect.width > 0 && rect.height > 0) {
+                return { foundIframe: true, rect: { x: rect.x, y: rect.y, w: rect.width, h: rect.height } };
+              }
+            }
+          }
+
+          return { none: true };
+        },
+      });
+
+      for (const r of results) {
+        const res = r.result as Record<string, unknown> | null;
+        if (res?.clickedCheckbox) {
+          return { success: true, message: 'hCaptcha checkbox clicked successfully.' };
+        }
+      }
+
+      for (const r of results) {
+        const res = r.result as { foundIframe?: boolean; rect?: { x: number; y: number; w: number; h: number } } | null;
+        if (res?.rect) {
+          const clickX = Math.round(res.rect.x + Math.min(28, res.rect.w / 2));
+          const clickY = Math.round(res.rect.y + res.rect.h / 2);
+
+          await chrome.scripting.executeScript({
+            target: { tabId },
+            func: (x, y) => {
+              const el = document.elementFromPoint(x, y);
+              if (el) {
+                const opts = { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window };
+                el.dispatchEvent(new PointerEvent('pointerover', opts));
+                el.dispatchEvent(new PointerEvent('pointerdown', opts));
+                el.dispatchEvent(new MouseEvent('mousedown', opts));
+                if (el instanceof HTMLElement) el.focus({ preventScroll: true });
+                el.dispatchEvent(new PointerEvent('pointerup', opts));
+                el.dispatchEvent(new MouseEvent('mouseup', opts));
+                el.dispatchEvent(new MouseEvent('click', opts));
+              }
+            },
+            args: [clickX, clickY],
+          });
+
+          return { success: true, message: `hCaptcha checkbox clicked at (${clickX}, ${clickY}).` };
+        }
+      }
+
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 600));
+    } catch (err) {
+      if (attempt === 2) return { success: false, message: err instanceof Error ? err.message : String(err) };
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    }
+  }
+
+  return { success: false, message: 'hCaptcha element not found in DOM.' };
+}
+
+/**
+ * Injects a script into the tab to detect and click AWS WAF / DataDome / GeeTest checkboxes.
+ */
+export async function solveGenericChallenge(tabId: number): Promise<{ success: boolean; message: string }> {
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId, allFrames: true },
@@ -248,22 +404,47 @@ export async function solveHcaptchaChallenge(tabId: number): Promise<{ success: 
           return res;
         }
 
-        // Look for checkbox inside hCaptcha frame / shadow root
-        const checkboxes = queryDeep('#checkbox, [aria-label*="hCaptcha"][role="checkbox"]') as HTMLElement[];
-        if (checkboxes.length > 0 && checkboxes[0]) {
-          checkboxes[0].click();
-          return { clickedCheckbox: true };
+        function dispatchClick(el: Element) {
+          const rect = el.getBoundingClientRect();
+          const x = Math.round(rect.x + (rect.width > 0 ? Math.min(28, rect.width / 2) : 10));
+          const y = Math.round(rect.y + (rect.height > 0 ? rect.height / 2 : 10));
+          const opts = { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window };
+          el.dispatchEvent(new PointerEvent('pointerover', opts));
+          el.dispatchEvent(new PointerEvent('pointerdown', opts));
+          el.dispatchEvent(new MouseEvent('mousedown', opts));
+          if (el instanceof HTMLElement) el.focus({ preventScroll: true });
+          el.dispatchEvent(new PointerEvent('pointerup', opts));
+          el.dispatchEvent(new MouseEvent('mouseup', opts));
+          el.dispatchEvent(new MouseEvent('click', opts));
         }
 
-        // Look for hCaptcha iframe
-        const iframes = queryDeep('iframe') as HTMLIFrameElement[];
-        for (const iframe of iframes) {
-          const src = iframe.src || '';
-          if (src.includes('hcaptcha.com') || src.includes('newassets.hcaptcha.com')) {
-            const rect = iframe.getBoundingClientRect();
-            if (rect.width > 0 && rect.height > 0) {
-              return { foundIframe: true, rect: { x: rect.x, y: rect.y, w: rect.width, h: rect.height } };
-            }
+        // 1. AWS WAF Captcha
+        const awsButtons = queryDeep('#aws-waf-captcha-box input[type="checkbox"], button#aws-waf-captcha-submit, #aws-waf-captcha-box button') as HTMLElement[];
+        for (const b of awsButtons) {
+          const rect = b.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            dispatchClick(b);
+            return { clicked: true, name: 'AWS WAF' };
+          }
+        }
+
+        // 2. GeeTest Radar button
+        const geetestButtons = queryDeep('.geetest_radar_btn, .geetest_radar_tip, .geetest_btn') as HTMLElement[];
+        for (const b of geetestButtons) {
+          const rect = b.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            dispatchClick(b);
+            return { clicked: true, name: 'GeeTest' };
+          }
+        }
+
+        // 3. Arkose / FunCaptcha Verify button
+        const arkoseButtons = queryDeep('button[data-theme="home.verify"], button[aria-label*="verify" i], #home_children_button') as HTMLElement[];
+        for (const b of arkoseButtons) {
+          const rect = b.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            dispatchClick(b);
+            return { clicked: true, name: 'Arkose' };
           }
         }
 
@@ -272,37 +453,13 @@ export async function solveHcaptchaChallenge(tabId: number): Promise<{ success: 
     });
 
     for (const r of results) {
-      const res = r.result as Record<string, unknown> | null;
-      if (res?.clickedCheckbox) {
-        return { success: true, message: 'hCaptcha checkbox clicked successfully.' };
+      const res = r.result as { clicked?: boolean; name?: string } | null;
+      if (res?.clicked) {
+        return { success: true, message: `${res.name ?? 'Challenge'} button clicked successfully.` };
       }
     }
 
-    for (const r of results) {
-      const res = r.result as { foundIframe?: boolean; rect?: { x: number; y: number; w: number; h: number } } | null;
-      if (res?.rect) {
-        const clickX = Math.round(res.rect.x + Math.min(28, res.rect.w / 2));
-        const clickY = Math.round(res.rect.y + res.rect.h / 2);
-
-        await chrome.scripting.executeScript({
-          target: { tabId },
-          func: (x, y) => {
-            const el = document.elementFromPoint(x, y);
-            if (el) {
-              const opts = { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window };
-              el.dispatchEvent(new MouseEvent('mousedown', opts));
-              el.dispatchEvent(new MouseEvent('mouseup', opts));
-              el.dispatchEvent(new MouseEvent('click', opts));
-            }
-          },
-          args: [clickX, clickY],
-        });
-
-        return { success: true, message: `hCaptcha checkbox clicked at (${clickX}, ${clickY}).` };
-      }
-    }
-
-    return { success: false, message: 'hCaptcha element not found in DOM.' };
+    return { success: false, message: 'No generic challenge button found.' };
   } catch (err) {
     return { success: false, message: err instanceof Error ? err.message : String(err) };
   }
@@ -582,6 +739,8 @@ export async function solveCaptcha(
   if (rc.success) return { ...rc, type: 'recaptcha' };
   const hc = await solveHcaptchaChallenge(tabId);
   if (hc.success) return { ...hc, type: 'hcaptcha' };
+  const gen = await solveGenericChallenge(tabId);
+  if (gen.success) return { ...gen, type: 'cloudflare' };
 
   return { success: false, message: 'No solvable CAPTCHA or challenge found on page.', type: 'unknown' };
 }

@@ -4,6 +4,7 @@ import {
   isBotChallengePage,
   solveCaptcha,
   solveCloudflareChallenge,
+  solveGenericChallenge,
   solveHcaptchaChallenge,
   solveRecaptchaChallenge,
 } from './captcha-solver';
@@ -104,6 +105,21 @@ describe('captcha-solver', () => {
     const res = await solveHcaptchaChallenge(123);
     expect(res.success).toBe(true);
     expect(res.message).toContain('hCaptcha checkbox clicked');
+  });
+
+  it('handles solveGenericChallenge with chrome scripting mock', async () => {
+    const mockExecuteScript = vi.fn().mockResolvedValue([
+      { result: { clicked: true, name: 'AWS WAF' } },
+    ]);
+    vi.stubGlobal('chrome', {
+      scripting: {
+        executeScript: mockExecuteScript,
+      },
+    });
+
+    const res = await solveGenericChallenge(123);
+    expect(res.success).toBe(true);
+    expect(res.message).toContain('AWS WAF button clicked');
   });
 
   it('dispatches solveCaptcha correctly by type', async () => {
