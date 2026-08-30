@@ -137,8 +137,7 @@ Run `npm --prefix core run dev` for watch builds, or `./scripts/check.sh` for th
 
 </details>
 
----
-
+</br></br>
 <div align="center">
 
 [![Check](https://img.shields.io/github/actions/workflow/status/KazKozDev/WebOperator/check.yml?branch=main&style=flat-square&label=check)](https://github.com/KazKozDev/WebOperator/actions/workflows/check.yml) [![Version](https://img.shields.io/badge/version-1.4.0-333?style=flat-square)](core/package.json) [![LICENSE](https://img.shields.io/badge/LICENSE-MIT-333?style=flat-square)](LICENSE)
