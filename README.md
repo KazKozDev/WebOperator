@@ -78,11 +78,8 @@ The manifest requests `<all_urls>` and `activeTab`/`tabs`/`scripting` to read an
 |---|---|---|
 | Provider | `ollama` | Selects Ollama, Anthropic, DeepSeek, Gemini, MLX, OpenAI, OpenRouter, SiliconFlow, or xAI |
 | Ollama URL | `http://127.0.0.1:11434` | Sets the local Ollama endpoint |
-| Model profile | `fast` | Maps to the default Ollama model unless a model override is set |
 | Screenshot policy | `auto` | Controls automatic, always-on, or disabled vision |
 | Action timeout | `10000` ms | Limits a single browser action attempt |
-| Context compressor | `off` | Deterministic folding only, the active model, or a cloud model |
-| Action cache | `on`, 30 days | Reuses verified actions instead of re-planning them |
 | Domain allowlist / blocklist | empty | Restricts or rejects tasks by domain when populated |
 
 ### Environment variables
