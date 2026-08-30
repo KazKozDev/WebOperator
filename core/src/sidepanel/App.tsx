@@ -24,6 +24,16 @@ type View = 'task' | 'history' | 'skills' | 'vault' | 'schedule' | 'settings';
 
 const logoUrl = chrome.runtime.getURL('public/icons/icon48.png');
 
+const CAPTCHA_TITLES: Record<NonNullable<AgentTask['pauseReason']>['challengeType'] & string, string> = {
+  cloudflare: 'Human verification',
+  recaptcha: 'reCAPTCHA verification',
+  hcaptcha: 'hCaptcha verification',
+  image: 'Image CAPTCHA',
+  slider: 'Slider puzzle',
+  audio: 'Audio CAPTCHA',
+  unknown: 'Human verification / CAPTCHA',
+};
+
 export function App() {
   const [view, setView] = useState<View>('task');
   const [goal, setGoal] = useState('');
@@ -426,7 +436,9 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
               <div className="challenge-handoff">
                 <div className="challenge-handoff-header">
                   <span className="challenge-handoff-badge">Action required</span>
-                  <span className="challenge-handoff-title">Human Verification / CAPTCHA</span>
+                  <span className="challenge-handoff-title">
+                    {CAPTCHA_TITLES[task.pauseReason.challengeType ?? 'unknown']}
+                  </span>
                 </div>
                 <p className="challenge-handoff-note">{task.pauseReason.note}</p>
                 <div className="challenge-handoff-tab-info">
@@ -489,7 +501,8 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
       {task?.pauseReason?.kind === 'bot_challenge' && (
         <div className="challenge-sticky-banner">
           <div className="challenge-sticky-text">
-            <strong>Verification needed:</strong> Solve the challenge in the tab, then resume.
+            <strong>{CAPTCHA_TITLES[task.pauseReason.challengeType ?? 'unknown']}:</strong>{' '}
+            Complete it in the tab; the task will resume automatically.
           </div>
           <button
             type="button"
@@ -1351,5 +1364,4 @@ function toDatetimeLocal(timestamp: number): string {
 }
 
 export { renderMarkdown } from './utils/markdown';
-
 

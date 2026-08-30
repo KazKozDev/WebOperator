@@ -252,11 +252,13 @@ export type TaskStatus = 'idle' | 'planning' | 'running' | 'paused' | 'done' | '
 /**
  * Why a task is sitting in `paused`. `bot_challenge` means the page put up a
  * verification challenge and the agent handed control back: the person solves
- * it in the live tab and presses Resume. The agent does not attempt to defeat
- * the challenge itself.
+ * it in the live tab. The agent resumes when the challenge disappears; the
+ * manual Resume control remains available. The agent does not attempt to
+ * defeat the challenge itself.
  */
 export interface TaskPauseReason {
   kind: 'bot_challenge';
+  challengeType?: 'cloudflare' | 'recaptcha' | 'hcaptcha' | 'image' | 'slider' | 'audio' | 'unknown';
   url: string;
   title: string;
   tabId?: number;

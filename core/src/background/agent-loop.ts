@@ -416,7 +416,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
           botChallengeHandoffs++;
           step.status = 'skipped';
           step.finishedAt = Date.now();
-          step.note = `Paused for verification on "${snapshot.title || snapshot.url}". Complete the challenge in the tab and press Resume.`;
+          step.note = `Paused for verification on "${snapshot.title || snapshot.url}". Complete the challenge in the focused tab; the task will resume automatically.`;
           await saveStep(task.id, step);
           broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
           advanceStepCounters();
@@ -424,16 +424,18 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
           task.status = 'paused';
           task.pauseReason = {
             kind: 'bot_challenge',
+            challengeType: recheckAfterSolve.detected ? recheckAfterSolve.type : captchaDetection.type,
             url: snapshot.url,
             title: snapshot.title,
             tabId: activeTabId,
-            note: 'Verification required. We focused the challenge tab for you. Complete the verification in that tab and press Resume.',
+            note: captchaHandoffNote(recheckAfterSolve.detected ? recheckAfterSolve.type : captchaDetection.type),
             since: Date.now(),
           };
           task.updatedAt = Date.now();
           await saveTask(task);
           broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
           deps.requestPause?.(task.id);
+          await waitForCaptchaClearOrResume(activeTabId, task.id, deps);
           continue;
         }
       }
@@ -2232,5 +2234,36 @@ async function waitUntilResumedOrStopped(taskId: string, deps: AgentDeps, timeou
       return;
     }
     await sleep(500);
+  }
+}
+
+function captchaHandoffNote(type: CaptchaDetection['type']): string {
+  if (type === 'image') {
+    return 'Select the requested images or enter the text shown in the CAPTCHA. The task resumes automatically after the challenge closes.';
+  }
+  if (type === 'slider') {
+    return 'Drag the verification slider into place. The task resumes automatically after the challenge closes.';
+  }
+  if (type === 'audio') {
+    return 'Play the audio, enter what you hear, and submit it. The task resumes automatically after the challenge closes.';
+  }
+  return 'Complete the verification in the focused tab. The task resumes automatically after the challenge closes.';
+}
+
+async function waitForCaptchaClearOrResume(tabId: number, taskId: string, deps: AgentDeps): Promise<void> {
+  let consecutiveClearChecks = 0;
+  while (deps.isPaused(taskId) && !deps.isStopped(taskId)) {
+    const detection = await detectPageCaptcha(tabId);
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    const metadataStillBlocking = isBotChallengePage(tab?.title ?? '', tab?.url ?? '');
+
+    consecutiveClearChecks = !detection.detected && !metadataStillBlocking
+      ? consecutiveClearChecks + 1
+      : 0;
+    if (consecutiveClearChecks >= 2) {
+      deps.requestResume?.(taskId);
+      return;
+    }
+    await sleep(750);
   }
 }

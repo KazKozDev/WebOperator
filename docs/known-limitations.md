@@ -18,7 +18,8 @@ The loop has repair and guardrails, but they are not a proof of correctness.
 - Infinite scroll pages can hide required data behind stateful loading.
 - Sites with bot detection, CAPTCHAs, or unusual focus handling may fail. A detected challenge
   triggers an automated solve attempt (Turnstile / reCAPTCHA / hCaptcha checkbox); if unsuccessful,
-  it pauses the task and hands the live tab back to you rather than failing silently.
+  image, slider/puzzle, and audio variants are identified explicitly and handed back in the live tab.
+  The task resumes automatically after the challenge is cleared rather than failing silently.
 
 ## Data and evidence
 

@@ -1,16 +1,31 @@
 /**
- * Automated CAPTCHA & Cloudflare Turnstile Solver for WebOperator.
- * Handles Cloudflare Turnstile, reCAPTCHA/hCaptcha checkboxes, and visual text CAPTCHAs.
+ * CAPTCHA detection and verification handoff for WebOperator.
+ * Existing checkbox helpers remain separate from image, slider, and audio handoffs.
  */
 
 export interface CaptchaDetection {
   detected: boolean;
-  type: 'cloudflare' | 'recaptcha' | 'hcaptcha' | 'image' | 'unknown';
+  type: 'cloudflare' | 'recaptcha' | 'hcaptcha' | 'image' | 'slider' | 'audio' | 'unknown';
   frameUrl?: string;
   details?: string;
   imageRef?: string;
   inputRef?: string;
 }
+
+export interface CaptchaHandoffPreparation {
+  prepared: boolean;
+  message: string;
+}
+
+const CAPTCHA_TYPE_PRIORITY: Record<CaptchaDetection['type'], number> = {
+  unknown: 0,
+  cloudflare: 1,
+  recaptcha: 2,
+  hcaptcha: 2,
+  image: 3,
+  slider: 4,
+  audio: 5,
+};
 
 /**
  * Checks if the page is currently displaying a Cloudflare or Bot Challenge.
@@ -299,7 +314,7 @@ export async function solveHcaptchaChallenge(tabId: number): Promise<{ success: 
 export async function detectPageCaptcha(tabId: number): Promise<CaptchaDetection> {
   try {
     const results = await chrome.scripting.executeScript({
-      target: { tabId },
+      target: { tabId, allFrames: true },
       func: () => {
         function queryDeep(selector: string, root: Document | Element | ShadowRoot = document): Element[] {
           const res: Element[] = Array.from(root.querySelectorAll(selector));
@@ -321,44 +336,94 @@ export async function detectPageCaptcha(tabId: number): Promise<CaptchaDetection
         }
 
         const title = document.title.toLowerCase();
+        const frameUrl = window.location.href;
+        const lowerFrameUrl = frameUrl.toLowerCase();
+        const isCaptchaProviderFrame =
+          lowerFrameUrl.includes('recaptcha') ||
+          lowerFrameUrl.includes('hcaptcha.com') ||
+          lowerFrameUrl.includes('challenges.cloudflare.com') ||
+          lowerFrameUrl.includes('captcha-delivery.com') ||
+          lowerFrameUrl.includes('geetest.com') ||
+          lowerFrameUrl.includes('arkoselabs.com');
+
+        // Interactive challenges get precedence over the provider wrapper so the
+        // handoff can tell the person what is actually waiting inside the iframe.
+        const audioControls = queryDeep([
+          '#audio-response',
+          '#audio-source',
+          '.rc-audiochallenge-play-button',
+          'button[aria-label*="audio challenge" i]',
+          'input[aria-label*="audio" i]',
+          '[id*="captcha" i][id*="audio-response" i]',
+          '[class*="captcha" i][class*="audio" i]',
+        ].join(','));
+        if (audioControls.some(isVisible)) {
+          return { detected: true, type: 'audio' as const, frameUrl, details: 'Audio CAPTCHA challenge detected' };
+        }
+
+        const sliderControls = queryDeep([
+          '.geetest_slider',
+          '.geetest_slider_button',
+          '.tc-slider-normal',
+          '.secsdk-captcha-drag-icon',
+          '.captcha-slider',
+          '[class*="captcha" i][class*="slider" i]',
+          '[class*="slider" i][class*="drag" i]',
+          '[aria-label*="slide" i][aria-label*="verify" i]',
+        ].join(','));
+        if (sliderControls.some(isVisible)) {
+          return { detected: true, type: 'slider' as const, frameUrl, details: 'Slider/puzzle CAPTCHA challenge detected' };
+        }
+
+        const imageChallenge = queryDeep([
+          '.rc-imageselect',
+          '.rc-imageselect-table',
+          '.task-grid',
+          '.challenge-grid',
+          '[class*="captcha" i][class*="image" i]',
+          '[aria-label*="image challenge" i]',
+        ].join(','));
+        if (imageChallenge.some(isVisible) && isCaptchaProviderFrame) {
+          return { detected: true, type: 'image' as const, frameUrl, details: 'Image-selection CAPTCHA challenge detected' };
+        }
 
         // 1. Cloudflare Turnstile / Challenge
         if (title.includes('just a moment') || title.includes('attention required') || title.includes('verify you are human')) {
-          return { detected: true, type: 'cloudflare' as const, details: 'Cloudflare challenge page detected' };
+          return { detected: true, type: 'cloudflare' as const, frameUrl, details: 'Cloudflare challenge page detected' };
         }
         const cfIframes = queryDeep('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"], iframe[src*="cf-chl"]') as HTMLIFrameElement[];
         if (cfIframes.some(isVisible)) {
-          return { detected: true, type: 'cloudflare' as const, details: 'Visible Cloudflare Turnstile widget detected' };
+          return { detected: true, type: 'cloudflare' as const, frameUrl, details: 'Visible Cloudflare Turnstile widget detected' };
         }
         const cfWrappers = queryDeep('.cf-turnstile, #challenge-stage');
         if (cfWrappers.some(isVisible)) {
-          return { detected: true, type: 'cloudflare' as const, details: 'Visible Cloudflare challenge stage detected' };
+          return { detected: true, type: 'cloudflare' as const, frameUrl, details: 'Visible Cloudflare challenge stage detected' };
         }
 
         // 2. Google reCAPTCHA (only if VISIBLE checkbox or challenge popup is present)
         const recaptchaCheckboxes = queryDeep('#recaptcha-anchor, .recaptcha-checkbox, [role="checkbox"][aria-labelledby*="recaptcha"]');
         if (recaptchaCheckboxes.some(isVisible)) {
-          return { detected: true, type: 'recaptcha' as const, details: 'Visible reCAPTCHA checkbox detected' };
+          return { detected: true, type: 'recaptcha' as const, frameUrl, details: 'Visible reCAPTCHA checkbox detected' };
         }
         const recaptchaBframes = queryDeep('iframe[src*="recaptcha/api2/bframe"], iframe[title*="recaptcha challenge" i], iframe[title*="challenge reCAPTCHA" i]') as HTMLIFrameElement[];
         if (recaptchaBframes.some((f) => {
           const rect = f.getBoundingClientRect();
           return rect.width > 100 && rect.height > 100 && isVisible(f);
         })) {
-          return { detected: true, type: 'recaptcha' as const, details: 'Active reCAPTCHA image challenge popup detected' };
+          return { detected: true, type: 'image' as const, frameUrl, details: 'Active reCAPTCHA image challenge popup detected' };
         }
 
         // 3. hCaptcha (only if VISIBLE checkbox or challenge popup is present)
         const hcaptchaCheckboxes = queryDeep('#checkbox, [aria-label*="hCaptcha" i][role="checkbox"]');
         if (hcaptchaCheckboxes.some(isVisible)) {
-          return { detected: true, type: 'hcaptcha' as const, details: 'Visible hCaptcha checkbox detected' };
+          return { detected: true, type: 'hcaptcha' as const, frameUrl, details: 'Visible hCaptcha checkbox detected' };
         }
         const hcaptchaFrames = queryDeep('iframe[src*="hcaptcha.com"]') as HTMLIFrameElement[];
         if (hcaptchaFrames.some((f) => {
           const rect = f.getBoundingClientRect();
           return rect.width > 100 && rect.height > 100 && isVisible(f);
         })) {
-          return { detected: true, type: 'hcaptcha' as const, details: 'Active hCaptcha challenge frame detected' };
+          return { detected: true, type: 'image' as const, frameUrl, details: 'Active hCaptcha image challenge frame detected' };
         }
 
         // 4. Visual text captcha (img + input both visible and non-empty)
@@ -367,16 +432,105 @@ export async function detectPageCaptcha(tabId: number): Promise<CaptchaDetection
         const visibleImg = imgs.find(isVisible);
         const visibleInput = inputs.find(isVisible);
         if (visibleImg && visibleInput) {
-          return { detected: true, type: 'image' as const, details: 'Visual Text CAPTCHA detected' };
+          return { detected: true, type: 'image' as const, frameUrl, details: 'Visual text CAPTCHA detected' };
         }
 
         return { detected: false, type: 'unknown' as const };
       },
     });
 
-    return (results[0]?.result as CaptchaDetection) ?? { detected: false, type: 'unknown' };
+    const detections = results
+      .map((result) => result.result as CaptchaDetection | undefined)
+      .filter((result): result is CaptchaDetection => Boolean(result?.detected));
+
+    return detections.sort((a, b) => CAPTCHA_TYPE_PRIORITY[b.type] - CAPTCHA_TYPE_PRIORITY[a.type])[0]
+      ?? { detected: false, type: 'unknown' };
   } catch {
     return { detected: false, type: 'unknown' };
+  }
+}
+
+/**
+ * Makes an interactive challenge easy to reach during a human handoff. This
+ * never answers or drags the CAPTCHA: it only scrolls the relevant control into
+ * view and focuses it. For an audio challenge it may switch to the provider's
+ * accessibility mode, leaving playback and the answer to the person.
+ */
+export async function prepareCaptchaHandoff(
+  tabId: number,
+  type: CaptchaDetection['type'],
+): Promise<CaptchaHandoffPreparation> {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: (challengeType) => {
+        function firstVisible(selectors: string[]): HTMLElement | null {
+          for (const selector of selectors) {
+            for (const el of document.querySelectorAll(selector)) {
+              const html = el as HTMLElement;
+              const rect = html.getBoundingClientRect();
+              const style = window.getComputedStyle(html);
+              if (rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden') {
+                return html;
+              }
+            }
+          }
+          return null;
+        }
+
+        const selectors: Record<string, string[]> = {
+          audio: [
+            '#audio-response',
+            'input[aria-label*="audio" i]',
+            '#recaptcha-audio-button',
+            'button[aria-label*="audio challenge" i]',
+            'button[title*="audio challenge" i]',
+            '[id*="captcha" i][id*="audio" i]',
+          ],
+          slider: [
+            '.geetest_slider_button',
+            '.secsdk-captcha-drag-icon',
+            '.tc-slider-normal',
+            '.captcha-slider',
+            '[class*="captcha" i][class*="slider" i]',
+            '[aria-label*="slide" i][aria-label*="verify" i]',
+          ],
+          image: [
+            '.rc-imageselect',
+            '.task-grid',
+            '.challenge-grid',
+            '[class*="captcha" i][class*="image" i]',
+            'img[src*="captcha" i]',
+          ],
+        };
+
+        const target = firstVisible(selectors[challengeType] ?? []);
+        if (!target) return { prepared: false };
+
+        target.scrollIntoView({ block: 'center', inline: 'center' });
+        target.focus({ preventScroll: true });
+
+        if (challengeType === 'audio' && target.matches('#recaptcha-audio-button, button[aria-label*="audio challenge" i], button[title*="audio challenge" i]')) {
+          target.click();
+          return { prepared: true, switchedToAudio: true };
+        }
+        return { prepared: true, switchedToAudio: false };
+      },
+      args: [type],
+    });
+
+    const prepared = results.find((result) => result.result?.prepared)?.result as
+      | { prepared: boolean; switchedToAudio?: boolean }
+      | undefined;
+    if (!prepared) return { prepared: false, message: 'Challenge detected; open the active tab to complete it.' };
+    return {
+      prepared: true,
+      message: prepared.switchedToAudio
+        ? 'Opened the audio challenge and focused its controls.'
+        : 'Focused the challenge control in the active tab.',
+    };
+  } catch (err) {
+    return { prepared: false, message: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -407,8 +561,18 @@ export async function solveCaptcha(
     const res = await solveHcaptchaChallenge(tabId);
     return { ...res, type: 'hcaptcha' };
   }
-  if (targetType === 'image') {
-    return { success: false, message: 'Visual text CAPTCHA detected. Requires manual entry or human verification.', type: 'image' };
+  if (targetType === 'image' || targetType === 'slider' || targetType === 'audio') {
+    const preparation = await prepareCaptchaHandoff(tabId, targetType);
+    const labels: Record<'image' | 'slider' | 'audio', string> = {
+      image: 'Image CAPTCHA',
+      slider: 'Slider/puzzle CAPTCHA',
+      audio: 'Audio CAPTCHA',
+    };
+    return {
+      success: false,
+      message: `${labels[targetType]} detected. ${preparation.message} Human verification is required.`,
+      type: targetType,
+    };
   }
 
   // Fallback: try all solvers in sequence
@@ -421,4 +585,3 @@ export async function solveCaptcha(
 
   return { success: false, message: 'No solvable CAPTCHA or challenge found on page.', type: 'unknown' };
 }
-

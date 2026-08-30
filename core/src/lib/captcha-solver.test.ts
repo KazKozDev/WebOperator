@@ -43,6 +43,22 @@ describe('captcha-solver', () => {
     const detection = await detectPageCaptcha(123);
     expect(detection.detected).toBe(true);
     expect(detection.type).toBe('cloudflare');
+    expect(mockExecuteScript).toHaveBeenCalledWith(expect.objectContaining({
+      target: { tabId: 123, allFrames: true },
+    }));
+  });
+
+  it('prefers an image challenge found inside a provider frame over its checkbox wrapper', async () => {
+    const mockExecuteScript = vi.fn().mockResolvedValue([
+      { result: { detected: true, type: 'recaptcha', details: 'Visible reCAPTCHA checkbox detected' } },
+      { result: { detected: true, type: 'image', frameUrl: 'https://www.google.com/recaptcha/api2/bframe', details: 'Image-selection CAPTCHA challenge detected' } },
+    ]);
+    vi.stubGlobal('chrome', { scripting: { executeScript: mockExecuteScript } });
+
+    const detection = await detectPageCaptcha(123);
+
+    expect(detection.type).toBe('image');
+    expect(detection.frameUrl).toContain('/recaptcha/api2/bframe');
   });
 
   it('handles solveCloudflareChallenge with chrome scripting mock', async () => {
@@ -112,6 +128,27 @@ describe('captcha-solver', () => {
     expect(resImage.success).toBe(false);
     expect(resImage.type).toBe('image');
   });
-});
 
+  it.each([
+    ['image', 'Image CAPTCHA'],
+    ['slider', 'Slider/puzzle CAPTCHA'],
+    ['audio', 'Audio CAPTCHA'],
+  ] as const)('prepares a manual %s handoff without invoking checkbox solvers', async (type, label) => {
+    const mockExecuteScript = vi.fn().mockResolvedValue([
+      { result: { prepared: true, switchedToAudio: type === 'audio' } },
+    ]);
+    vi.stubGlobal('chrome', { scripting: { executeScript: mockExecuteScript } });
+
+    const result = await solveCaptcha(123, type);
+
+    expect(result).toMatchObject({ success: false, type });
+    expect(result.message).toContain(label);
+    expect(result.message).toContain('Human verification is required');
+    expect(mockExecuteScript).toHaveBeenCalledTimes(1);
+    expect(mockExecuteScript).toHaveBeenCalledWith(expect.objectContaining({
+      target: { tabId: 123, allFrames: true },
+      args: [type],
+    }));
+  });
+});
 

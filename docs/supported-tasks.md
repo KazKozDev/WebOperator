@@ -20,15 +20,16 @@ This is the supported task surface for `1.0.0`. Anything outside this list may s
 - Infinite scroll pages.
 - Sites with aggressive bot detection. When a verification challenge is detected (Cloudflare Turnstile,
   reCAPTCHA checkbox, hCaptcha checkbox), the agent first attempts automated solving. If the challenge
-  is not cleared or presents an interactive puzzle, the task pauses with a `bot_challenge` pause reason,
-  and the side panel asks you to solve it in the live tab before pressing Resume. After two handoffs on
-  the same task the run fails and tells you to finish manually.
+  is not cleared or presents an image, slider/puzzle, or audio challenge, the task identifies that subtype,
+  focuses the relevant control, and pauses with a `bot_challenge` reason. The side panel gives a matching
+  instruction and resumes automatically once the challenge disappears (manual Resume remains available).
+  After two handoffs on the same task the run fails and tells you to finish manually.
 - Tasks that require subjective judgment without clear page evidence.
 - Any destructive action, purchase, payment, deletion, or account change.
 
 ## Not supported as autonomous tasks
 
-- Defeating image, puzzle, or audio CAPTCHAs, and any other bot-detection bypass beyond the
+- Automatically answering image, puzzle, or audio CAPTCHAs, and any other bot-detection bypass beyond the
   single challenge-widget click described above.
 - Banking, payments, trading, or legal submissions.
 - Bypassing paywalls, access controls, or site restrictions.
