@@ -7,11 +7,13 @@ export function AnswerPanel({
   task,
   isConfirmationCheckpoint,
   onResumeCheckpoint,
+  onExport,
 }: {
   answer: string | null;
   task: AgentTask;
   isConfirmationCheckpoint: (task: AgentTask | null) => boolean;
   onResumeCheckpoint?: (taskId: string) => void;
+  onExport?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const isFinished = task.status === 'done' || task.status === 'failed';
@@ -23,6 +25,8 @@ export function AnswerPanel({
     : 'Waiting for the final answer...';
 
   const textToCopy = answer ?? (isFailed ? fallback : '');
+
+  const headerBtnStyle = { fontSize: '11px', color: 'var(--text2)', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' } as const;
 
   const copyAnswer = async () => {
     if (!textToCopy) return;
@@ -37,17 +41,30 @@ export function AnswerPanel({
     <section className={`answer-panel ${tone}`}>
       <div className="answer-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div className="answer-label">{needsConfirmation ? 'Needs confirmation' : isFinished ? (isFailed ? 'Stopped with issue' : 'Answer') : 'Answer pending'}</div>
-        {textToCopy && (
-          <button
-            type="button"
-            className="icon-btn-text"
-            style={{ fontSize: '11px', color: 'var(--text2)', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-            onClick={copyAnswer}
-            title="Copy answer"
-          >
-            {copied ? '✓ Copied' : 'Copy'}
-          </button>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {textToCopy && (
+            <button
+              type="button"
+              className="icon-btn-text"
+              style={headerBtnStyle}
+              onClick={copyAnswer}
+              title="Copy answer"
+            >
+              {copied ? '✓ Copied' : 'Copy'}
+            </button>
+          )}
+          {onExport && (
+            <button
+              type="button"
+              className="icon-btn-text"
+              style={headerBtnStyle}
+              onClick={onExport}
+              title="Export task trace"
+            >
+              Export
+            </button>
+          )}
+        </div>
       </div>
       <div className="answer-text" dangerouslySetInnerHTML={{ __html: renderMarkdown(answer ?? fallback) }} />
       {isFailed && onResumeCheckpoint && (

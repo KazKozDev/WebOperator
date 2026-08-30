@@ -465,7 +465,7 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
                 </div>
               </div>
             )}
-            <AnswerPanel answer={finalAnswer} task={task} isConfirmationCheckpoint={isConfirmationCheckpoint} onResumeCheckpoint={onResumeCheckpoint} />
+            <AnswerPanel answer={finalAnswer} task={task} isConfirmationCheckpoint={isConfirmationCheckpoint} onResumeCheckpoint={onResumeCheckpoint} onExport={() => downloadJson(`trace-${task.id.slice(0, 8)}.json`, buildTrace(task))} />
             <PlanPanel task={task} open={planOpen} onToggle={setPlanOpen} />
 
             {detectedSkills.length > 0 && (
@@ -537,7 +537,6 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
               <button className="text-btn" onClick={() => task && sendToSW({ kind: paused ? 'task:resume' : 'task:pause', id: task.id })} disabled={!running && !paused}>
                 {paused ? 'Resume' : 'Pause'}
               </button>
-              {task && <button className="text-btn" onClick={() => downloadJson(`trace-${task.id.slice(0, 8)}.json`, buildTrace(task))}>Export</button>}
             </div>
           </div>
           <div className="composer-btns">
@@ -1177,6 +1176,37 @@ function SettingsPanel({ settings, updateSetting }: {
               const res = await sendToSW<{ ok: boolean; removed: number }>({ kind: 'cache:clear' });
               alert(`Removed entries: ${res.removed}`);
             }}>Clear action cache</button>
+          </div>
+        </div>
+      </details>
+
+      <details className="settings-advanced">
+        <summary>Agent Connection (MCP)</summary>
+        <div className="settings-advanced-body">
+          <div className="settings-note">
+            <p style={{ marginTop: 0 }}>
+              An external agent — Hermes, OpenClaw, or any MCP client — can use this browser as its tool.
+              The local bridge exposes ten MCP tools over stdio: <code>browser_snapshot</code>, <code>browser_navigate</code>,{' '}
+              <code>browser_click</code>, <code>browser_type</code>, <code>browser_press</code>, <code>browser_scroll</code>,{' '}
+              <code>browser_screenshot</code>, <code>browser_extract</code>, <code>browser_solve_captcha</code>, and{' '}
+              <code>weboperator_execute_goal</code>.
+            </p>
+            <p>Setup (macOS or Linux), from the repository root:</p>
+            <pre>{'cd weboperator-bridge\n./install.sh\nnode mcp-server.js'}</pre>
+            <p>
+              <code>install.sh</code> registers the Native Messaging host that connects those calls to the active Chrome or
+              Brave tab. Ready-made configs for Hermes and OpenClaw ship in <code>weboperator-bridge/</code>.
+            </p>
+            <p>
+              Defaults: HTTP <code>127.0.0.1:8765</code>, socket <code>/tmp/weboperator-bridge.sock</code>, log{' '}
+              <code>/tmp/weboperator-bridge.log</code>. Set <code>WEBOPERATOR_API_TOKEN</code> and{' '}
+              <code>WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE=0</code> to reject unauthenticated bridge calls —
+              unauthenticated is the default.
+            </p>
+            <p style={{ marginBottom: 0 }}>
+              Full tool schemas and the message format:{' '}
+              <a href="https://github.com/KazKozDev/WebOperator/blob/main/docs/agent-protocol.md" target="_blank" rel="noreferrer">agent-protocol.md</a>.
+            </p>
           </div>
         </div>
       </details>

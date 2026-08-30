@@ -2118,6 +2118,22 @@ button.danger {
   font-size: 11px;
 }
 
+.settings-note p {
+  margin: 0 0 8px;
+}
+
+.settings-note pre {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(223, 206, 179, 0.12);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre;
+}
+
 
 
 .modal-backdrop {
