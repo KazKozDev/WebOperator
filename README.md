@@ -1,6 +1,6 @@
 # WebOperator — AI browser agent and MCP server for Chrome automation
 
-Describe a goal in plain language; the agent drives your Chrome tab.
+Automate browser tasks in Chrome by describing the goal in plain English.
 
 ```bash
 git clone https://github.com/KazKozDev/WebOperator.git
