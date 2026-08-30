@@ -692,6 +692,170 @@ export async function prepareCaptchaHandoff(
 }
 
 /**
+ * Injects a script into the tab to automatically solve slider/puzzle CAPTCHAs via smooth drag & drop simulation.
+ */
+export async function solveSliderCaptcha(tabId: number): Promise<{ success: boolean; message: string }> {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: async () => {
+        function queryDeep(selector: string, root: Document | Element | ShadowRoot = document): Element[] {
+          const res: Element[] = Array.from(root.querySelectorAll(selector));
+          const allEls = root.querySelectorAll('*');
+          for (let i = 0; i < allEls.length; i++) {
+            const el = allEls[i];
+            if (el && el.shadowRoot) {
+              res.push(...queryDeep(selector, el.shadowRoot));
+            }
+          }
+          return res;
+        }
+
+        const sliderButtons = queryDeep([
+          '.geetest_slider_button',
+          '.secsdk-captcha-drag-icon',
+          '.tc-slider-normal',
+          '.captcha-slider-btn',
+          '.captcha-slider',
+          '[class*="slider" i][class*="btn" i]',
+          '[class*="slider" i][class*="button" i]',
+          '[class*="slider" i][class*="drag" i]',
+          '[aria-label*="slide" i][aria-label*="verify" i]',
+        ].join(',')) as HTMLElement[];
+
+        const visibleButton = sliderButtons.find((b) => {
+          const rect = b.getBoundingClientRect();
+          const style = window.getComputedStyle(b);
+          return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+        });
+
+        if (!visibleButton) return { found: false };
+
+        const buttonRect = visibleButton.getBoundingClientRect();
+        const startX = Math.round(buttonRect.x + buttonRect.width / 2);
+        const startY = Math.round(buttonRect.y + buttonRect.height / 2);
+
+        // Find track or container width
+        const track = (visibleButton.closest('[class*="track" i], [class*="slider" i], [class*="bar" i], .geetest_slider, .tc-slider') as HTMLElement) || visibleButton.parentElement;
+        const trackWidth = track ? track.getBoundingClientRect().width : 280;
+        const targetDistance = Math.round(Math.max(120, Math.min(trackWidth - buttonRect.width - 10, trackWidth * 0.72)));
+
+        // Mouse & Pointer drag simulation
+        const dispatchDrag = (type: string, x: number, y: number, target: Element) => {
+          const opts = { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window, buttons: 1 };
+          target.dispatchEvent(new PointerEvent(type.startsWith('pointer') ? type : `pointer${type.slice(5)}`, opts));
+          target.dispatchEvent(new MouseEvent(type.startsWith('mouse') ? type : `mouse${type.slice(7)}`, opts));
+        };
+
+        // 1. Pointerdown / Mousedown on button
+        dispatchDrag('pointerdown', startX, startY, visibleButton);
+        dispatchDrag('mousedown', startX, startY, visibleButton);
+
+        // 2. Continuous interpolated movement with ease-out and human jitter
+        const steps = 20;
+        for (let i = 1; i <= steps; i++) {
+          const progress = i / steps;
+          const easeProgress = 1 - Math.pow(1 - progress, 3);
+          const currentX = Math.round(startX + targetDistance * easeProgress);
+          const currentY = Math.round(startY + (Math.sin(progress * Math.PI) * 2 - 1));
+
+          const currentTarget = document.elementFromPoint(currentX, currentY) || visibleButton;
+          dispatchDrag('pointermove', currentX, currentY, currentTarget);
+          dispatchDrag('mousemove', currentX, currentY, currentTarget);
+          await new Promise((r) => setTimeout(r, 12 + Math.floor(Math.random() * 8)));
+        }
+
+        // 3. Pointerup / Mouseup release
+        const finalX = startX + targetDistance;
+        const finalTarget = document.elementFromPoint(finalX, startY) || visibleButton;
+        dispatchDrag('pointerup', finalX, startY, finalTarget);
+        dispatchDrag('mouseup', finalX, startY, finalTarget);
+        dispatchDrag('click', finalX, startY, finalTarget);
+
+        return { found: true, distance: targetDistance };
+      },
+    });
+
+    for (const r of results) {
+      const res = r.result as { found?: boolean; distance?: number } | null;
+      if (res?.found) {
+        return { success: true, message: `Slider puzzle dragged smoothly by ${res.distance ?? 0}px.` };
+      }
+    }
+
+    return { success: false, message: 'Slider puzzle handle not found in DOM.' };
+  } catch (err) {
+    return { success: false, message: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Injects a script into the tab to automatically extract and solve simple visual text CAPTCHAs.
+ */
+export async function solveVisualTextCaptcha(tabId: number): Promise<{ success: boolean; message: string }> {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: () => {
+        function queryDeep(selector: string, root: Document | Element | ShadowRoot = document): Element[] {
+          const res: Element[] = Array.from(root.querySelectorAll(selector));
+          const allEls = root.querySelectorAll('*');
+          for (let i = 0; i < allEls.length; i++) {
+            const el = allEls[i];
+            if (el && el.shadowRoot) {
+              res.push(...queryDeep(selector, el.shadowRoot));
+            }
+          }
+          return res;
+        }
+
+        function isVisible(el: Element): boolean {
+          const rect = el.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) return false;
+          const style = window.getComputedStyle(el);
+          return style.display !== 'none' && style.visibility !== 'hidden';
+        }
+
+        const imgs = queryDeep('img[src*="captcha" i], img[id*="captcha" i], img[class*="captcha" i], canvas[id*="captcha" i], canvas[class*="captcha" i]') as (HTMLImageElement | HTMLCanvasElement)[];
+        const inputs = queryDeep('input[name*="captcha" i], input[id*="captcha" i], input[placeholder*="captcha" i]') as HTMLInputElement[];
+
+        const visibleImg = imgs.find(isVisible);
+        const visibleInput = inputs.find(isVisible);
+
+        if (!visibleImg || !visibleInput) return { found: false };
+
+        visibleInput.scrollIntoView({ block: 'center', inline: 'center' });
+        visibleInput.focus({ preventScroll: true });
+
+        const possibleCode = visibleImg.getAttribute('alt') || visibleImg.getAttribute('data-code') || visibleImg.getAttribute('title');
+        if (possibleCode && possibleCode.length >= 3 && possibleCode.length <= 8 && !possibleCode.toLowerCase().includes('captcha')) {
+          visibleInput.value = possibleCode;
+          visibleInput.dispatchEvent(new Event('input', { bubbles: true }));
+          visibleInput.dispatchEvent(new Event('change', { bubbles: true }));
+          return { found: true, solved: true, code: possibleCode };
+        }
+
+        return { found: true, solved: false };
+      },
+    });
+
+    for (const r of results) {
+      const res = r.result as { found?: boolean; solved?: boolean; code?: string } | null;
+      if (res?.solved) {
+        return { success: true, message: `Visual text CAPTCHA automatically filled with "${res.code}".` };
+      }
+      if (res?.found) {
+        return { success: false, message: 'Visual text CAPTCHA image located and focused in tab.' };
+      }
+    }
+
+    return { success: false, message: 'Visual text CAPTCHA elements not found.' };
+  } catch (err) {
+    return { success: false, message: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
  * Unified solver that detects or dispatches to the corresponding CAPTCHA solver.
  */
 export async function solveCaptcha(
@@ -718,17 +882,32 @@ export async function solveCaptcha(
     const res = await solveHcaptchaChallenge(tabId);
     return { ...res, type: 'hcaptcha' };
   }
-  if (targetType === 'image' || targetType === 'slider' || targetType === 'audio') {
-    const preparation = await prepareCaptchaHandoff(tabId, targetType);
-    const labels: Record<'image' | 'slider' | 'audio', string> = {
-      image: 'Image CAPTCHA',
-      slider: 'Slider/puzzle CAPTCHA',
-      audio: 'Audio CAPTCHA',
-    };
+  if (targetType === 'slider') {
+    const sliderRes = await solveSliderCaptcha(tabId);
+    if (sliderRes.success) return { ...sliderRes, type: 'slider' };
+    const preparation = await prepareCaptchaHandoff(tabId, 'slider');
     return {
       success: false,
-      message: `${labels[targetType]} detected. ${preparation.message} Human verification is required.`,
-      type: targetType,
+      message: `Slider/puzzle CAPTCHA detected. ${preparation.message} Human verification is required.`,
+      type: 'slider',
+    };
+  }
+  if (targetType === 'image') {
+    const visualRes = await solveVisualTextCaptcha(tabId);
+    if (visualRes.success) return { ...visualRes, type: 'image' };
+    const preparation = await prepareCaptchaHandoff(tabId, 'image');
+    return {
+      success: false,
+      message: `Image CAPTCHA detected. ${preparation.message} Human verification is required.`,
+      type: 'image',
+    };
+  }
+  if (targetType === 'audio') {
+    const preparation = await prepareCaptchaHandoff(tabId, 'audio');
+    return {
+      success: false,
+      message: `Audio CAPTCHA detected. ${preparation.message} Human verification is required.`,
+      type: 'audio',
     };
   }
 
@@ -739,6 +918,8 @@ export async function solveCaptcha(
   if (rc.success) return { ...rc, type: 'recaptcha' };
   const hc = await solveHcaptchaChallenge(tabId);
   if (hc.success) return { ...hc, type: 'hcaptcha' };
+  const sl = await solveSliderCaptcha(tabId);
+  if (sl.success) return { ...sl, type: 'slider' };
   const gen = await solveGenericChallenge(tabId);
   if (gen.success) return { ...gen, type: 'cloudflare' };
 

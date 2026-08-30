@@ -7,6 +7,8 @@ import {
   solveGenericChallenge,
   solveHcaptchaChallenge,
   solveRecaptchaChallenge,
+  solveSliderCaptcha,
+  solveVisualTextCaptcha,
 } from './captcha-solver';
 
 describe('captcha-solver', () => {
@@ -74,7 +76,7 @@ describe('captcha-solver', () => {
 
     const res = await solveCloudflareChallenge(123);
     expect(res.success).toBe(true);
-    expect(res.message).toContain('clicked successfully');
+    expect(res.message).toContain('checkbox clicked successfully');
   });
 
   it('handles solveRecaptchaChallenge with chrome scripting mock', async () => {
@@ -122,6 +124,36 @@ describe('captcha-solver', () => {
     expect(res.message).toContain('AWS WAF button clicked');
   });
 
+  it('handles solveSliderCaptcha with chrome scripting mock', async () => {
+    const mockExecuteScript = vi.fn().mockResolvedValue([
+      { result: { found: true, distance: 200 } },
+    ]);
+    vi.stubGlobal('chrome', {
+      scripting: {
+        executeScript: mockExecuteScript,
+      },
+    });
+
+    const res = await solveSliderCaptcha(123);
+    expect(res.success).toBe(true);
+    expect(res.message).toContain('Slider puzzle dragged smoothly');
+  });
+
+  it('handles solveVisualTextCaptcha with chrome scripting mock', async () => {
+    const mockExecuteScript = vi.fn().mockResolvedValue([
+      { result: { found: true, solved: true, code: '7G9X' } },
+    ]);
+    vi.stubGlobal('chrome', {
+      scripting: {
+        executeScript: mockExecuteScript,
+      },
+    });
+
+    const res = await solveVisualTextCaptcha(123);
+    expect(res.success).toBe(true);
+    expect(res.message).toContain('7G9X');
+  });
+
   it('dispatches solveCaptcha correctly by type', async () => {
     const mockExecuteScript = vi.fn().mockResolvedValue([
       { result: { clickedCheckbox: true } },
@@ -139,15 +171,9 @@ describe('captcha-solver', () => {
     const resRecaptcha = await solveCaptcha(123, 'recaptcha');
     expect(resRecaptcha.success).toBe(true);
     expect(resRecaptcha.type).toBe('recaptcha');
-
-    const resImage = await solveCaptcha(123, 'image');
-    expect(resImage.success).toBe(false);
-    expect(resImage.type).toBe('image');
   });
 
   it.each([
-    ['image', 'Image CAPTCHA'],
-    ['slider', 'Slider/puzzle CAPTCHA'],
     ['audio', 'Audio CAPTCHA'],
   ] as const)('prepares a manual %s handoff without invoking checkbox solvers', async (type, label) => {
     const mockExecuteScript = vi.fn().mockResolvedValue([
@@ -167,4 +193,3 @@ describe('captcha-solver', () => {
     }));
   });
 });
-
