@@ -111,7 +111,7 @@ textarea:disabled {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 0;
+  margin: 0 0 0 -6px;
   color: var(--text);
   font-size: 15px;
   font-weight: 500;
@@ -2048,7 +2048,7 @@ button.danger {
 
 
 .settings-advanced {
-  margin-top: 8px;
+  margin-top: 24px;
   padding-top: 0;
   border-top: none;
 }
