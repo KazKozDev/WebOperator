@@ -18,19 +18,32 @@ This is the supported task surface for `1.0.0`. Anything outside this list may s
 - Login flows, because credentials and session state vary by site.
 - Pages with heavy client-side re-rendering.
 - Infinite scroll pages.
-- Sites with aggressive bot detection. When a verification challenge is detected (Cloudflare Turnstile,
-  reCAPTCHA checkbox, hCaptcha checkbox), the agent first attempts automated solving. If the challenge
-  is not cleared or presents an image, slider/puzzle, or audio challenge, the task identifies that subtype,
-  focuses the relevant control, and pauses with a `bot_challenge` reason. The side panel gives a matching
-  instruction and resumes automatically once the challenge disappears (manual Resume remains available).
-  After two handoffs on the same task the run fails and tells you to finish manually.
+- Sites with aggressive bot detection. `detectPageCaptcha` classifies the challenge and `solveCaptcha`
+  dispatches on that subtype. Anything it cannot clear falls through to a handoff: the task pauses with a
+  `bot_challenge` reason, the side panel focuses the relevant control and gives a matching instruction,
+  and the run resumes on its own once the challenge disappears (manual Resume stays available). After two
+  handoffs on the same task the run fails and tells you to finish manually. What each subtype does:
+
+  | Subtype | Attempted automatically | Comes back to you |
+  |---|---|---|
+  | Cloudflare Turnstile / challenge page | `solveCloudflareChallenge` | if the page keeps challenging |
+  | reCAPTCHA checkbox | `solveRecaptchaChallenge` | on any interactive prompt |
+  | hCaptcha checkbox | `solveHcaptchaChallenge` | on any interactive prompt |
+  | AWS WAF, GeeTest radar, Arkose | `solveGenericChallenge`, reached only through the untyped fallback | otherwise |
+  | Slider / puzzle | `solveSliderCaptcha` | whenever the drag does not clear it |
+  | Image text | `solveVisualTextCaptcha` | whenever no answer is found |
+  | Audio | nothing — no solver exists | always |
+
+  Every one of these clicks, drags, or types inside the page. None of them calls an external solving
+  service, and no paid solving API is integrated.
 - Tasks that require subjective judgment without clear page evidence.
 - Any destructive action, purchase, payment, deletion, or account change.
 
 ## Not supported as autonomous tasks
 
-- Automatically answering image, puzzle, or audio CAPTCHAs, and any other bot-detection bypass beyond the
-  single challenge-widget click described above.
+- Audio CAPTCHAs. No solver exists for them, so they always come back to you.
+- Any challenge outside the table above, and any bypass that would require an external or paid solving
+  service. None is integrated.
 - Banking, payments, trading, or legal submissions.
 - Bypassing paywalls, access controls, or site restrictions.
 - Operating on sensitive personal accounts without explicit user supervision.
