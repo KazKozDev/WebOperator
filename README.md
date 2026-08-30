@@ -10,7 +10,7 @@ npm --prefix WebOperator/core run build
 
 ![WebOperator side panel in Chrome showing the task, skills, and schedule views](https://raw.githubusercontent.com/KazKozDev/WebOperator/main/docs/assets/weboperator-demo.gif)
 
-Local models or cloud · Nine MCP tools · Open source
+Local models or cloud · Ten MCP tools · Open source
 
 ---
 
@@ -50,7 +50,7 @@ Answers stay tied to browser observations, so hidden, paywalled, or region-speci
 
 ## Connect Hermes, OpenClaw, or another MCP agent
 
-An external agent can use your live browser as its tool. The local bridge exposes nine MCP tools over stdio: `browser_snapshot`, `browser_navigate`, `browser_click`, `browser_type`, `browser_press`, `browser_scroll`, `browser_screenshot`, `browser_extract`, and `weboperator_execute_goal`.
+An external agent can use your live browser as its tool. The local bridge exposes ten MCP tools over stdio: `browser_snapshot`, `browser_navigate`, `browser_click`, `browser_type`, `browser_press`, `browser_scroll`, `browser_screenshot`, `browser_extract`, `browser_solve_captcha`, and `weboperator_execute_goal`.
 
 ```bash
 cd weboperator-bridge
