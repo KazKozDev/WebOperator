@@ -39,8 +39,12 @@ try {
   await rm(userDataDir, { recursive: true, force: true });
   await mkdir(userDataDir, { recursive: true });
 
+  const chromeApp = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  const executablePath = existsSync(chromeApp) ? chromeApp : undefined;
+
   context = await chromium.launchPersistentContext(userDataDir, {
     headless: false,
+    executablePath,
     args: [
       `--disable-extensions-except=${distDir}`,
       `--load-extension=${distDir}`,
@@ -48,6 +52,7 @@ try {
       '--no-default-browser-check',
     ],
   });
+
 
   const extensionId = await getExtensionId(context);
   const controlPage = await context.newPage();
@@ -278,11 +283,18 @@ function parseArgs(argv) {
     else if (arg === '--provider') parsed.provider = argv[++i];
     else if (arg === '--model') parsed.model = argv[++i];
     else if (arg === '--api-key') parsed.apiKey = argv[++i];
+    else if (arg === '--vision') parsed.vision = argv[++i];
   }
   return parsed;
 }
 
 function settingsPatchFromArgs(args, ollamaProxy) {
+  const base = providerPatchFromArgs(args, ollamaProxy);
+  if (args.vision) base.screenshotPolicy = args.vision; // auto | always | never
+  return base;
+}
+
+function providerPatchFromArgs(args, ollamaProxy) {
   const provider = args.provider ?? process.env.WEBOPERATOR_PROVIDER ?? 'ollama';
   const model = args.model ?? process.env.WEBOPERATOR_MODEL;
   const apiKey = args.apiKey ?? process.env.WEBOPERATOR_API_KEY;
@@ -291,6 +303,7 @@ function settingsPatchFromArgs(args, ollamaProxy) {
     return {
       provider: 'ollama',
       ollamaUrl: ollamaProxy.origin,
+      ...(model ? { ollamaModel: model } : {}),
     };
   }
 
@@ -347,6 +360,15 @@ function settingsPatchFromArgs(args, ollamaProxy) {
       provider: 'mlx',
       mlxApiKey: apiKey ?? '',
       mlxModel: model ?? '',
+    };
+  }
+
+  if (provider === 'deepseek') {
+    if (!apiKey) throw new Error('DeepSeek evals require WEBOPERATOR_API_KEY or --api-key');
+    return {
+      provider: 'deepseek',
+      deepseekApiKey: apiKey,
+      deepseekModel: model ?? 'deepseek-v4-flash',
     };
   }
 

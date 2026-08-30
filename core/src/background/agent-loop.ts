@@ -5,12 +5,26 @@ import { chatXai } from '@/lib/xai-client';
 import { chatOpenRouter } from '@/lib/openrouter-client';
 import { chatSiliconFlow } from '@/lib/siliconflow-client';
 import { chatMlx } from '@/lib/mlx-client';
+import { chatDeepSeek } from '@/lib/deepseek-client';
+import { chatAnthropic } from '@/lib/anthropic-client';
+
+import {
+  collapseOldObservations,
+  contextTokenBudget,
+  foldBoundary,
+  historyTokens,
+  pruneObservationRefs,
+  snapshotSummary,
+  trackObservation,
+  type ObservationRef,
+} from '@/lib/context-compression';
 import { formatSnapshot } from '@/lib/a11y';
 import { buildSystemPrompt, PLANNING_PROMPT, UNTRUSTED_CONTENT_CLOSE, UNTRUSTED_CONTENT_OPEN } from '@/lib/prompts';
 import { sendToContent, broadcastEvent } from '@/lib/messaging';
 import {
   DEFAULT_SETTINGS,
   PROFILE_TO_MODEL,
+  resolveOllamaModel,
   type A11ySnapshot,
   type AgentPlan,
   type AgentOrchestrationState,
@@ -22,11 +36,12 @@ import {
   type ToolCall,
 } from '@/lib/types';
 import { actionMayOpenTab, addOpenedTabsToResult, findOpenedTabs, shouldFollowOpenedTab, type BrowserTabSummary } from '@/lib/tab-sync';
-import { findCredentialForUrl, saveStep as saveStepRaw, saveTask } from '@/lib/storage';
+import { findCredentialForUrl, getCustomSkills, saveStep as saveStepRaw, saveTask } from '@/lib/storage';
 
 async function saveStep(taskId: string, step: AgentStep): Promise<void> {
   await saveStepRaw(taskId, maskStepForStorage(step));
 }
+
 import { isDomainAllowed, shouldAttachScreenshot } from '@/lib/vision-policy';
 import { captureViewport, stripDataUrlPrefix } from '@/lib/screenshot';
 import { parseHints } from '@/lib/hints';
@@ -53,7 +68,19 @@ import { parsePlanSteps, advancePlan, completePlan, planContext, markPlanStepFai
 import { decideRetry } from '@/lib/retry';
 import { learnFromSuccess, getCookieHint, getSearchHint, getRecoveryHint } from '@/lib/semantic-memory';
 import { learnFromTask, memoryContext } from '@/lib/memory';
-import { classifyTask, skillPrompts } from '@/lib/skills';
+import { getRecentSessionContext } from '@/lib/session-memory';
+import { classifyTaskNeural, skillPrompts } from '@/lib/skills';
+import { isBotChallengePage, detectPageCaptcha, solveCaptcha, type CaptchaDetection } from '@/lib/captcha-solver';
+import { readLatestDownload } from '@/lib/file-reader';
+
+
+
+
+
+
+
+
+
 import {
   CheckpointManager,
   TabManager,
@@ -72,8 +99,10 @@ import type { OrchestrationPlan } from '@/lib/orchestrator-types';
 
 const MAX_STEPS = 60;
 const MAX_STEP_RETRIES = 3;
+// How many times one task may be handed back to the person for a bot challenge
+// before it gives up. A site that keeps re-challenging is not going to yield.
+const MAX_BOT_CHALLENGE_HANDOFFS = 2;
 const MAX_RESUMES = 3;
-const KEEP_FULL_OBSERVATIONS = 2;
 const ORCHESTRATOR_CHECKPOINT_INTERVAL = 5;
 const TOOL_CALL_REPAIR_PROMPT = `[FORMAT ERROR] Your previous response was not a tool call.
 Return exactly one tool-call JSON object now, using the latest snapshot and the original goal.
@@ -97,6 +126,13 @@ interface LoopState {
   modelRequestedReasoning: boolean;
 }
 
+interface ActionRecord {
+  name: string;
+  argsStr: string;
+  domHash: string;
+  url: string;
+}
+
 interface SheetTaskContract {
   startCell: string;
   rows: number;
@@ -107,9 +143,12 @@ interface SheetTaskContract {
 
 export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTask> {
   const settings = deps.settings ?? DEFAULT_SETTINGS;
-  const stepModel = PROFILE_TO_MODEL[task.profile] ?? PROFILE_TO_MODEL.balanced;
+  const profileStepModel = PROFILE_TO_MODEL[task.profile] ?? PROFILE_TO_MODEL.balanced;
   const planningProfile: ModelProfile = settings.planningProfile === 'same' ? task.profile : settings.planningProfile;
-  const planningModel = PROFILE_TO_MODEL[planningProfile] ?? stepModel;
+  const profilePlanningModel = PROFILE_TO_MODEL[planningProfile] ?? profileStepModel;
+  // A free-text Ollama model override (when set) wins over the profile mapping for both step and planning calls.
+  const stepModel = resolveOllamaModel(settings.ollamaModel, profileStepModel);
+  const planningModel = resolveOllamaModel(settings.ollamaModel, profilePlanningModel);
   task.provider = settings.provider;
   task.modelUsed = providerModel(settings, stepModel);
 
@@ -146,6 +185,12 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
     history[0].content += `\n\n[SHEET CONTRACT]\nExpected range: ${sheetContract.startCell}:${rangeEndCell(sheetContract)} (${sheetContract.rows} rows x ${sheetContract.columns} columns). This is mandatory. Verification cells are only an audit; do not call done until the full range is written.`;
   }
 
+  // Inject session memory (previous turns, goals, extracted findings in this tab/session)
+  const sessionCtx = await getRecentSessionContext(task.tabId, tab.url);
+  if (sessionCtx) {
+    history.push({ role: 'user', content: sessionCtx });
+  }
+
   // Inject memory context for this site
   const memCtx = await memoryContext(tab.url ?? '');
   if (memCtx) {
@@ -154,15 +199,19 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
 
   history.push({ role: 'user', content: `GOAL: ${task.goal}\n\n${PLANNING_PROMPT}` });
 
-  // ── Auto-detect skills from task ──
-  const classified = settings.autoSkills !== false ? classifyTask(task.goal) : [];
+
+  // ── Auto-detect skills from task (Neural HF + Semantic Router + Custom Skills) ──
+  const customSkills = await getCustomSkills();
+  const classified = settings.autoSkills !== false ? await classifyTaskNeural(task.goal, customSkills) : [];
   const manualSkills = new Set(settings.enabledSkills ?? []);
+
   const autoSkills = classified.filter((c) => !manualSkills.has(c.id)).map((c) => c.id);
   if (autoSkills.length > 0) {
-    const prompts = skillPrompts(autoSkills);
+    const prompts = skillPrompts(autoSkills, customSkills);
     history[0].content += `\n\nAUTO-DETECTED SKILLS:\n${prompts}`;
     broadcastEvent({ kind: 'skills:detected', taskId: task.id, skills: classified.filter((c) => autoSkills.includes(c.id)) });
   }
+
 
   // ── Orchestrator: always active ──
   const hasOrchestrator = true;
@@ -177,21 +226,9 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
   let cachedRemaining: ToolCall[] | null = null;
   let cachedExpectedDomHash: string | null = null;
   const loop: LoopState = { lastStepFailed: false, modelRequestedVision: false, modelRequestedReasoning: false };
-
-  // Full page observations are only useful until the next snapshot supersedes
-  // them; older ones are collapsed in-place to a one-line summary so the
-  // history doesn't accumulate dozens of stale snapshots between resumes.
-  const recentObservations: Array<{ message: OllamaMessage; summary: string }> = [];
-  const trackObservation = (message: OllamaMessage, snap: A11ySnapshot) => {
-    recentObservations.push({
-      message,
-      summary: `[OBSERVATION COMPACTED] ${snap.url} | "${truncate(snap.title, 80)}" | ${snap.nodes.length} nodes. Superseded — refs here are stale; use the latest observation.`,
-    });
-    while (recentObservations.length > KEEP_FULL_OBSERVATIONS) {
-      const old = recentObservations.shift();
-      if (old) old.message.content = old.summary;
-    }
-  };
+  const actionHistory: ActionRecord[] = [];
+  // Page snapshots pushed into `history`, tracked so older ones can be collapsed (context compression).
+  const observationRefs: ObservationRef[] = [];
 
   // ── Planner state ──
   let plan: AgentPlan | null = null;
@@ -199,7 +236,6 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
 
   // ── Orchestrator state ──
   let orchPlan: OrchestrationPlan | null = null;
-  let orchPlanParsed = false;
   let stepsSinceCheckpoint = 0;
   // True once the model explicitly manages subtasks (start/finish/fail_subtask).
   // Only then does subtask bookkeeping gate the final done call; otherwise the
@@ -228,7 +264,6 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
     const ckpt = await checkpointMgr.load(task.id);
     if (ckpt) {
       orchPlan = ckpt.plan;
-      orchPlanParsed = true;
       syncVisiblePlans(task, plan, orchPlan);
       history.push({
         role: 'user',
@@ -237,114 +272,17 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
     }
   }
 
-  if (!planWasSetByModel && !orchPlanParsed) {
-    task.status = 'planning';
-    task.updatedAt = Date.now();
-    await saveTask(task);
-    broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
+  task.status = 'running';
+  task.updatedAt = Date.now();
+  await saveTask(task);
+  broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
 
-    let planningResp;
-    const planningStartedAt = Date.now();
-    const planningT0 = performance.now();
-    try {
-      planningResp = await requestModelResponse(settings, {
-        url: settings.ollamaUrl,
-        model: planningModel,
-        messages: [
-          ...history,
-          {
-            role: 'user',
-            content: `[PLANNING CALL]
-Understand the user's intent and call set_task_plan only.
-The plan must be 3-8 numbered steps and must cover:
-1. What the user wants
-2. How you will achieve it
-3. What evidence or page data must be collected
-4. How completeness will be verified
-5. When final done is allowed
-
-Do not browse yet. Do not answer the user yet.`,
-          },
-        ],
-        thinking: true,
-      });
-    } catch (err) {
-      const msg = err instanceof OllamaError ? err.message : err instanceof Error ? err.message : String(err);
-      task.status = 'failed';
-      task.error = `Planning failed: ${msg}`;
-      task.updatedAt = Date.now();
-      await saveTask(task);
-      broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
-      broadcastEvent({ kind: 'task:error', taskId: task.id, error: `Planning failed: ${msg}` });
-      await setActiveAgentGlow(null);
-      return task;
-    }
-
-    if (planningResp.toolCall?.name === 'set_task_plan') {
-      const planningResult = applyModelTaskPlan(task, planningResp.toolCall, orchPlan);
-      if (planningResult.ok) {
-        const planningStep: AgentStep = {
-          id: `${task.id}-${stepSerial}`,
-          index: stepSerial,
-          status: 'ok',
-          startedAt: planningStartedAt,
-          finishedAt: Date.now(),
-          thought: true,
-          modelUsed: providerModel(settings, planningModel),
-          thinking: planningResp.thinking,
-          toolCall: planningResp.toolCall,
-          result: { ok: true, durationMs: 0, extracted: planningResult.plan },
-          note: 'Preflight plan accepted',
-          timings: {
-            llmMs: planningResp.totalMs,
-            totalMs: performance.now() - planningT0,
-          },
-        };
-        task.steps.push(planningStep);
-        await saveStep(task.id, planningStep);
-        broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(planningStep) });
-        stepSerial++;
-
-        plan = planningResult.plan;
-        planWasSetByModel = true;
-        orchPlan = buildOrchestrationPlanFromPlan(task.id, plan);
-        if (orchPlan.subtasks[0]) {
-          orchPlan.subtasks[0].status = 'running';
-          orchPlan.status = 'running';
-        }
-        syncVisiblePlans(task, plan, orchPlan);
-        await saveTask(task);
-        broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
-        history.push({
-          role: 'assistant',
-          content: '',
-          tool_calls: [{
-            id: planningResp.toolCall.id ?? planningResp.toolCall.name,
-            function: { name: planningResp.toolCall.name, arguments: planningResp.toolCall.arguments },
-          }],
-          ...(planningResp.thinking ? { reasoning_content: planningResp.thinking } : {}),
-        });
-        history.push({
-          role: 'tool',
-          content: `Plan accepted. Intent: ${plan.intent ?? ''}`,
-          tool_call_id: planningResp.toolCall.id ?? planningResp.toolCall.name,
-        });
-        history.push({
-          role: 'user',
-          content: '[PLAN] Preflight intent and plan accepted. Do not call set_task_plan again. Start executing the first active plan step with browser tool calls.',
-        });
-      }
-    }
-
-    task.status = 'running';
-    task.updatedAt = Date.now();
-    await saveTask(task);
-    broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
-  }
 
   // ── Retry tracking per step ──
   let stepRetryCount = 0;
   let resumeCount = 0;
+  let botChallengeHandoffs = 0;
+
   const advanceStepCounters = () => {
     stepIndex++;
     stepSerial++;
@@ -367,7 +305,7 @@ Do not browse yet. Do not answer the user yet.`,
       }
       const compactedHistory = compactHistoryForResume(history, task, plan, orchPlan, resumeCount, MAX_RESUMES);
       history.splice(0, history.length, ...compactedHistory);
-      recentObservations.length = 0;
+      observationRefs.length = 0;
       task.updatedAt = Date.now();
       await saveTask(task);
       broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
@@ -378,6 +316,13 @@ Do not browse yet. Do not answer the user yet.`,
     while (deps.isPaused(task.id)) {
       await sleep(500);
       if (deps.isStopped(task.id)) { task.status = 'failed'; break; }
+    }
+    if (task.pauseReason && !deps.isPaused(task.id)) {
+      task.pauseReason = undefined;
+      task.status = 'running';
+      task.updatedAt = Date.now();
+      await saveTask(task);
+      broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
     }
 
     const stepStart = performance.now();
@@ -412,6 +357,78 @@ Do not browse yet. Do not answer the user yet.`,
       if (availableCredential) {
         memoryHints.push(`[LOGIN] Session credential available for ${availableCredential.origin} as ${availableCredential.username}. Use fill_login_credentials when username/password fields are visible; do not ask for or reveal the password.`);
       }
+      // ── Bot challenge detection & automated solver with graceful human handoff ──
+      const isChallengeUrlOrTitle = isBotChallengePage(snapshot.title, snapshot.url);
+      const captchaDetection = isChallengeUrlOrTitle
+        ? { detected: true, type: 'cloudflare' as const, details: 'Bot challenge detected from page metadata' }
+        : await detectPageCaptcha(activeTabId);
+
+      if (captchaDetection.detected) {
+        // First try solving/clicking the challenge widget automatically
+        const autoSolveResult = await solveCaptcha(activeTabId, captchaDetection.type);
+        if (autoSolveResult.success) {
+          step.note = `Auto-solved ${autoSolveResult.type ?? captchaDetection.type} challenge: ${autoSolveResult.message}`;
+          await sleep(2500);
+
+          // Verify if challenge is cleared
+          const recheck = await detectPageCaptcha(activeTabId);
+          const currentTab = await chrome.tabs.get(activeTabId).catch(() => null);
+          const currentTitle = currentTab?.title ?? '';
+          const currentUrl = currentTab?.url ?? '';
+          if (!recheck.detected && !isBotChallengePage(currentTitle, currentUrl)) {
+            step.status = 'ok';
+            step.finishedAt = Date.now();
+            step.result = {
+              ok: true,
+              durationMs: 2500,
+              extracted: autoSolveResult.message,
+            };
+            await saveStep(task.id, step);
+            broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
+            advanceStepCounters();
+            continue;
+          }
+        }
+
+        // If automated solver failed or interactive challenge persists, park the task for human handoff
+        if (botChallengeHandoffs >= MAX_BOT_CHALLENGE_HANDOFFS) {
+          step.status = 'skipped';
+          step.finishedAt = Date.now();
+          step.note = 'Bot challenge still present after the last handoff.';
+          await saveStep(task.id, step);
+          broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
+          task.status = 'failed';
+          task.error = `The site kept showing a verification challenge on ${snapshot.url} after ${MAX_BOT_CHALLENGE_HANDOFFS} attempts. Finish the task manually in the tab.`;
+          task.updatedAt = Date.now();
+          await saveTask(task);
+          broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
+          broadcastEvent({ kind: 'task:error', taskId: task.id, error: task.error });
+          break;
+        }
+
+        botChallengeHandoffs++;
+        step.status = 'skipped';
+        step.finishedAt = Date.now();
+        step.note = 'Paused: verification challenge — waiting for the user.';
+        await saveStep(task.id, step);
+        broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
+        advanceStepCounters();
+
+        task.status = 'paused';
+        task.pauseReason = {
+          kind: 'bot_challenge',
+          url: snapshot.url,
+          title: snapshot.title,
+          note: 'This page is asking to verify you are human. Solve it in the tab, then press Resume.',
+          since: Date.now(),
+        };
+        task.updatedAt = Date.now();
+        await saveTask(task);
+        broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
+        deps.requestPause?.(task.id);
+        continue;
+      }
+
 
       // ── Parse plan after planning step ──
       // ── Action cache ──
@@ -481,7 +498,10 @@ Do not browse yet. Do not answer the user yet.`,
         step.prompt = observation;
         const observationMsg: OllamaMessage = { role: 'user', content: observation };
         history.push(observationMsg);
-        trackObservation(observationMsg, snapshot);
+        trackObservation(observationRefs, observationMsg, snapshotSummary(snapshot));
+
+        // ── Context compression: collapse old snapshots, fold older steps if over budget ──
+        await enforceContextBudget(history, observationRefs, settings, stepModel, task, plan, orchPlan);
 
         const useThinking = shouldThink(settings, planWasSetByModel ? stepIndex + 1 : stepIndex, loop);
         step.thought = useThinking;
@@ -493,6 +513,7 @@ Do not browse yet. Do not answer the user yet.`,
         if (settings.provider === 'openrouter') step.modelUsed = settings.openRouterModel;
         if (settings.provider === 'siliconflow') step.modelUsed = settings.siliconFlowModel;
         if (settings.provider === 'mlx') step.modelUsed = settings.mlxModel;
+        if (settings.provider === 'deepseek') step.modelUsed = settings.deepseekModel;
 
         const llmT0 = performance.now();
         chatOpts = {
@@ -572,29 +593,20 @@ Do not browse yet. Do not answer the user yet.`,
 
       if (!toolCall) throw new Error('Tool call missing');
 
-      if (!planWasSetByModel && !step.cached && toolCall.name !== 'set_task_plan') {
-        const msg = 'First action must set a visible task plan. Call set_task_plan with 3-8 numbered steps covering user intent, approach, evidence collection, verification, and final answer criteria.';
-        step.result = { ok: true, durationMs: 0, extracted: msg };
-        step.status = 'ok';
-        step.note = 'Blocked action before plan';
-        step.finishedAt = Date.now();
-        step.timings = finalizeTimings(stepStart, { snapshotMs, screenshotMs, llmMs });
-        await saveStep(task.id, step);
-        broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
-        history.push({
-          role: 'tool',
-          content: msg,
-          tool_call_id: toolCall.id ?? toolCall.name,
-        });
-        history.push({
-          role: 'user',
-          content: `[PLAN REQUIRED] ${msg}\nDo not browse, type, click, extract, or call done until set_task_plan is accepted.`,
-        });
-        advanceStepCounters();
-        task.updatedAt = Date.now();
-        await saveTask(task);
-        continue;
+      if (!planWasSetByModel && toolCall.name !== 'set_task_plan') {
+        plan = {
+          goal: task.goal,
+          steps: [{ index: 1, description: task.goal, status: 'active' }],
+          currentStep: 0,
+          createdAt: Date.now(),
+        };
+        planWasSetByModel = true;
+        task.plan = plan;
+        syncVisiblePlans(task, plan, orchPlan);
+        broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
       }
+
+
 
       // ── Pre-action sanity check: ref must exist in snapshot ──
       const actionRef = String(toolCall.arguments.ref ?? '');
@@ -764,6 +776,7 @@ Do not browse yet. Do not answer the user yet.`,
       }
 
       // ── Execute action ──
+
       const actionT0 = performance.now();
       const postToolUserMessages: string[] = [];
       const tabsBeforeAction = actionMayOpenTab(toolCall.name)
@@ -787,8 +800,9 @@ Do not browse yet. Do not answer the user yet.`,
           });
           history.push({
             role: 'user',
-            content: `[PLAN REQUIRED] ${msg}\nCall set_task_plan again with 3-8 numbered steps.`,
+            content: `[PLAN REQUIRED] ${msg}\nCall set_task_plan again with 2-5 concise numbered action steps.`,
           });
+
           advanceStepCounters();
           task.updatedAt = Date.now();
           await saveTask(task);
@@ -1044,7 +1058,33 @@ Do not browse yet. Do not answer the user yet.`,
           extracted: { origin: credential.origin, username: credential.username, passwordFilled: true },
         };
         step.note = `Filled login credentials for ${credential.origin}`;
+      } else if (toolCall.name === 'solve_captcha') {
+        const typeArg = typeof toolCall.arguments.type === 'string' ? (toolCall.arguments.type as CaptchaDetection['type']) : undefined;
+        const captchaResult = await solveCaptcha(activeTabId, typeArg);
+        await sleep(2500);
+        step.result = {
+          ok: captchaResult.success,
+          durationMs: 2500,
+          extracted: captchaResult.message,
+          error: captchaResult.success ? undefined : captchaResult.message,
+        };
+        step.note = captchaResult.message;
+      } else if (toolCall.name === 'read_downloaded_file') {
+        const query = typeof toolCall.arguments.query === 'string' ? toolCall.arguments.query : undefined;
+        const maxChars = typeof toolCall.arguments.maxCharacters === 'number' ? toolCall.arguments.maxCharacters : 8000;
+        const fileResult = await readLatestDownload(query, maxChars);
+        step.result = {
+          ok: fileResult.ok,
+          durationMs: 50,
+          extracted: fileResult.content,
+          error: fileResult.error,
+        };
+        step.note = fileResult.ok
+          ? `Read file ${fileResult.filename} (${fileResult.fileSize} bytes)`
+          : `Failed to read download: ${fileResult.error}`;
       } else if (toolCall.name === 'done') {
+
+
         const hasDoneSuccess = Object.prototype.hasOwnProperty.call(toolCall.arguments, 'success');
         const success = String(toolCall.arguments.success ?? 'false') === 'true';
         const doneSummary = String(toolCall.arguments.summary ?? '');
@@ -1305,14 +1345,31 @@ Do not browse yet. Do not answer the user yet.`,
 
       // ── Verification ──
       // Brief delay to let dynamic content settle after UI actions
-      if (toolCall.name === 'click' || toolCall.name === 'type' || toolCall.name === 'press' || toolCall.name === 'select') {
-        await sleep(500);
+      if (toolCall?.name === 'click' || toolCall?.name === 'type' || toolCall?.name === 'press' || toolCall?.name === 'select') {
+        await sleep(200);
       }
       const snapshotAfter = await takeSnapshot(activeTabId).catch(() => undefined);
       step.snapshotAfter = snapshotAfter;
 
-      const verification = verify(snapshot, snapshotAfter, step.result, toolCall.name);
+      const toolCallName = toolCall?.name ?? 'unknown';
+      const verification = verify(snapshot, snapshotAfter, step.result, toolCallName);
       step.note = (step.note ?? '') + ` | ${describeVerification(verification)}`;
+
+      const capturedToolCall = toolCall;
+      const currentCallSignature = capturedToolCall ? `${capturedToolCall.name}:${JSON.stringify(capturedToolCall.arguments)}` : 'none';
+      let sameActionOccurrences = 0;
+      if (capturedToolCall) {
+        sameActionOccurrences = actionHistory.filter(
+          (a) => a.name === capturedToolCall.name && a.argsStr === currentCallSignature && a.domHash === snapshot.domHash,
+        ).length;
+        actionHistory.push({
+          name: capturedToolCall.name,
+          argsStr: currentCallSignature,
+          domHash: snapshot.domHash,
+          url: snapshot.url,
+        });
+        if (actionHistory.length > 20) actionHistory.shift();
+      }
 
       // ── Track repeated no-effect calls for the loop guard ──
       if (loopGuardEligible && !step.cached) {
@@ -1416,7 +1473,12 @@ Do not browse yet. Do not answer the user yet.`,
           const hint = verification.popupDetected
             ? `Action succeeded but a popup was noted (${verification.popupRefs?.join(', ') ?? 'unknown'}). Handle it if needed, then continue.`
             : verificationToPrompt(verification);
-          history.push({ role: 'user', content: `[REVIEW] ∼ ${hint}` });
+          let loopWarning = '';
+          if ((verification.status === 'partial' || verification.status === 'uncertain') && sameActionOccurrences >= 1) {
+            loop.modelRequestedReasoning = true;
+            loopWarning = `\n[LOOP WARNING] You have executed "${toolCall?.name ?? 'the action'}" with identical arguments multiple times without any observable DOM change. Stop repeating this action. Try scrolling, targeting a different element, or altering your strategy.`;
+          }
+          history.push({ role: 'user', content: `[REVIEW] ∼ ${hint}${loopWarning}` });
         }
       }
 
@@ -1443,19 +1505,16 @@ Do not browse yet. Do not answer the user yet.`,
         }
       }
 
-      // ── Max retries exceeded — pause and ask user ──
+      // ── Max retries exceeded — report failure cleanly without deadlocking ──
       if (consecutiveFailures >= MAX_STEP_RETRIES) {
-        deps.requestPause?.(task.id);
-        task.status = 'paused';
+        task.status = 'failed';
+        task.error = `Max retries (${MAX_STEP_RETRIES}) exceeded: action verification could not confirm progress.`;
         task.updatedAt = Date.now();
         await saveTask(task);
         broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
-        await waitUntilResumedOrStopped(task.id, deps, settings.autoResumeTimeoutMs);
-        if (deps.isStopped(task.id)) { task.status = 'failed'; break; }
-        consecutiveFailures = 0;
-        stepRetryCount = 0;
-        task.status = 'running';
-        broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
+        broadcastEvent({ kind: 'task:error', taskId: task.id, error: task.error });
+        await setActiveAgentGlow(null);
+        return task;
       }
     } catch (err) {
       const msg = err instanceof OllamaError ? err.message : err instanceof Error ? err.message : String(err);
@@ -1482,33 +1541,19 @@ Do not browse yet. Do not answer the user yet.`,
       }
       history.push({ role: 'user', content: `[REVIEW] ✗ Step error: ${msg}. Retry ${Math.min(consecutiveFailures + 1, MAX_STEP_RETRIES)} of ${MAX_STEP_RETRIES}. Re-evaluate.` });
 
-      if (err instanceof OllamaError) {
-        deps.requestPause?.(task.id);
-        task.status = 'paused';
+      consecutiveFailures += 1;
+      if (consecutiveFailures >= MAX_STEP_RETRIES) {
+        task.status = 'failed';
+        task.error = `Task failed after ${MAX_STEP_RETRIES} attempts: ${msg}`;
         task.updatedAt = Date.now();
         await saveTask(task);
         broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
-        await waitUntilResumedOrStopped(task.id, deps, settings.autoResumeTimeoutMs);
-        if (deps.isStopped(task.id)) { task.status = 'failed'; break; }
-        task.status = 'running';
-        broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
-      } else {
-        consecutiveFailures += 1;
-        if (consecutiveFailures >= MAX_STEP_RETRIES) {
-          deps.requestPause?.(task.id);
-          task.status = 'paused';
-          task.updatedAt = Date.now();
-          await saveTask(task);
-          broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
-          await waitUntilResumedOrStopped(task.id, deps, settings.autoResumeTimeoutMs);
-          if (deps.isStopped(task.id)) { task.status = 'failed'; break; }
-          consecutiveFailures = 0;
-          stepRetryCount = 0;
-          task.status = 'running';
-          broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
-        }
+        broadcastEvent({ kind: 'task:error', taskId: task.id, error: task.error });
+        await setActiveAgentGlow(null);
+        return task;
       }
     }
+
 
     advanceStepCounters();
     task.updatedAt = Date.now();
@@ -1589,14 +1634,7 @@ function compactHistoryForResume(
   maxResumes: number,
 ): OllamaMessage[] {
   const system = history.find((msg) => msg.role === 'system') ?? history[0];
-  const recentSteps = task.steps.slice(-12).map((step) => {
-    const call = step.toolCall ? `${step.toolCall.name}(${formatCompactArgs(step.toolCall.arguments)})` : 'no tool';
-    const result = step.result?.ok
-      ? step.result.extracted !== undefined ? ` -> ${truncate(formatCompactValue(step.result.extracted), 180)}` : ' -> ok'
-      : step.result?.error ? ` -> error: ${truncate(step.result.error, 180)}` : '';
-    const note = step.note ? ` | ${truncate(step.note, 140)}` : '';
-    return `#${step.index + 1} ${step.status}: ${call}${result}${note}`;
-  });
+  const recentSteps = task.steps.slice(-12).map(formatStepLine);
 
   const parts = [
     `[AUTO-RESUME ${resumeCount}/${maxResumes}] Reached ${MAX_STEPS} steps. Continue the long task from this compact state.`,
@@ -1611,6 +1649,99 @@ function compactHistoryForResume(
     { role: 'system', content: system?.content ?? buildSystemPrompt(DEFAULT_SETTINGS) },
     { role: 'user', content: parts.join('\n\n') },
   ];
+}
+
+function formatStepLine(step: AgentStep): string {
+  const call = step.toolCall ? `${step.toolCall.name}(${formatCompactArgs(step.toolCall.arguments)})` : 'no tool';
+  const result = step.result?.ok
+    ? step.result.extracted !== undefined ? ` -> ${truncate(formatCompactValue(step.result.extracted), 180)}` : ' -> ok'
+    : step.result?.error ? ` -> error: ${truncate(step.result.error, 180)}` : '';
+  const note = step.note ? ` | ${truncate(step.note, 140)}` : '';
+  return `#${step.index + 1} ${step.status}: ${call}${result}${note}`;
+}
+
+/**
+ * Keep the running context bounded during a long task (paper: "Acon", arXiv:2510.00615):
+ *  #1 collapse page snapshots older than the window to a one-line summary;
+ *  #2 if still over the token budget, fold older whole steps into one progress summary,
+ *     optionally rewritten by a model when `settings.contextCompressor` is enabled.
+ * Mutates `history` and `observationRefs` in place.
+ */
+async function enforceContextBudget(
+  history: OllamaMessage[],
+  observationRefs: ObservationRef[],
+  settings: Settings,
+  stepModel: string,
+  task: AgentTask,
+  plan: AgentPlan | null,
+  orchPlan: OrchestrationPlan | null,
+): Promise<void> {
+  collapseOldObservations(observationRefs);
+
+  if (historyTokens(history) <= contextTokenBudget(settings)) return;
+  const cut = foldBoundary(history, observationRefs);
+  if (cut < 0) return;
+
+  const system = history.find((msg) => msg.role === 'system') ?? history[0];
+  const folded = history.slice(1, cut).filter((msg) => msg.role !== 'system');
+  const summary = await summarizeFoldedHistory(folded, settings, stepModel, task, plan, orchPlan);
+  const head: OllamaMessage = { role: 'user', content: `[EARLIER PROGRESS — older turns compressed to save context]\n${summary}` };
+  history.splice(0, cut, system ?? { role: 'system', content: buildSystemPrompt(settings) }, head);
+  pruneObservationRefs(history, observationRefs);
+}
+
+function stepsDigest(task: AgentTask, plan: AgentPlan | null, orchPlan: OrchestrationPlan | null): string {
+  const steps = task.steps.slice(-16).map(formatStepLine);
+  return [
+    `GOAL: ${task.goal}`,
+    plan ? planContext(plan) : '',
+    orchPlan ? orchPlanSummary(orchPlan) : '',
+    steps.length > 0 ? `[STEPS SO FAR]\n${steps.join('\n')}` : '',
+  ].filter(Boolean).join('\n\n');
+}
+
+async function summarizeFoldedHistory(
+  folded: OllamaMessage[],
+  settings: Settings,
+  stepModel: string,
+  task: AgentTask,
+  plan: AgentPlan | null,
+  orchPlan: OrchestrationPlan | null,
+): Promise<string> {
+  const digest = stepsDigest(task, plan, orchPlan);
+  if (settings.contextCompressor === 'off' || folded.length === 0) return digest;
+  try {
+    const target = compressorSettings(settings);
+    const transcript = folded
+      .map((m) => `${m.role}: ${truncate(m.content ?? '', 1200)}`)
+      .join('\n')
+      .slice(0, 24_000);
+    const resp = await requestModelResponse(target, {
+      url: target.ollamaUrl,
+      model: stepModel,
+      thinking: false,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You compress an AI web agent\'s earlier steps. Produce a concise plain-text summary (max ~180 words) that preserves: visited URLs, element refs/ids, extracted values, and which actions were taken with their results. Do not call any tool. Output only the summary.',
+        },
+        { role: 'user', content: `GOAL: ${task.goal}\n\nEARLIER TURNS:\n${transcript}` },
+      ],
+    });
+    const text = resp.content?.trim();
+    return text ? text : digest;
+  } catch {
+    return digest;
+  }
+}
+
+/** Pick the provider used for compression. 'cloud' prefers a configured DeepSeek/Gemini key. */
+function compressorSettings(settings: Settings): Settings {
+  if (settings.contextCompressor !== 'cloud') return settings;
+  if (settings.deepseekApiKey.trim()) return { ...settings, provider: 'deepseek' };
+  if (settings.geminiApiKey.trim()) return { ...settings, provider: 'gemini' };
+  return settings;
 }
 
 function formatCompactArgs(args: Record<string, unknown>): string {
@@ -1657,9 +1788,13 @@ function serializeOrchestration(plan: OrchestrationPlan): AgentOrchestrationStat
 }
 
 async function requestModelResponse(settings: Settings, opts: OllamaChatOptions): Promise<OllamaChatResult> {
+  if (settings.provider === 'anthropic') {
+    return chatAnthropic(opts, settings.anthropicApiKey, settings.anthropicModel);
+  }
   if (settings.provider === 'openai') {
     return chatOpenAI(opts, settings.openaiApiKey, settings.openaiModel);
   }
+
   if (settings.provider === 'gemini') {
     return chatGemini({ ...opts, onUpdate: undefined }, settings.geminiApiKey, settings.geminiModel);
   }
@@ -1674,6 +1809,9 @@ async function requestModelResponse(settings: Settings, opts: OllamaChatOptions)
   }
   if (settings.provider === 'mlx') {
     return chatMlx(opts, settings.mlxApiKey, settings.mlxModel);
+  }
+  if (settings.provider === 'deepseek') {
+    return chatDeepSeek(opts, settings.deepseekApiKey, settings.deepseekModel);
   }
   return chat(opts);
 }
@@ -1782,9 +1920,13 @@ function isOrchestratorControlTool(name: ToolCall['name']): boolean {
     name === 'fail_subtask' ||
     name === 'update_task_memory' ||
     name === 'define_sheet_contract' ||
-    name === 'fill_login_credentials'
+    name === 'fill_login_credentials' ||
+    name === 'solve_captcha' ||
+    name === 'read_downloaded_file'
   );
 }
+
+
 
 function looksLikePrematureCompletion(summary: string): boolean {
   const lower = summary.toLowerCase();
@@ -1994,6 +2136,7 @@ function providerModel(settings: Settings, ollamaModel: string): string {
   if (settings.provider === 'openrouter') return settings.openRouterModel;
   if (settings.provider === 'siliconflow') return settings.siliconFlowModel;
   if (settings.provider === 'mlx') return settings.mlxModel;
+  if (settings.provider === 'deepseek') return settings.deepseekModel;
   return ollamaModel;
 }
 

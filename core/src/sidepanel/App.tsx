@@ -1,13 +1,26 @@
-import { useEffect, useState } from 'react';
-import type { AgentStep, AgentTask, CredentialSummary, ScheduledTask, ScheduleRepeat, Settings, SWEvent } from '@/lib/types';
-import { DEFAULT_SETTINGS, PROFILE_TO_MODEL } from '@/lib/types';
+import { useCallback, useEffect, useState } from 'react';
+
+import type { AgentStep, AgentTask, CredentialSummary, CustomSkillDefinition, ScheduledTask, ScheduleRepeat, Settings, SWEvent } from '@/lib/types';
+
+import { DEFAULT_SETTINGS, PROFILE_TO_MODEL, resolveOllamaModel } from '@/lib/types';
 import { sendToSW } from '@/lib/messaging';
 import { ping } from '@/lib/ollama-client';
 import { formatTimings, latencyTarget } from '@/lib/benchmark';
 import { buildTrace, downloadJson } from '@/lib/export';
 import { BUILT_IN_SKILLS, getSkill, SKILL_META, type ClassifiedSkill } from '@/lib/skills';
+import { useAgentPort } from './hooks/useAgentPort';
+import { Icon } from './components/Icon';
+import { PlanPanel } from './components/PlanPanel';
+import { AnswerPanel } from './components/AnswerPanel';
+import { ConfirmBox } from './components/ConfirmBox';
+import { useVoiceInput } from './hooks/useVoiceInput';
 
-type View = 'task' | 'history' | 'skills' | 'vault' | 'schedule';
+
+
+
+
+
+type View = 'task' | 'history' | 'skills' | 'vault' | 'schedule' | 'settings';
 
 const logoUrl = chrome.runtime.getURL('public/icons/icon48.png');
 
@@ -17,33 +30,57 @@ export function App() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [task, setTask] = useState<AgentTask | null>(null);
   const [ollamaStatus, setOllamaStatus] = useState<{ ok: boolean; models: string[]; error?: string } | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [detectedSkills, setDetectedSkills] = useState<ClassifiedSkill[]>([]);
+
 
   useEffect(() => {
     sendToSW<Settings>({ kind: 'settings:get' }).then(setSettings).catch(console.error);
   }, []);
 
   useEffect(() => {
-    if (!settings.ollamaUrl) return;
+    if (settings.provider !== 'ollama' || !settings.ollamaUrl) {
+      setOllamaStatus(null);
+      return;
+    }
     const ctrl = new AbortController();
-    ping(settings.ollamaUrl, ctrl.signal).then(setOllamaStatus);
+    ping(settings.ollamaUrl, ctrl.signal)
+      .then(setOllamaStatus)
+      .catch((err) => setOllamaStatus({ ok: false, models: [], error: err instanceof Error ? err.message : String(err) }));
     return () => ctrl.abort();
-  }, [settings.ollamaUrl]);
+  }, [settings.ollamaUrl, settings.provider]);
+
+  const handleEvent = useCallback((evt: SWEvent) => {
+    if (evt.kind === 'task:update') {
+      setTask({ ...evt.task });
+      if (evt.task.status === 'running') {
+        setView('task');
+      }
+    }
+    if (evt.kind === 'task:step') setTask((t) => t && t.id === evt.taskId ? { ...t, steps: upsertStep(t.steps, evt.step) } : t);
+    if (evt.kind === 'skills:detected') setDetectedSkills(evt.skills as ClassifiedSkill[]);
+  }, []);
+
+
+  useAgentPort(handleEvent);
 
   useEffect(() => {
     const handler = (msg: unknown) => {
       if (!msg || typeof msg !== 'object' || !('kind' in msg)) return;
-      const evt = msg as SWEvent;
-      if (evt.kind === 'task:update') setTask({ ...evt.task });
-      if (evt.kind === 'task:step') setTask((t) => t && t.id === evt.taskId ? { ...t, steps: upsertStep(t.steps, evt.step) } : t);
-      if (evt.kind === 'skills:detected') setDetectedSkills(evt.skills as ClassifiedSkill[]);
+      handleEvent(msg as SWEvent);
     };
-    chrome.runtime.onMessage.addListener(handler);
-    return () => chrome.runtime.onMessage.removeListener(handler);
-  }, []);
+    if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
+      chrome.runtime.onMessage.addListener(handler);
+      return () => {
+        chrome.runtime.onMessage.removeListener(handler);
+      };
+    }
+    return undefined;
+  }, [handleEvent]);
+
+
+
 
   async function start(text?: string) {
     const goalToRun = (text ?? goal).trim();
@@ -69,10 +106,30 @@ export function App() {
     }
   }
 
+  async function resumeCheckpoint(id?: string) {
+    const targetId = id ?? task?.id;
+    if (!targetId) return;
+    setStartError(null);
+    setIsStarting(true);
+    try {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tab = tabs[0];
+      if (tab?.url) await requestTabAccess(tab.url);
+      const resumed = await sendToSW<AgentTask>({ kind: 'task:resume_checkpoint', id: targetId });
+      setTask(resumed);
+      setView('task');
+    } catch (err) {
+      setStartError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsStarting(false);
+    }
+  }
+
   async function updateSetting<K extends keyof Settings>(key: K, value: Settings[K]) {
     const next = await sendToSW<Settings>({ kind: 'settings:update', patch: { [key]: value } as Partial<Settings> });
     setSettings(next);
   }
+
 
   const running = isStarting || task?.status === 'running' || task?.status === 'planning';
   const paused = task?.status === 'paused';
@@ -90,37 +147,35 @@ export function App() {
           WebOperator
         </h1>
         <div className="header-actions">
-          <div className="model-chip" title={currentModelLabel(settings)}>
-            {compactModelLabel(currentModelLabel(settings))}
-          </div>
           <button
-            className={`icon-btn settings-icon ${showSettings ? 'active' : ''}`}
-            title="Settings"
-            aria-label="Settings"
-            aria-pressed={showSettings}
-            onClick={() => setShowSettings((v) => !v)}
+            type="button"
+            className="model-chip"
+            style={{ cursor: 'pointer', background: 'transparent', border: 'none', padding: 0 }}
+            onClick={() => setView('settings')}
+            title={`Active: ${currentModelLabel(settings)} (click to open Settings)`}
           >
-            <Icon name="settings" />
+            {compactModelLabel(currentModelLabel(settings))}
           </button>
         </div>
       </header>
 
       <nav className="tab-nav" aria-label="Views">
-        <button className={view === 'task' && !showSettings ? 'tab-item active' : 'tab-item'} onClick={() => { setView('task'); setShowSettings(false); }}>Task</button>
-        <button className={view === 'history' && !showSettings ? 'tab-item active' : 'tab-item'} onClick={() => { setView('history'); setShowSettings(false); }}>History</button>
-        <button className={view === 'schedule' && !showSettings ? 'tab-item active' : 'tab-item'} onClick={() => { setView('schedule'); setShowSettings(false); }}>Schedule</button>
-        <button className={view === 'skills' && !showSettings ? 'tab-item active' : 'tab-item'} onClick={() => { setView('skills'); setShowSettings(false); }}>Skills</button>
-        <button className={view === 'vault' && !showSettings ? 'tab-item active' : 'tab-item'} onClick={() => { setView('vault'); setShowSettings(false); }}>Vault</button>
+        <button className={view === 'task' ? 'tab-item active' : 'tab-item'} onClick={() => setView('task')}>Task</button>
+        <button className={view === 'history' ? 'tab-item active' : 'tab-item'} onClick={() => setView('history')}>History</button>
+        <button className={view === 'schedule' ? 'tab-item active' : 'tab-item'} onClick={() => setView('schedule')}>Schedule</button>
+        <button className={view === 'skills' ? 'tab-item active' : 'tab-item'} onClick={() => setView('skills')}>Skills</button>
+        <button className={view === 'vault' ? 'tab-item active' : 'tab-item'} onClick={() => setView('vault')}>Vault</button>
+        <button className={view === 'settings' ? 'tab-item active' : 'tab-item'} onClick={() => setView('settings')}>Settings</button>
       </nav>
 
       {settings.provider === 'ollama' && ollamaStatus && !ollamaStatus.ok && (
         <div className="banner err">
-          Ollama unavailable ({ollamaStatus.error}). Run: <code>ollama serve</code> and <code>ollama pull {PROFILE_TO_MODEL[settings.profile]}</code>.
+          Ollama unavailable ({ollamaStatus.error}). Run: <code>ollama serve</code> and <code>ollama pull {ollamaModelName(settings)}</code>.
         </div>
       )}
-      {settings.provider === 'ollama' && ollamaStatus?.ok && !ollamaStatus.models.some((m) => m.startsWith(PROFILE_TO_MODEL[settings.profile]!.split(':')[0])) && (
+      {settings.provider === 'ollama' && ollamaStatus?.ok && !ollamaStatus.models.some((m) => m.startsWith(ollamaModelName(settings).split(':')[0])) && (
         <div className="banner warn">
-          Model {PROFILE_TO_MODEL[settings.profile]} is not installed. <code>ollama pull {PROFILE_TO_MODEL[settings.profile]}</code>
+          Model {ollamaModelName(settings)} is not installed. <code>ollama pull {ollamaModelName(settings)}</code>
         </div>
       )}
       {startError && (
@@ -129,21 +184,23 @@ export function App() {
         </div>
       )}
 
-      {showSettings ? (
-        <SettingsPanel settings={settings} updateSetting={updateSetting} />
-      ) : view === 'task' ? (
-        <TaskView goal={goal} setGoal={setGoal} task={task} start={start} isStarting={isStarting} detectedSkills={detectedSkills} />
+      {view === 'task' ? (
+        <TaskView goal={goal} setGoal={setGoal} task={task} start={start} isStarting={isStarting} detectedSkills={detectedSkills} onResumeCheckpoint={resumeCheckpoint} />
       ) : view === 'history' ? (
-        <HistoryView onReplay={(goal) => { setGoal(goal); start(goal); }} onOpen={(t) => { setTask(t); setView('task'); }} />
+        <HistoryView onReplay={(goal) => { setGoal(goal); start(goal); }} onOpen={(t) => { setTask(t); setView('task'); }} onResumeCheckpoint={resumeCheckpoint} />
       ) : view === 'schedule' ? (
         <ScheduleView onOpenTask={(t) => { setTask(t); setView('task'); }} />
       ) : view === 'skills' ? (
         <SkillsView settings={settings} updateSetting={updateSetting} />
-      ) : (
+      ) : view === 'vault' ? (
         <VaultView />
+      ) : (
+        <SettingsPanel settings={settings} updateSetting={updateSetting} />
       )}
+
     </div>
   );
+
 }
 
 function ScheduleView({ onOpenTask }: { onOpenTask: (task: AgentTask) => void }) {
@@ -237,35 +294,25 @@ function ScheduleView({ onOpenTask }: { onOpenTask: (task: AgentTask) => void })
   }
 
   return (
-    <section className="view active page-view settings-view">
-      <div className="page-note">Run browser tasks later or on a simple repeat.</div>
+    <section className="view active page-view schedule-view">
+      <div className="page-note">Schedule tasks to run at a specific time or on a recurring interval.</div>
 
-      <div className="ui-form settings schedule-form">
-        <label>
-          Task name
-          <input value={name} placeholder="Daily pricing check" onChange={(e) => setName(e.target.value)} />
-        </label>
-        <label>
-          Start URL
-          <input value={startUrl} placeholder="https://example.com" onChange={(e) => setStartUrl(e.target.value)} />
-        </label>
-        <label>
-          Run at
+
+      <div className="ui-form schedule-form">
+        <input value={name} placeholder="Task name" onChange={(e) => setName(e.target.value)} />
+        <input value={startUrl} placeholder="Start URL" onChange={(e) => setStartUrl(e.target.value)} />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
           <input type="datetime-local" value={runAt} onChange={(e) => setRunAt(e.target.value)} />
-        </label>
-        <label>
-          Repeat
           <select value={repeat} onChange={(e) => setRepeat(e.target.value as ScheduleRepeat)}>
-            <option value="once">Once</option>
-            <option value="hourly">Hourly</option>
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
+            <option value="once">Repeat: Once</option>
+            <option value="hourly">Repeat: Hourly</option>
+            <option value="daily">Repeat: Daily</option>
+            <option value="weekly">Repeat: Weekly</option>
           </select>
-        </label>
-        <label className="schedule-goal-label">
-          Goal
-          <textarea value={goal} placeholder="What should the agent do when this runs?" onChange={(e) => setGoal(e.target.value)} />
-        </label>
+        </div>
+        <textarea value={goal} placeholder="Goal" onChange={(e) => setGoal(e.target.value)} style={{ minHeight: '70px' }} />
+
+
         <div className="action-row controls">
           <button className="secondary" onClick={saveSchedule}>Save scheduled task</button>
           <button className="secondary" onClick={refreshSchedules}>Refresh</button>
@@ -273,15 +320,18 @@ function ScheduleView({ onOpenTask }: { onOpenTask: (task: AgentTask) => void })
         {message && <div className="settings-note">{message}</div>}
       </div>
 
-      <div className="ui-list history-list schedule-list">
+
+      <div className="ui-list schedule-list">
+
         {items.length === 0 ? (
           <div className="page-empty">No scheduled tasks yet.</div>
         ) : items.map((item) => (
           <div key={item.id} className="ui-list-item history-item">
             <div className="item-head step-head">
-              <span className="status-pill">{item.enabled ? item.repeat : 'paused'}</span>
               <span className="item-meta step-detail">{item.lastStatus ?? (item.enabled ? 'enabled' : 'paused')}</span>
+              <span className="status-pill">{item.enabled ? item.repeat : 'paused'}</span>
             </div>
+
             <div className="item-title history-goal">{item.name}</div>
             <div className="item-meta step-detail">{item.goal}</div>
             <div className="item-meta step-detail">{item.startUrl}</div>
@@ -301,11 +351,8 @@ function ScheduleView({ onOpenTask }: { onOpenTask: (task: AgentTask) => void })
   );
 }
 
-function Icon({ name, size = 'sm' }: { name: string; size?: 'sm' | 'md' }) {
-  return <span className={`i i-${name} ${size === 'sm' ? 'i-sm' : ''}`} aria-hidden="true" />;
-}
-
 async function requestTabAccess(url?: string): Promise<void> {
+
   if (!url) throw new Error('The active tab has no URL');
   const parsed = new URL(url);
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
@@ -322,13 +369,14 @@ async function requestTabAccess(url?: string): Promise<void> {
   }
 }
 
-function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills }: {
+function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onResumeCheckpoint }: {
   goal: string;
   setGoal: (g: string) => void;
   task: AgentTask | null;
   start: (text?: string) => void;
   isStarting: boolean;
   detectedSkills: ClassifiedSkill[];
+  onResumeCheckpoint?: (id: string) => void;
 }) {
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [traceOpen, setTraceOpen] = useState(true);
@@ -340,6 +388,13 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills }: {
   const finalAnswer = getTaskAnswer(task);
   const taskId = task?.id;
   const taskStatus = task?.status;
+
+  const { isListening, toggleListening, error: voiceError } = useVoiceInput({
+    onTranscript: (spokenText) => {
+      setGoal(goal ? `${goal} ${spokenText}` : spokenText);
+    },
+  });
+
 
   useEffect(() => {
     if (!taskStatus) {
@@ -367,8 +422,22 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills }: {
           </div>
         ) : (
           <>
-            <AnswerPanel answer={finalAnswer} task={task} />
+            {task?.pauseReason?.kind === 'bot_challenge' && (
+              <div className="challenge-handoff">
+                <div className="challenge-handoff-title">Verification needed</div>
+                <p className="challenge-handoff-note">{task.pauseReason.note}</p>
+                <p className="challenge-handoff-url">{task.pauseReason.url}</p>
+                <button
+                  className="primary"
+                  onClick={() => sendToSW({ kind: 'task:resume', id: task.id })}
+                >
+                  I have solved it — resume
+                </button>
+              </div>
+            )}
+            <AnswerPanel answer={finalAnswer} task={task} isConfirmationCheckpoint={isConfirmationCheckpoint} onResumeCheckpoint={onResumeCheckpoint} />
             <PlanPanel task={task} open={planOpen} onToggle={setPlanOpen} />
+
             {detectedSkills.length > 0 && (
               <div className="detected-skills">
                 {detectedSkills.map((ds) => {
@@ -400,6 +469,11 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills }: {
       )}
 
       <div className="input-area">
+        {voiceError && (
+          <div style={{ color: 'var(--error, #ef4444)', fontSize: '11px', paddingBottom: '4px' }}>
+            {voiceError}
+          </div>
+        )}
         <div className="input-row">
           <div className="input-main">
             <textarea
@@ -420,18 +494,32 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills }: {
               {task && <button className="text-btn" onClick={() => downloadJson(`trace-${task.id.slice(0, 8)}.json`, buildTrace(task))}>Export</button>}
             </div>
           </div>
-          <button
-            className={`send-btn ${running || paused ? 'stop' : ''}`}
-            title={running || paused ? 'Stop' : 'Start'}
-            aria-label={running || paused ? 'Stop' : 'Start'}
-            onClick={() => running || paused ? task && sendToSW({ kind: 'task:stop', id: task.id }) : start()}
-            disabled={isStarting || (!task && !goal.trim())}
-          >
-            <Icon name={running || paused ? 'stop' : 'send'} />
-          </button>
+          <div className="composer-btns">
+            <button
+              type="button"
+              className={`voice-btn ${isListening ? 'recording' : ''}`}
+              title={isListening ? 'Listening... click to stop' : 'Voice input (dictate task)'}
+              aria-label="Voice input"
+              onClick={toggleListening}
+              disabled={running}
+            >
+              <Icon name="mic" />
+            </button>
+            <button
+              className={`send-btn ${running || paused ? 'stop' : ''}`}
+              title={running || paused ? 'Stop' : 'Start'}
+              aria-label={running || paused ? 'Stop' : 'Start'}
+              onClick={() => running || paused ? task && sendToSW({ kind: 'task:stop', id: task.id }) : start()}
+              disabled={isStarting || (!task && !goal.trim())}
+            >
+              <Icon name={running || paused ? 'stop' : 'send'} />
+            </button>
+          </div>
         </div>
         <div className="composer-disclaimer">WebOperator can make mistakes. Please double-check responses.</div>
+
       </div>
+
 
       {selectedStep && (
         <StepDetails step={selectedStep} onClose={() => setSelectedStepId(null)} />
@@ -440,91 +528,45 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills }: {
   );
 }
 
-function PlanPanel({ task, open, onToggle }: { task: AgentTask; open: boolean; onToggle: (open: boolean) => void }) {
-  const plan = task.plan;
-  const orchestration = task.orchestration;
-  const lastTool = task.steps.slice().reverse().find((step) => step.toolCall)?.toolCall;
-  if (!plan && !orchestration) return null;
-
-  const done = plan?.steps.filter((step) => step.status === 'done').length ?? 0;
-  const total = plan?.steps.length ?? 0;
-  const active = plan?.steps.find((step) => step.status === 'active');
-
-  return (
-    <details className="plan-panel plan-collapse" open={open} onToggle={(e) => onToggle(e.currentTarget.open)}>
-      <summary className="plan-head">
-        <span className="plan-title">Plan</span>
-        {plan && <span className="plan-meta">{done}/{total} done</span>}
-      </summary>
-      <div className="plan-content">
-        {active ? (
-          <div className="plan-current">
-            <span>Current</span>
-            <strong>{active.description}</strong>
-          </div>
-        ) : plan && total > 0 ? (
-          <div className="plan-current">
-            <span>Status</span>
-            <strong>{done === total ? 'Complete' : 'No active step'}</strong>
-          </div>
-        ) : null}
-        {plan?.intent && (
-          <div className="plan-current">
-            <span>Intent</span>
-            <strong>{plan.intent}</strong>
-          </div>
-        )}
-        {lastTool && (
-          <div className="plan-current plan-action">
-            <span>Last action</span>
-            <strong>{lastTool.name}</strong>
-          </div>
-        )}
-        {plan && (
-          <ol className="plan-list">
-            {plan.steps.map((step) => (
-              <li key={`${step.index}-${step.description}`} className={`plan-step ${step.status}`}>
-                <span className="plan-step-index">{step.index}</span>
-                <span className="plan-step-text">{step.description}</span>
-                <span className="plan-step-status">{step.status}</span>
-              </li>
-            ))}
-          </ol>
-        )}
-        {orchestration && orchestration.managed && orchestration.subtasks.length > 0 && (
-          <div className="subtask-block">
-            <div className="subtask-title">Subtasks</div>
-            {orchestration.subtasks.map((subtask) => (
-              <div key={subtask.id} className={`subtask-row ${subtask.status}`}>
-                <span className="plan-step-index">{subtask.index}</span>
-                <span className="plan-step-text">{subtask.description}</span>
-                <span className="plan-step-status">{subtask.status}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </details>
-  );
+interface TaskDayGroup {
+  key: string;
+  label: string;
+  isToday: boolean;
+  tasks: AgentTask[];
 }
 
-function AnswerPanel({ answer, task }: { answer: string | null; task: AgentTask }) {
-  const isFinished = task.status === 'done' || task.status === 'failed';
-  const needsConfirmation = isConfirmationCheckpoint(task);
-  const tone = needsConfirmation ? 'confirm' : task.status === 'failed' ? 'failure' : task.status === 'done' ? 'success' : 'pending';
-  const fallback = task.status === 'failed'
-    ? 'Task stopped before producing a final answer.'
-    : 'Waiting for the final answer...';
+function groupTasksByDay(tasks: AgentTask[]): TaskDayGroup[] {
+  const groups = new Map<string, TaskDayGroup>();
+  const now = new Date();
+  const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const yesterday = new Date(now.getTime() - 86400000);
+  const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
 
-  return (
-    <section className={`answer-panel ${tone}`}>
-      <div className="answer-label">{needsConfirmation ? 'Needs confirmation' : isFinished ? 'Answer' : 'Answer pending'}</div>
-      <div className="answer-text" dangerouslySetInnerHTML={{ __html: renderMarkdown(answer ?? fallback) }} />
-    </section>
-  );
+  for (const task of tasks) {
+    const d = new Date(task.createdAt);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const formattedDate = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    let label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    let isToday = false;
+    if (key === todayKey) {
+      label = `Today, ${formattedDate}`;
+      isToday = true;
+    } else if (key === yesterdayKey) {
+      label = `Yesterday, ${formattedDate}`;
+    }
+
+
+    if (!groups.has(key)) {
+      groups.set(key, { key, label, isToday, tasks: [] });
+    }
+    groups.get(key)!.tasks.push(task);
+  }
+  return Array.from(groups.values());
 }
 
-function HistoryView({ onReplay, onOpen }: { onReplay: (goal: string) => void; onOpen: (t: AgentTask) => void }) {
+
+function HistoryView({ onReplay, onOpen, onResumeCheckpoint }: { onReplay: (goal: string) => void; onOpen: (t: AgentTask) => void; onResumeCheckpoint?: (id: string) => void }) {
+
   const [tasks, setTasks] = useState<AgentTask[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -545,28 +587,56 @@ function HistoryView({ onReplay, onOpen }: { onReplay: (goal: string) => void; o
   if (loading) return <section className="view active page-view"><div className="page-empty">Loading...</div></section>;
   if (tasks.length === 0) return <section className="view active page-view"><div className="page-empty">History is empty</div></section>;
 
+  const dayGroups = groupTasksByDay(tasks);
+
   return (
     <section className="view active page-view history-view">
-      <div className="page-note">Past tasks the agent has run. Open one to inspect its trace, or replay its goal.</div>
-      <div className="ui-list history-list">
-      {tasks.map((t) => (
-        <div key={t.id} className="ui-list-item history-item">
-          <div className="item-head step-head">
-            <span className="status-pill">{t.status}</span>
-            <span className="item-meta step-detail">{new Date(t.createdAt).toLocaleString()}</span>
-          </div>
-          <div className="item-title history-goal">{t.goal}</div>
-          <div className="action-row controls">
-            <button className="secondary" onClick={() => openTask(t.id)}>Open</button>
-            <button className="secondary" onClick={() => onReplay(t.goal)}>Replay</button>
-            <button className="secondary" onClick={() => exportTask(t.id)}>Export</button>
-          </div>
-        </div>
-      ))}
+      <div className="page-note">Review completed task traces, inspect execution logs, or replay previous goals.</div>
+
+      <div className="history-accordion">
+        {dayGroups.map((group) => (
+          <details key={group.key} className="history-day-group" open={group.isToday || dayGroups.length === 1}>
+            <summary className="history-day-summary">
+              <span className="history-day-label">{group.label}</span>
+              <span className="history-day-count">{group.tasks.length} {group.tasks.length === 1 ? 'task' : 'tasks'}</span>
+            </summary>
+            <div className="ui-list history-list">
+              {group.tasks.map((t) => (
+
+                <div key={t.id} className="ui-list-item history-item">
+                  <div className="item-title history-goal">{t.goal}</div>
+
+                  <div className="action-row controls">
+                    <button className="secondary" onClick={() => openTask(t.id)}>Open</button>
+                    {t.status === 'failed' && onResumeCheckpoint && (
+                      <button className="secondary" onClick={() => onResumeCheckpoint(t.id)}>Resume</button>
+                    )}
+                    <button className="secondary" onClick={() => onReplay(t.goal)}>Repeat</button>
+
+                    <button className="secondary" onClick={() => exportTask(t.id)}>Export</button>
+                    <div className="history-meta">
+                      <span className="item-meta step-detail">{new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      <span className={`status-pill status-${t.status}`} title={t.status}>
+                        {t.status === 'done' ? '✓' : t.status === 'failed' ? '✕' : t.status}
+                      </span>
+
+                    </div>
+                  </div>
+
+                </div>
+
+
+              ))}
+            </div>
+          </details>
+        ))}
       </div>
     </section>
+
   );
 }
+
+
 
 function SkillsView({ settings, updateSetting }: {
   settings: Settings;
@@ -574,6 +644,25 @@ function SkillsView({ settings, updateSetting }: {
 }) {
   const enabled = new Set(settings.enabledSkills ?? []);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [customSkills, setCustomSkills] = useState<CustomSkillDefinition[]>([]);
+  const [isCreating, setIsCreating] = useState(false);
+  const [name, setName] = useState('');
+  const [summary, setSummary] = useState('');
+  const [domainPattern, setDomainPattern] = useState('');
+  const [keywords, setKeywords] = useState('');
+  const [prompt, setPrompt] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const loadCustomSkills = useCallback(async () => {
+    try {
+      const list = await sendToSW<CustomSkillDefinition[]>({ kind: 'custom_skill:list' });
+      setCustomSkills(list);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    void loadCustomSkills();
+  }, [loadCustomSkills]);
 
   function toggleSkill(id: Settings['enabledSkills'][number]) {
     const next = enabled.has(id)
@@ -590,42 +679,183 @@ function SkillsView({ settings, updateSetting }: {
     });
   }
 
+  async function handleSaveCustomSkill(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (!name.trim()) { setError('Skill name is required'); return; }
+    if (!prompt.trim()) { setError('Skill instructions/prompt are required'); return; }
+
+    const kwArray = keywords
+      .split(/[,;\n]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const domainsArray = domainPattern
+      .split(/[,;\n]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    try {
+      await sendToSW({
+        kind: 'custom_skill:save',
+        skill: {
+          name: name.trim(),
+          summary: summary.trim() || name.trim(),
+          domains: domainsArray.length ? domainsArray : ['*'],
+          keywords: kwArray.length ? kwArray : [name.trim().toLowerCase()],
+          prompt: prompt.trim(),
+          risk: 'safe',
+          enabled: true,
+        },
+      });
+
+      setName('');
+      setSummary('');
+      setDomainPattern('');
+      setKeywords('');
+      setPrompt('');
+      setIsCreating(false);
+      await loadCustomSkills();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function handleDeleteCustomSkill(id: string) {
+    try {
+      await sendToSW({ kind: 'custom_skill:delete', id });
+      await loadCustomSkills();
+    } catch {}
+  }
+
   return (
     <section className="view active page-view skills-view">
-      <div className="page-note">Skills give the agent reusable playbooks for common sites. Toggle one on and the agent will follow its rules whenever the goal matches.</div>
+      <div className="page-note">Reusable domain playbooks. Enabled skills guide the agent's actions when relevant sites or tasks are matched.</div>
+
+
+      <div className="section-header">
+        <h4 className="section-title">Built-in Skills</h4>
+      </div>
+
       <div className="ui-list skills-list">
-        {BUILT_IN_SKILLS.length === 0 ? (
-          <div className="page-empty">No skills installed. Custom skills coming soon.</div>
-        ) : (
-          BUILT_IN_SKILLS.map((skill) => {
-            const active = enabled.has(skill.id);
+        {BUILT_IN_SKILLS.map((skill) => {
+          const active = enabled.has(skill.id);
+          const open = expanded.has(skill.id);
+          return (
+            <article key={skill.id} className={`ui-list-item skill-card ${active ? 'active' : ''}`}>
+              <div className="skill-row" onClick={() => toggleExpand(skill.id)}>
+                <span className="item-title skill-title">{skill.name}</span>
+                <button
+                  className={`toggle ${active ? 'on' : ''}`}
+                  role="switch"
+                  aria-checked={active}
+                  onClick={(e) => { e.stopPropagation(); toggleSkill(skill.id); }}
+                >
+                  <span />
+                </button>
+              </div>
+              {open && (
+                <div className="skill-detail">
+                  <p className="item-meta skill-desc">{skill.summary}</p>
+                </div>
+              )}
+            </article>
+          );
+        })}
+      </div>
+
+      <div className="section-header" style={{ marginTop: '22px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span className="section-title">Custom Skills</span>
+          <span className="status-pill" style={{ padding: '2px 6px', fontSize: '10px' }}>{customSkills.length}</span>
+        </div>
+        <button
+          type="button"
+          className="secondary"
+          style={{ fontSize: '11px', padding: '3px 8px', fontWeight: 500 }}
+          onClick={() => setIsCreating((prev) => !prev)}
+        >
+          {isCreating ? 'Cancel' : '+ Add custom skill'}
+        </button>
+      </div>
+
+      {isCreating && (
+        <form onSubmit={handleSaveCustomSkill} className="ui-form custom-skill-form" style={{ marginTop: '12px' }}>
+          {error && <div className="banner err" style={{ margin: '0 0 10px 0' }}>{error}</div>}
+
+          <input
+            placeholder="Skill Name *"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <input
+            placeholder="Summary / Short Description"
+            value={summary}
+            onChange={(e) => setSummary(e.target.value)}
+          />
+          <input
+            placeholder="Target Domains (comma separated)"
+            value={domainPattern}
+            onChange={(e) => setDomainPattern(e.target.value)}
+          />
+          <input
+            placeholder="Trigger Keywords (comma separated)"
+            value={keywords}
+            onChange={(e) => setKeywords(e.target.value)}
+          />
+          <textarea
+            style={{ minHeight: '80px', fontFamily: 'var(--font-mono)' }}
+            placeholder="Agent Instructions / Prompt *"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+          />
+
+          <div className="action-row controls" style={{ justifyContent: 'flex-end', marginTop: '6px' }}>
+            <button type="button" className="secondary" onClick={() => setIsCreating(false)}>Cancel</button>
+            <button type="submit" className="primary">Save Skill</button>
+          </div>
+        </form>
+      )}
+
+
+      {customSkills.length > 0 && (
+        <div className="ui-list skills-list" style={{ marginTop: '8px' }}>
+          {customSkills.map((skill) => {
             const open = expanded.has(skill.id);
             return (
-              <article key={skill.id} className={`ui-list-item skill-card ${active ? 'active' : ''}`}>
+              <article key={skill.id} className="ui-list-item skill-card active">
                 <div className="skill-row" onClick={() => toggleExpand(skill.id)}>
-                  <span className="item-title skill-title">{skill.name}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span className="item-title skill-title">{skill.name}</span>
+                    <span className="status-pill" style={{ padding: '1px 5px', fontSize: '9px' }}>Custom</span>
+                  </div>
                   <button
-                    className={`toggle ${active ? 'on' : ''}`}
-                    role="switch"
-                    aria-checked={active}
-                    onClick={(e) => { e.stopPropagation(); toggleSkill(skill.id); }}
+                    type="button"
+                    style={{ background: 'transparent', border: 'none', color: 'var(--error, #ef4444)', fontSize: '11px', cursor: 'pointer' }}
+                    onClick={(e) => { e.stopPropagation(); void handleDeleteCustomSkill(skill.id); }}
+                    title="Delete custom skill"
                   >
-                    <span />
+                    Delete
                   </button>
                 </div>
                 {open && (
-                  <div className="skill-detail">
-                    <p className="item-meta skill-desc">{skill.summary}</p>
+                  <div className="skill-detail" style={{ marginTop: '8px' }}>
+                    <p className="item-meta skill-desc" style={{ marginBottom: '4px' }}>{skill.summary}</p>
+                    {skill.domains.length > 0 && <div style={{ fontSize: '11px', color: 'var(--text2)', marginBottom: '2px' }}>Domains: {skill.domains.join(', ')}</div>}
+                    {skill.keywords.length > 0 && <div style={{ fontSize: '11px', color: 'var(--text2)', marginBottom: '4px' }}>Keywords: {skill.keywords.join(', ')}</div>}
+                    <pre style={{ background: 'rgba(0,0,0,0.2)', padding: '6px', borderRadius: '4px', fontSize: '10px', whiteSpace: 'pre-wrap' }}>{skill.prompt}</pre>
                   </div>
                 )}
               </article>
             );
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
+
     </section>
   );
 }
+
 
 function VaultView() {
   const [entries, setEntries] = useState<CredentialSummary[]>([]);
@@ -656,7 +886,7 @@ function VaultView() {
       });
       setEntries(next);
       setPassword('');
-      setMessage('Saved for this browser session.');
+      setMessage('Saved securely to Vault.');
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err));
     }
@@ -675,47 +905,33 @@ function VaultView() {
 
   return (
     <section className="view active page-view settings-view">
-      <div className="vault-note">
-        <Icon name="info" />
-        <div>
-          <strong>Session-only storage.</strong> Credentials live in memory for this browser session and are wiped when Chrome closes. Passwords are never sent to the model — only typed into the page when an action requires them.
-        </div>
-      </div>
+      <div className="page-note">Secure local credential storage. Passwords are saved safely in your encrypted extension environment for automated logins.</div>
       <div className="ui-form settings">
-        <label>
-          Site origin
-          <input value={origin} placeholder="https://example.com" onChange={(e) => setOrigin(e.target.value)} />
-        </label>
-        <label>
-          Username / email
-          <input value={username} autoComplete="username" onChange={(e) => setUsername(e.target.value)} />
-        </label>
-        <label>
-          Password
-          <input type="password" value={password} autoComplete="current-password" onChange={(e) => setPassword(e.target.value)} />
-        </label>
-        <label>
-          Label
-          <input value={label} placeholder="optional" onChange={(e) => setLabel(e.target.value)} />
-        </label>
+        <input value={origin} placeholder="Site origin (e.g. https://example.com)" onChange={(e) => setOrigin(e.target.value)} />
+        <input value={username} placeholder="Username / email" autoComplete="username" onChange={(e) => setUsername(e.target.value)} />
+        <input type="password" value={password} placeholder="Password" autoComplete="current-password" onChange={(e) => setPassword(e.target.value)} />
+        <input value={label} placeholder="Label (optional)" onChange={(e) => setLabel(e.target.value)} />
         <div className="action-row controls">
-          <button className="secondary" onClick={save}>Save session credential</button>
+          <button className="secondary" onClick={save}>Save credential</button>
           <button className="secondary" onClick={clear} disabled={entries.length === 0}>Clear vault</button>
         </div>
         {message && <div className="settings-note">{message}</div>}
       </div>
 
+
+
       <div className="ui-list history-list">
         {entries.length === 0 ? (
-          <div className="page-empty">No session credentials saved.</div>
+          <div className="page-empty">No credentials saved in Vault.</div>
         ) : entries.map((entry) => (
           <div key={entry.id} className="ui-list-item history-item">
             <div className="item-head step-head">
-              <span className="status-pill">{entry.label || 'Credential'}</span>
               <span className="item-meta step-detail">{new Date(entry.updatedAt).toLocaleString()}</span>
+              <span className="status-pill">{entry.label || 'Credential'}</span>
             </div>
             <div className="item-title history-goal">{entry.origin}</div>
-            <div className="item-meta step-detail">{entry.username} · password saved for session</div>
+
+            <div className="item-meta step-detail">{entry.username} · stored securely</div>
             <div className="action-row controls">
               <button className="secondary" onClick={() => remove(entry.id)}>Delete</button>
             </div>
@@ -726,54 +942,61 @@ function VaultView() {
   );
 }
 
+
 function SettingsPanel({ settings, updateSetting }: {
   settings: Settings;
   updateSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
 }) {
   return (
     <section className="view active page-view settings-view">
+      <div className="page-note">Configure AI model providers, API credentials, vision modes, and browser execution policies.</div>
       <div className="ui-form settings">
-      <label>
-        Provider
-        <select value={settings.provider} onChange={(e) => updateSetting('provider', e.target.value as Settings['provider'])}>
-          <option value="ollama">Ollama (Local)</option>
-          <option value="mlx">MLX (Local)</option>
-          <option value="openai">OpenAI</option>
-          <option value="gemini">Google Gemini</option>
-          <option value="xai">xAI</option>
-          <option value="openrouter">OpenRouter</option>
-          <option value="siliconflow">SiliconFlow</option>
-        </select>
-      </label>
-      <div className="settings-note">
-        Local providers run on your machine — nothing leaves the device. Cloud providers send page snapshots and screenshots to a third party.
-      </div>
 
-      {settings.provider === 'ollama' && (
+      <select value={settings.provider} onChange={(e) => updateSetting('provider', e.target.value as Settings['provider'])}>
+
+        <option value="anthropic">Provider: Anthropic (Claude)</option>
+        <option value="deepseek">Provider: DeepSeek</option>
+        <option value="gemini">Provider: Google Gemini</option>
+        <option value="mlx">Provider: MLX (Local)</option>
+        <option value="ollama">Provider: Ollama (Local)</option>
+        <option value="openai">Provider: OpenAI</option>
+        <option value="openrouter">Provider: OpenRouter</option>
+        <option value="siliconflow">Provider: SiliconFlow</option>
+        <option value="xai">Provider: xAI</option>
+      </select>
+
+
+      {settings.provider === 'anthropic' && (
         <>
-          <label>
-            Ollama URL
-            <input value={settings.ollamaUrl} onChange={(e) => updateSetting('ollamaUrl', e.target.value)} />
-          </label>
-          <div className="settings-note">
-            If you see <code>403 Forbidden</code>, restart Ollama with <code>OLLAMA_ORIGINS="chrome-extension://*,http://localhost:*" ollama serve</code>. On macOS quit the menu-bar Ollama first.
-          </div>
+          <input type="password" value={settings.anthropicApiKey} onChange={(e) => updateSetting('anthropicApiKey', e.target.value)} placeholder="Anthropic API Key" />
+          <input value={settings.anthropicModel} onChange={(e) => updateSetting('anthropicModel', e.target.value)} placeholder="Claude Model (e.g. claude-3-7-sonnet-20250219)" />
         </>
       )}
 
+
+      {settings.provider === 'ollama' && (
+        <>
+          <input value={settings.ollamaUrl} onChange={(e) => updateSetting('ollamaUrl', e.target.value)} placeholder="Ollama URL (e.g. http://127.0.0.1:11434)" />
+          <input
+            value={settings.ollamaModel}
+            onChange={(e) => updateSetting('ollamaModel', e.target.value)}
+            placeholder="Ollama Model (e.g. qwen2.5-vl:7b)"
+          />
+        </>
+      )}
+
+
       {settings.provider === 'openai' && (
         <>
-          <label>
-            OpenAI API Key
-            <input type="password" value={settings.openaiApiKey} onChange={(e) => updateSetting('openaiApiKey', e.target.value)} placeholder="sk-..." />
-          </label>
-          <label>
-            OpenAI Model
-            <input value={settings.openaiModel} onChange={(e) => updateSetting('openaiModel', e.target.value)} placeholder="e.g. gpt-5-mini" />
-          </label>
-          <div className="settings-note">
-            Get a key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">platform.openai.com/api-keys</a>. Model must support vision + function calling.
-          </div>
+          <input type="password" value={settings.openaiApiKey} onChange={(e) => updateSetting('openaiApiKey', e.target.value)} placeholder="OpenAI API Key" />
+          <input value={settings.openaiModel} onChange={(e) => updateSetting('openaiModel', e.target.value)} placeholder="OpenAI Model (e.g. gpt-5-mini)" />
+        </>
+      )}
+
+      {settings.provider === 'gemini' && (
+        <>
+          <input type="password" value={settings.geminiApiKey} onChange={(e) => updateSetting('geminiApiKey', e.target.value)} placeholder="Gemini API Key" />
+          <input value={settings.geminiModel} onChange={(e) => updateSetting('geminiModel', e.target.value)} placeholder="Gemini Model (e.g. gemini-2.5-flash)" />
         </>
       )}
 
@@ -795,33 +1018,22 @@ function SettingsPanel({ settings, updateSetting }: {
 
       {settings.provider === 'xai' && (
         <>
-          <label>
-            xAI API Key
-            <input type="password" value={settings.xaiApiKey} onChange={(e) => updateSetting('xaiApiKey', e.target.value)} placeholder="xai-..." />
-          </label>
-          <label>
-            xAI Model
-            <input value={settings.xaiModel} onChange={(e) => updateSetting('xaiModel', e.target.value)} placeholder="e.g. grok-4-1-fast-non-reasoning" />
-          </label>
-          <div className="settings-note">
-            Get a key at <a href="https://console.x.ai" target="_blank" rel="noreferrer">console.x.ai</a>.
-          </div>
+          <input type="password" value={settings.xaiApiKey} onChange={(e) => updateSetting('xaiApiKey', e.target.value)} placeholder="xAI API Key" />
+          <input value={settings.xaiModel} onChange={(e) => updateSetting('xaiModel', e.target.value)} placeholder="xAI Model (e.g. grok-4-1-fast-non-reasoning)" />
         </>
       )}
 
       {settings.provider === 'openrouter' && (
         <>
-          <label>
-            OpenRouter API Key
-            <input type="password" value={settings.openRouterApiKey} onChange={(e) => updateSetting('openRouterApiKey', e.target.value)} placeholder="sk-or-..." />
-          </label>
-          <label>
-            OpenRouter Model
-            <input value={settings.openRouterModel} onChange={(e) => updateSetting('openRouterModel', e.target.value)} placeholder="e.g. google/gemma-4-31b-it" />
-          </label>
-          <div className="settings-note">
-            Get a key at <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">openrouter.ai/keys</a>. Free endpoints can be entered manually if available.
-          </div>
+          <input type="password" value={settings.openRouterApiKey} onChange={(e) => updateSetting('openRouterApiKey', e.target.value)} placeholder="OpenRouter API Key" />
+          <input value={settings.openRouterModel} onChange={(e) => updateSetting('openRouterModel', e.target.value)} placeholder="OpenRouter Model (e.g. google/gemma-4-31b-it)" />
+        </>
+      )}
+
+      {settings.provider === 'deepseek' && (
+        <>
+          <input type="password" value={settings.deepseekApiKey} onChange={(e) => updateSetting('deepseekApiKey', e.target.value)} placeholder="DeepSeek API Key" />
+          <input value={settings.deepseekModel} onChange={(e) => updateSetting('deepseekModel', e.target.value)} placeholder="DeepSeek Model (e.g. deepseek-v4-flash)" />
         </>
       )}
 
@@ -843,112 +1055,86 @@ function SettingsPanel({ settings, updateSetting }: {
 
       {settings.provider === 'mlx' && (
         <>
-          <label>
-            MLX API Key (optional)
-            <input type="password" value={settings.mlxApiKey} onChange={(e) => updateSetting('mlxApiKey', e.target.value)} />
-          </label>
-          <label>
-            MLX Model
-            <input value={settings.mlxModel} onChange={(e) => updateSetting('mlxModel', e.target.value)} placeholder="e.g. mlx-community/Qwen2.5-VL-7B-Instruct-4bit" />
-          </label>
-          <div className="settings-note">
-            Local MLX server expected at <code>http://127.0.0.1:8000</code>. Model must support function calling + vision.
-          </div>
+          <input type="password" value={settings.mlxApiKey} onChange={(e) => updateSetting('mlxApiKey', e.target.value)} placeholder="MLX API Key (optional)" />
+          <input value={settings.mlxModel} onChange={(e) => updateSetting('mlxModel', e.target.value)} placeholder="MLX Model (e.g. mlx-community/Qwen2.5-VL-7B-Instruct-4bit)" />
         </>
       )}
 
-      {settings.provider === 'ollama' && (
-        <>
-          <label>
-            Profile
-            <select value={settings.profile} onChange={(e) => updateSetting('profile', e.target.value as Settings['profile'])}>
-              <option value="edge">Edge — gemma4:e2b</option>
-              <option value="balanced">Balanced — gemma4:e4b</option>
-              <option value="fast">Fast — gemma4:26b</option>
-              <option value="quality">Quality — gemma4:31b</option>
-            </select>
-          </label>
-          <label>
-            Planning profile
-            <select value={settings.planningProfile} onChange={(e) => updateSetting('planningProfile', e.target.value as Settings['planningProfile'])}>
-              <option value="same">same as main</option>
-              <option value="edge">Edge</option>
-              <option value="balanced">Balanced</option>
-              <option value="fast">Fast</option>
-              <option value="quality">Quality</option>
-            </select>
-          </label>
-        </>
-      )}
-      <label>
-        Vision
-        <select value={settings.screenshotPolicy} onChange={(e) => updateSetting('screenshotPolicy', e.target.value as Settings['screenshotPolicy'])}>
-          <option value="auto">Auto</option>
-          <option value="always">Always</option>
-          <option value="never">Never</option>
-        </select>
-      </label>
-      <label>
-        Timeout, ms
-        <input type="number" value={settings.actionTimeoutMs} onChange={(e) => updateSetting('actionTimeoutMs', Number(e.target.value))} />
-      </label>
       <details className="settings-advanced">
-        <summary>Advanced</summary>
-        <label>
-          Thinking
+        <summary>Advanced Settings</summary>
+        <div className="settings-advanced-body">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <select value={settings.screenshotPolicy} onChange={(e) => updateSetting('screenshotPolicy', e.target.value as Settings['screenshotPolicy'])}>
+              <option value="auto">Vision: Auto</option>
+              <option value="always">Vision: Always</option>
+              <option value="never">Vision: Never</option>
+            </select>
+            <input type="number" value={settings.actionTimeoutMs} onChange={(e) => updateSetting('actionTimeoutMs', Number(e.target.value))} placeholder="Timeout, ms" />
+          </div>
           <select value={settings.thinkingPolicy} onChange={(e) => updateSetting('thinkingPolicy', e.target.value as Settings['thinkingPolicy'])}>
-            <option value="auto">Auto</option>
-            <option value="always">Always</option>
-            <option value="never">Never</option>
+            <option value="auto">Thinking: Auto</option>
+            <option value="always">Thinking: Always</option>
+            <option value="never">Thinking: Never</option>
           </select>
-        </label>
-        <label>
-          Vision budget
-          <select value={settings.visualTokenBudget} onChange={(e) => updateSetting('visualTokenBudget', Number(e.target.value) as Settings['visualTokenBudget'])}>
-            {[70, 140, 280, 560, 1120].map((n) => <option key={n} value={n}>{n}</option>)}
+
+          <select value={settings.contextCompressor} onChange={(e) => updateSetting('contextCompressor', e.target.value as Settings['contextCompressor'])}>
+            <option value="off">Context compressor: Off (deterministic)</option>
+            <option value="same">Context compressor: Same model</option>
+            <option value="cloud">Context compressor: Cloud (DeepSeek/Gemini)</option>
           </select>
-        </label>
-        <label>
-          Verification vision budget
-          <select value={settings.visualTokenBudgetVerify} onChange={(e) => updateSetting('visualTokenBudgetVerify', Number(e.target.value) as Settings['visualTokenBudgetVerify'])}>
-            {[70, 140, 280, 560, 1120].map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
-        </label>
-        <label>
-          Domain whitelist
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <select value={settings.visualTokenBudget} onChange={(e) => updateSetting('visualTokenBudget', Number(e.target.value) as Settings['visualTokenBudget'])}>
+              {[70, 140, 280, 560, 1120].map((n) => <option key={n} value={n}>Vision: {n} tokens</option>)}
+            </select>
+            <select value={settings.visualTokenBudgetVerify} onChange={(e) => updateSetting('visualTokenBudgetVerify', Number(e.target.value) as Settings['visualTokenBudgetVerify'])}>
+              {[70, 140, 280, 560, 1120].map((n) => <option key={n} value={n}>Verify: {n} tokens</option>)}
+            </select>
+          </div>
           <input
             value={settings.whitelist.join(', ')}
-            placeholder="example.com, *.mysite.org"
+            placeholder="Domain whitelist (e.g. example.com, *.mysite.org)"
             onChange={(e) => updateSetting('whitelist', splitList(e.target.value))}
           />
-        </label>
-        <label>
-          Domain blacklist
           <input
             value={settings.blacklist.join(', ')}
-            placeholder="bank.com, *.paypal.com"
+            placeholder="Domain blacklist (e.g. bank.com, *.paypal.com)"
             onChange={(e) => updateSetting('blacklist', splitList(e.target.value))}
           />
-        </label>
-        <label>
-          Action cache
-          <input type="checkbox" checked={settings.useActionCache} onChange={(e) => updateSetting('useActionCache', e.target.checked)} />
-        </label>
-        <label>
-          Reload page before task
-          <input type="checkbox" checked={settings.resetPageOnStart} onChange={(e) => updateSetting('resetPageOnStart', e.target.checked)} />
-        </label>
-        <label>
-          Cache TTL, days
-          <input type="number" min={1} max={365} value={settings.cacheTtlDays} onChange={(e) => updateSetting('cacheTtlDays', Number(e.target.value))} />
-        </label>
-        <div className="action-row controls">
-          <button className="secondary" onClick={async () => {
-            const res = await sendToSW<{ ok: boolean; removed: number }>({ kind: 'cache:clear' });
-            alert(`Removed entries: ${res.removed}`);
-          }}>Clear action cache</button>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 2px' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text2)' }}>Action cache</span>
+            <input
+              type="checkbox"
+              style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+              checked={settings.useActionCache}
+              onChange={(e) => updateSetting('useActionCache', e.target.checked)}
+            />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 2px' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text2)' }}>Reload page before task</span>
+            <input
+              type="checkbox"
+              style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+              checked={settings.resetPageOnStart}
+              onChange={(e) => updateSetting('resetPageOnStart', e.target.checked)}
+            />
+          </div>
+          <input
+            type="number"
+            min={1}
+            max={365}
+            value={settings.cacheTtlDays}
+            placeholder="Cache TTL, days"
+            onChange={(e) => updateSetting('cacheTtlDays', Number(e.target.value))}
+          />
+          <div className="action-row controls" style={{ marginTop: '4px' }}>
+            <button className="secondary" onClick={async () => {
+              const res = await sendToSW<{ ok: boolean; removed: number }>({ kind: 'cache:clear' });
+              alert(`Removed entries: ${res.removed}`);
+            }}>Clear action cache</button>
+          </div>
         </div>
       </details>
+
       </div>
     </section>
   );
@@ -1011,13 +1197,19 @@ function formatAnswer(value: unknown): string {
 }
 
 function currentModelLabel(settings: Settings): string {
+  if (settings.provider === 'anthropic') return settings.anthropicModel || 'Claude 3.7 Sonnet';
   if (settings.provider === 'openai') return settings.openaiModel;
   if (settings.provider === 'gemini') return settings.geminiModel;
   if (settings.provider === 'xai') return settings.xaiModel;
   if (settings.provider === 'openrouter') return settings.openRouterModel;
   if (settings.provider === 'siliconflow') return settings.siliconFlowModel;
   if (settings.provider === 'mlx') return settings.mlxModel;
-  return PROFILE_TO_MODEL[settings.profile];
+  if (settings.provider === 'deepseek') return settings.deepseekModel;
+  return ollamaModelName(settings);
+}
+
+function ollamaModelName(settings: Settings): string {
+  return resolveOllamaModel(settings.ollamaModel, PROFILE_TO_MODEL[settings.profile]);
 }
 
 function compactModelLabel(value: string): string {
@@ -1029,12 +1221,14 @@ function compactModelLabel(value: string): string {
     .replace(/\bnon reasoning\b/i, '')
     .replace(/\s+/g, ' ')
     .trim();
+  if (/^claude/i.test(cleaned)) return 'Claude 3.7';
   if (/^gpt 5 mini$/i.test(cleaned)) return 'GPT-5 Mini';
   if (/^grok 4 1 fast/i.test(cleaned)) return 'Grok 4.1 Fast';
   if (/gemma 4 31b/i.test(cleaned)) return 'Gemma 4 31B';
   if (/qwen2\.5 vl/i.test(cleaned)) return 'Qwen2.5 VL';
   return cleaned.length > 22 ? `${cleaned.slice(0, 21)}…` : cleaned;
 }
+
 
 function StepRow({ step, profile, onOpen }: { step: AgentStep; profile: AgentTask['profile']; onOpen: () => void }) {
   const name = step.toolCall?.name ?? (step.status === 'running' ? '…' : '—');
@@ -1123,193 +1317,6 @@ function toDatetimeLocal(timestamp: number): string {
   return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
 }
 
-function ConfirmBox({ task, onDecide }: { task: AgentTask; onDecide: (allow: boolean) => void }) {
-  const step = task.steps[task.steps.length - 1];
-  const call = step?.toolCall;
-  const summary = describeToolCall(call);
-  return (
-    <div className="confirm-box">
-      <strong>Confirmation required</strong>
-      <div className="confirm-summary">{summary}</div>
-      {call && (
-        <details className="confirm-details">
-          <summary>Show technical details</summary>
-          <code>{call.name} {JSON.stringify(call.arguments)}</code>
-        </details>
-      )}
-      <div className="controls">
-        <button onClick={() => onDecide(true)}>Allow</button>
-        <button className="danger" onClick={() => onDecide(false)}>Cancel</button>
-      </div>
-    </div>
-  );
-}
+export { renderMarkdown } from './utils/markdown';
 
-function describeToolCall(call: AgentStep['toolCall'] | undefined): string {
-  if (!call) return 'The agent is waiting for your approval to continue.';
-  const args = (call.arguments ?? {}) as Record<string, unknown>;
-  const reason = typeof args.reason === 'string' ? args.reason : '';
-  switch (call.name) {
-    case 'set_task_plan':
-      return `Set the visible task plan${reason ? ` — ${reason}` : ''}.`;
-    case 'click': {
-      const label = typeof args.label === 'string' ? args.label : (typeof args.ref === 'string' ? args.ref : 'an element');
-      return `Click ${label}${reason ? ` — ${reason}` : ''}.`;
-    }
-    case 'type': {
-      const label = typeof args.label === 'string' ? args.label : (typeof args.ref === 'string' ? args.ref : 'a field');
-      const text = typeof args.text === 'string' ? `"${args.text.length > 80 ? args.text.slice(0, 80) + '…' : args.text}"` : 'some text';
-      return `Type ${text} into ${label}${reason ? ` — ${reason}` : ''}.`;
-    }
-    case 'navigate': {
-      const url = typeof args.url === 'string' ? args.url : 'a new URL';
-      return `Navigate to ${url}${reason ? ` — ${reason}` : ''}.`;
-    }
-    case 'open_tab': {
-      const url = typeof args.url === 'string' ? args.url : 'a new tab';
-      return `Open ${url} in a new tab${reason ? ` — ${reason}` : ''}.`;
-    }
-    case 'fill_login_credentials':
-      return `Fill saved login credentials into the page${reason ? ` — ${reason}` : ''}.`;
-    default:
-      return `Run ${call.name}${reason ? ` — ${reason}` : ''}.`;
-  }
-}
 
-export function renderMarkdown(text: string): string {
-  let html = escapeHtml(normalizeAnswerText(text));
-  const codeBlocks: string[] = [];
-  html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_match, _language: string, body: string) => {
-    const token = `@@WEBOPERATOR_CODE_BLOCK_${codeBlocks.length}@@`;
-    codeBlocks.push(`<pre><code>${body}</code></pre>`);
-    return token;
-  });
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-  html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<em><strong>$1</strong></em>');
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label: string, rawHref: string) => renderSafeLink(label, rawHref));
-  html = renderMarkdownTables(html);
-  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-  html = html.replace(
-    /^\s*(\d+)\.\s+(.+)$/gm,
-    '<li data-list="ol"><span class="answer-list-index">$1.</span><span class="answer-list-body">$2</span></li>',
-  );
-  html = html.replace(/^[*-] (.+)$/gm, '<li>$1</li>');
-  html = html.replace(/((?:<li data-list="ol">.*<\/li>\n?)+)/g, '<ol>$1</ol>');
-  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
-  html = html.replace(/ data-list="ol"/g, '');
-  html = html.replace(/>\n</g, '><');
-  html = html.replace(/\n/g, '<br>');
-  html = codeBlocks.reduce((rendered, block, index) => rendered.replace(`@@WEBOPERATOR_CODE_BLOCK_${index}@@`, block), html);
-  return html;
-}
-
-function renderMarkdownTables(markdown: string): string {
-  const lines = markdown.split('\n');
-  const rendered: string[] = [];
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const headerLine = lines[index];
-    const separatorLine = lines[index + 1];
-
-    if (isMarkdownTableRow(headerLine) && separatorLine && isMarkdownTableSeparator(separatorLine)) {
-      const headers = splitMarkdownTableRow(headerLine);
-      const rows: string[][] = [];
-      index += 2;
-
-      while (index < lines.length && isMarkdownTableRow(lines[index]) && !isMarkdownTableSeparator(lines[index])) {
-        rows.push(normalizeTableCells(splitMarkdownTableRow(lines[index]), headers.length));
-        index += 1;
-      }
-
-      index -= 1;
-      rendered.push(renderMarkdownTable(headers, rows));
-      continue;
-    }
-
-    rendered.push(headerLine);
-  }
-
-  return rendered.join('\n');
-}
-
-function renderMarkdownTable(headers: string[], rows: string[][]): string {
-  const safeHeaders = normalizeTableCells(headers, headers.length);
-  const headerHtml = safeHeaders.map((cell) => `<th>${cell}</th>`).join('');
-  const bodyHtml = rows
-    .map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join('')}</tr>`)
-    .join('');
-
-  return `<div class="answer-table-fit"><table><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`;
-}
-
-function normalizeTableCells(cells: string[], targetLength: number): string[] {
-  return Array.from({ length: targetLength }, (_unused, index) => cells[index] ?? '');
-}
-
-function isMarkdownTableRow(line: string): boolean {
-  const trimmed = line.trim();
-  return trimmed.includes('|') && splitMarkdownTableRow(trimmed).length > 1;
-}
-
-function isMarkdownTableSeparator(line: string): boolean {
-  const cells = splitMarkdownTableRow(line);
-  return cells.length > 1 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
-}
-
-function splitMarkdownTableRow(line: string): string[] {
-  return line
-    .trim()
-    .replace(/^\|/, '')
-    .replace(/\|$/, '')
-    .split('|')
-    .map((cell) => cell.trim());
-}
-
-function renderSafeLink(label: string, rawHref: string): string {
-  const href = normalizeSafeLinkHref(rawHref);
-  if (!href) return label;
-  return `<a href="${escapeHtmlAttribute(href)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
-}
-
-function normalizeSafeLinkHref(rawHref: string): string | null {
-  const href = rawHref.trim();
-  if (!href) return null;
-
-  try {
-    const url = new URL(href);
-    if (url.protocol === 'http:' || url.protocol === 'https:' || url.protocol === 'mailto:') {
-      return url.href;
-    }
-  } catch {
-    return null;
-  }
-
-  return null;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
-function escapeHtmlAttribute(value: string): string {
-  return escapeHtml(value)
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function normalizeAnswerText(text: string): string {
-  return text
-    .replace(/\\r\\n/g, '\n')
-    .replace(/\\n/g, '\n')
-    .replace(/\\t/g, '  ')
-    .replace(/\r\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}

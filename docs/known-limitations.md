@@ -16,7 +16,9 @@ The loop has repair and guardrails, but they are not a proof of correctness.
 - Dynamic pages can change refs between observation and action.
 - Canvas-heavy or custom-rendered UIs may not expose useful accessibility nodes.
 - Infinite scroll pages can hide required data behind stateful loading.
-- Sites with bot detection, CAPTCHAs, or unusual focus handling may fail.
+- Sites with bot detection, CAPTCHAs, or unusual focus handling may fail. A detected challenge
+  triggers an automated solve attempt (Turnstile / reCAPTCHA / hCaptcha checkbox); if unsuccessful,
+  it pauses the task and hands the live tab back to you rather than failing silently.
 
 ## Data and evidence
 

@@ -14,32 +14,51 @@ export default defineManifest({
     'scripting',
     'storage',
     'sidePanel',
-    'debugger',
     'alarms',
+    'debugger',
+    'downloads',
     'nativeMessaging',
+  ],
+
+  optional_permissions: [
     'bookmarks',
     'tabGroups',
   ],
+
+
+
   host_permissions: [
     'http://localhost:11434/*',
     'http://127.0.0.1:11434/*',
     'https://openrouter.ai/*',
     'https://api.siliconflow.com/*',
     'https://api.deepseek.com/*',
+    'https://api.anthropic.com/*',
+    'https://api.openai.com/*',
     'http://127.0.0.1:8000/*',
     '<all_urls>',
   ],
   optional_host_permissions: [] as string[],
+  commands: {
+    _execute_action: {
+      suggested_key: {
+        default: 'Ctrl+Shift+K',
+        mac: 'Command+Shift+K',
+      },
+      description: 'Open WebOperator Side Panel',
+    },
+  },
   background: {
     service_worker: 'src/background/service-worker.ts',
     type: 'module',
   },
   action: {
-    default_title: 'WebOperator',
+    default_title: 'WebOperator (Cmd+Shift+K)',
   },
   side_panel: {
     default_path: 'src/sidepanel/index.html',
   },
+
   content_scripts: [
     {
       matches: ['<all_urls>'],

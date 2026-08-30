@@ -1,160 +1,140 @@
+# WebOperator — AI browser agent and MCP server for Chrome automation
 
-<p align="center">
-  <img src="icons/icon128.png" alt="WebOperator icon" width="128" />
-</p>
+Describe a goal in plain language; the agent drives your Chrome tab.
 
-# WebOperator
+```bash
+git clone https://github.com/KazKozDev/WebOperator.git
+npm --prefix WebOperator/core ci
+npm --prefix WebOperator/core run build
+```
 
-Tell your browser what to do. A small browser agent that lives inside Chrome.
+![WebOperator side panel in Chrome showing the task, skills, and schedule views](https://raw.githubusercontent.com/KazKozDev/WebOperator/main/docs/assets/weboperator-demo.gif)
 
-You give it a task in the side panel. It looks at the active tab, asks an LLM what to do next, and executes browser tools such as `click`, `type`, `navigate`, `extract`, and `done`. The interesting part is not the UI. The interesting part is the loop: observe the page, make one tool call, verify the effect, update the trace, repeat.
+Local models or cloud · Nine MCP tools · Open source
 
-The interface is natural language: describe what you want done, and the agent turns that into a visible plan and browser tool calls.
-
-This repo is intentionally not a framework. It is a Chrome extension with the agent loop in plain TypeScript.
-
-<p align="center">
-  <img src="docs/assets/webim.png" alt="WebOperator side panel interface" />
-</p>
+---
 
 ## Quick start
 
+The build writes the unpacked extension to `core/dist`.
+
+```text
+vite v8.0.11 building client environment for production...
+✓ 101 modules transformed.
+✓ built in 189ms
+```
+
+Open `chrome://extensions`, enable Developer mode, click **Load unpacked**, and select `core/dist`. Press `Cmd+Shift+K` (`Ctrl+Shift+K` on Linux) to open the side panel, pick a provider under **Settings**, and type a goal.
+
+The default provider is Ollama at `http://127.0.0.1:11434`, so a tool-capable local model needs to be running before the first task. Any of the seven remote providers works instead once you paste a key.
+
+## Automate a multi-step task in the active Chrome tab
+
+WebOperator runs a plan → act → verify loop against the tab you are looking at. It builds a visible plan, calls one browser tool at a time, verifies each result against a fresh page snapshot, and records an inspectable trace of every step.
+
+```text
+Summarize the current page
+```
+
+The side panel streams the plan, each action, and the final answer. History, checkpoints, and a schedule for recurring runs live in their own tabs.
+
+## Extract and compare data across open browser tabs
+
+Use it when the information you need is visible on the page but spread across tabs. WebOperator can navigate, click, type, press keys, scroll, switch tabs, screenshot, and extract structured text.
+
+```text
+Compare info across tabs
+```
+
+Answers stay tied to browser observations, so hidden, paywalled, or region-specific details may simply be absent from the result.
+
+## Connect Hermes, OpenClaw, or another MCP agent
+
+An external agent can use your live browser as its tool. The local bridge exposes nine MCP tools over stdio: `browser_snapshot`, `browser_navigate`, `browser_click`, `browser_type`, `browser_press`, `browser_scroll`, `browser_screenshot`, `browser_extract`, and `weboperator_execute_goal`.
+
 ```bash
-cd core
-npm install
-npm run build
+cd weboperator-bridge
+./install.sh
+node mcp-server.js
 ```
 
-Then in Chrome:
+`install.sh` registers the Native Messaging host that connects those calls to the active Chrome or Brave tab. Ready-made configs for Hermes and OpenClaw ship in `weboperator-bridge/`.
 
-1. Open `chrome://extensions`.
-2. Enable Developer mode.
-3. Click Load unpacked.
-4. Select `core/dist`.
-5. Open a tab you want the agent to operate on.
-6. Open the WebOperator side panel and describe the task in natural language.
+## How it works
 
-For development:
-
-```bash
-cd core
-npm run dev
-```
-
-This runs a watch build. Reload the extension after rebuilds.
-
-For local models, the bridge API, project layout, evals, and maintainer commands, see `docs/developer-notes.md`.
-
-## What the agent sees
-
-Each step starts from an observation:
-
-- the current URL and title
-- a compact accessibility snapshot
-- stable element refs like `@e12`
-- visible text snippets
-- optional screenshot / set-of-mark overlay
-- the visible task plan
-- previous tool results
-
-Page content is treated as untrusted observation. It is not allowed to instruct the model.
-
-## The loop
-
-At a high level:
+The side panel or an external MCP agent supplies the goal. The service worker owns model calls, task state, retries, verification, schedules, and storage. The content script serializes the page into an accessibility snapshot with stable element refs and executes DOM actions against them. Page content is treated as untrusted data, never as instructions. Ten built-in skills act as domain playbooks that steer the agent when a matching site or task is detected.
 
 ```text
-snapshot page
-build prompt
-LLM returns exactly one tool call
-execute tool call
-verify action result
-save trace
-repeat
+goal → page snapshot → model tool call → verified action → trace
 ```
 
-The loop is in `core/src/background/agent-loop.ts`.
+## Permissions
 
-The content script owns browser-page mechanics: accessibility extraction, element refs, DOM actions, overlays, and extraction. The background worker owns planning, retries, model calls, action verification, storage, and task status.
+The manifest requests `<all_urls>` and `activeTab`/`tabs`/`scripting` to read and act on the page you point it at, `debugger` to drive Chrome DevTools Protocol actions the DOM API cannot perform, `sidePanel` for the UI, `storage` for settings and history, `alarms` for scheduled tasks, `downloads` for the file-downloader skill, and `nativeMessaging` for the MCP bridge. `bookmarks` and `tabGroups` are optional and requested only when used.
 
-## Planning
+## Configuration
 
-The agent is forced to plan through a tool call:
+| Option | Default | What it does |
+|---|---|---|
+| Provider | `ollama` | Selects Ollama, Anthropic, DeepSeek, Gemini, MLX, OpenAI, OpenRouter, SiliconFlow, or xAI |
+| Ollama URL | `http://127.0.0.1:11434` | Sets the local Ollama endpoint |
+| Model profile | `fast` | Maps to the default Ollama model unless a model override is set |
+| Screenshot policy | `auto` | Controls automatic, always-on, or disabled vision |
+| Action timeout | `10000` ms | Limits a single browser action attempt |
+| Context compressor | `off` | Deterministic folding only, the active model, or a cloud model |
+| Action cache | `on`, 30 days | Reuses verified actions instead of re-planning them |
+| Domain allowlist / blocklist | empty | Restricts or rejects tasks by domain when populated |
 
-```text
-set_task_plan(steps, reason)
-```
+### Environment variables
 
-This is deliberate. The extension should not invent a local heuristic plan from the user prompt. The LLM must first state its interpretation of the user intent and produce a concrete 3-8 step plan. The side panel renders this plan and tracks progress through it.
+| Variable | Required | What it does |
+|---|---|---|
+| `WEBOPERATOR_API_TOKEN` | Recommended | Authenticates bridge HTTP and socket requests |
+| `WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE` | No | Set to `0` to reject unauthenticated bridge calls; unauthenticated is the default |
+| `WEBOPERATOR_BRIDGE_HOST` | No | HTTP bind host; defaults to `127.0.0.1` |
+| `WEBOPERATOR_BRIDGE_PORT` | No | HTTP port; defaults to `8765` |
+| `WEBOPERATOR_AGENT_SOCKET` | No | Framed JSON socket path; defaults to `/tmp/weboperator-bridge.sock` |
+| `WEBOPERATOR_BRIDGE_LOG` | No | Bridge log path; defaults to `/tmp/weboperator-bridge.log` |
+| `WEBOPERATOR_EXTENSION_ID` | No | Overrides the extension ID used by the native-host installer |
 
-If the model tries to browse, click, type, extract, or finish before setting a plan, the loop blocks the action and asks for `set_task_plan` again.
+## Requirements
 
-## Tool calls
+- Chrome 120 or newer, or a Chromium browser of equivalent version
+- Node.js and npm, to install dependencies and build the extension
+- A tool-capable model served by Ollama or MLX, or an API key for Anthropic, DeepSeek, Gemini, OpenAI, OpenRouter, SiliconFlow, or xAI
+- The unpacked extension loaded from `core/dist`; it is not on the Chrome Web Store
+- macOS or Linux for the MCP bridge installer
+- `shellcheck`, only to run the full local check gate
 
-The model must return tool calls, not prose JSON. For example:
+## Limitations
 
-```text
-navigate(url)
-click(ref, reason)
-type(ref, text, mode, submit)
-extract(refs, note)
-done(success, summary)
-```
+- Dynamic, canvas-heavy, or infinite-scroll pages can invalidate element refs between observation and action.
+- Sites with bot detection or unusual focus handling can fail outright.
+- Long tasks can drift; checkpoints and context compression reduce but do not eliminate this.
+- A configured remote provider receives page observations, including page text and screenshots.
+- The bridge listens without authentication unless `WEBOPERATOR_API_TOKEN` is set and unauthenticated calls are disabled.
+- Chrome and Brave are the documented targets; other Chromium browsers and Windows are untested, and the bridge installer refuses to run outside macOS and Linux.
 
-If the model answers with plain text or raw JSON, the loop performs one repair turn and asks for a valid tool call. If repair fails, the task fails loudly instead of silently drifting.
+<details>
+<summary>Manual installation, Docker, development setup</summary>
 
-## Long tasks
+### From source
+Run `npm --prefix core ci && npm --prefix core run build`, then load `core/dist` as an unpacked extension.
 
-Long tasks are handled by checkpointing and compacting history. The agent can:
+### Docker
+No Dockerfile or Compose configuration is included.
 
-- keep a visible plan
-- start and finish subtasks
-- update task memory
-- resume after bounded step windows
-- compact old history before continuing
-- keep step ids globally unique across resume windows
+### Development
+Run `npm --prefix core run dev` for watch builds, or `./scripts/check.sh` for the full gate: fixture evals, bridge smoke test, typecheck, lint, unit tests, dead-code scan, shellcheck, and build.
 
-This is still a browser agent, so it can get stuck. The UI keeps the trace visible so the failure mode is inspectable.
+</details>
 
-## Safety rails
+---
 
-The extension includes a few simple rails:
+<div align="center">
 
-- domain allow/block checks
-- confirmation for critical actions
-- password masking in snapshots, storage, UI events, and export
-- action result verification
-- DOM hash checks for cache replay
-- evidence checks before final `done`
-- local history stored in IndexedDB
+![Chrome 120+](https://img.shields.io/badge/Chrome_120+-333?style=flat-square&logo=googlechrome&logoColor=fff) ![Brave](https://img.shields.io/badge/Brave-333?style=flat-square&logo=brave&logoColor=fff) [![Version](https://img.shields.io/badge/version-1.4.0-333?style=flat-square)](core/package.json) [![License](https://img.shields.io/badge/license-MIT-333?style=flat-square)](LICENSE)
 
-There is no telemetry. Exports happen only when the user clicks export.
+[Issues](https://github.com/KazKozDev/WebOperator/issues) · [License](LICENSE) · [API](docs/api.md) · [Architecture](docs/architecture.md) · [Agent protocol](docs/agent-protocol.md) · [Limitations](docs/known-limitations.md)
 
-## Skills, schedules, and vault
-
-WebOperator has a small set of built-in skills. They are just prompt playbooks for common browser work: filling forms, extracting data, using Google Sheets, managing tabs, shopping, email, login flows, and downloads. The agent can auto-select them from the task text, or you can turn them on manually.
-
-There is also a local scheduler for recurring browser tasks, and a local credential vault for login flows. The vault is not magic: the agent can only use saved credentials through an explicit `fill_login_credentials` tool call. Passwords are masked in snapshots, traces, UI events, and exports. The agent should never invent, print, or leak credentials.
-
-## Current status
-
-This is a working browser-agent extension with a stable `1.0.0` supported task surface. It is also useful for inspecting the anatomy of a browser agent:
-
-- how to serialize a web page into an LLM observation
-- how to force one-tool-at-a-time execution
-- how to show the model's plan in the UI
-- how to repair missing tool calls
-- how to make long tasks less fragile
-- how to keep traces debuggable
-
-For local evals and release checks, see `docs/developer-notes.md`.
-
-## Privacy
-
-By default, the local path talks to Ollama on your machine. Remote providers can be configured in settings. Treat any remote provider as remote execution of the prompt: page snapshots and extracted text may be sent to that provider.
-
-Passwords are masked, but do not ask the agent to operate on sensitive accounts unless you have inspected the trace behavior and trust the configured model backend.
-
-<p align="center">
-  <img src="docs/assets/futter.png" alt="WebOperator" />
-</p>
+</div>

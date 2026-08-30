@@ -1,6 +1,12 @@
 import type { CSMessage, CSResponse, SWEvent, SWMessage } from './types';
+import type { AgentPortHost } from './port-channel';
 
 const localEventListeners = new Set<(evt: SWEvent) => void>();
+let globalPortHost: AgentPortHost | null = null;
+
+export function registerPortHost(host: AgentPortHost): void {
+  globalPortHost = host;
+}
 
 export async function sendToSW<R>(msg: SWMessage): Promise<R> {
   const res = await chrome.runtime.sendMessage(msg) as R | { error?: string };
@@ -34,6 +40,9 @@ export function broadcastEvent(evt: SWEvent): void {
   for (const listener of localEventListeners) {
     try { listener(evt); } catch {}
   }
+  if (globalPortHost) {
+    try { globalPortHost.broadcastEvent(evt); } catch {}
+  }
   chrome.runtime.sendMessage(evt).catch(() => {});
 }
 
@@ -41,6 +50,7 @@ export function onLocalSWEvent(cb: (evt: SWEvent) => void): () => void {
   localEventListeners.add(cb);
   return () => localEventListeners.delete(cb);
 }
+
 
 export async function ensureContentScript(tabId: number): Promise<void> {
   if (await canReachContentScript(tabId)) return;
@@ -61,12 +71,13 @@ export async function ensureContentScript(tabId: number): Promise<void> {
 
 async function canReachContentScript(tabId: number): Promise<boolean> {
   try {
-    await chrome.tabs.sendMessage(tabId, { kind: 'snapshot:take' });
-    return true;
+    const res = await chrome.tabs.sendMessage(tabId, { kind: 'ping' });
+    return Boolean(res && typeof res === 'object' && 'kind' in res && res.kind === 'ok');
   } catch {
     return false;
   }
 }
+
 
 function isMissingReceiverError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);

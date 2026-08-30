@@ -20,6 +20,7 @@ export interface OllamaChatOptions {
   thinking?: boolean;
   images?: string[];
   visualTokens?: number;
+  numCtx?: number;
   signal?: AbortSignal;
   onUpdate?: (partial: { content: string; thinking?: string }) => void;
 }
@@ -34,6 +35,15 @@ export interface OllamaChatResult {
   evalCount?: number;
 }
 
+export function resolveNumCtx(model: string, requestedCtx?: number): number {
+  if (requestedCtx && requestedCtx >= 4096) return requestedCtx;
+  const lower = (model || '').toLowerCase();
+  if (lower.includes('qwen') || lower.includes('llama3') || lower.includes('deepseek') || lower.includes('mistral')) {
+    return 16384;
+  }
+  return 8192;
+}
+
 export async function chat(opts: OllamaChatOptions): Promise<OllamaChatResult> {
   const startedAt = Date.now();
   const messages = opts.messages.map((m) => {
@@ -43,6 +53,8 @@ export async function chat(opts: OllamaChatOptions): Promise<OllamaChatResult> {
     return m;
   });
 
+  const numCtx = resolveNumCtx(opts.model, opts.numCtx);
+
   const body = {
     model: opts.model,
     messages,
@@ -50,8 +62,8 @@ export async function chat(opts: OllamaChatOptions): Promise<OllamaChatResult> {
     tools: AGENT_TOOLS,
     think: opts.thinking ?? false,
     options: {
-      temperature: 0.2,
-      num_ctx: 8192,
+      temperature: 0.1,
+      num_ctx: numCtx,
       ...(opts.visualTokens ? { num_image_tokens: opts.visualTokens } : {}),
     },
   };
@@ -60,41 +72,56 @@ export async function chat(opts: OllamaChatOptions): Promise<OllamaChatResult> {
   const timeoutId = setTimeout(() => timeoutController.abort(new Error('LLM Request Timeout')), 120_000); // 2 min timeout
   const signal = opts.signal ? AbortSignal.any([opts.signal, timeoutController.signal]) : timeoutController.signal;
 
+  const targetUrl = normalizeOllamaUrl(opts.url);
+  if (!targetUrl) {
+    throw new OllamaError('Ollama URL is empty. Check settings.');
+  }
+
   try {
-    const res = await fetch(`${trimTrailing(opts.url)}/api/chat`, {
+    const res = await fetch(`${targetUrl}/api/chat`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
       signal,
     });
 
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      const hint = res.status === 403
+        ? ' Allow the extension origin in Ollama: restart Ollama with OLLAMA_ORIGINS="chrome-extension://*,http://localhost:*".'
+        : '';
+      throw new OllamaError(`Ollama ${res.status}: ${text || res.statusText}${hint}`, res.status);
+    }
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    const hint = res.status === 403
-      ? ' Allow the extension origin in Ollama: restart Ollama with OLLAMA_ORIGINS="chrome-extension://*,http://localhost:*".'
-      : '';
-    throw new OllamaError(`Ollama ${res.status}: ${text || res.statusText}${hint}`, res.status);
-  }
+    if (opts.onUpdate) return await readStreamingResponse(res, opts, startedAt);
 
-  if (opts.onUpdate) return readStreamingResponse(res, opts, startedAt);
+    const data = await res.json() as Record<string, unknown>;
+    const msg = (data.message ?? {}) as { content?: unknown; thinking?: unknown; tool_calls?: unknown };
+    let content = typeof msg.content === 'string' ? msg.content : '';
+    let thinking = typeof msg.thinking === 'string' ? msg.thinking : undefined;
 
-  const data = await res.json();
-  const msg = data.message ?? {};
-  const content = typeof msg.content === 'string' ? msg.content : '';
-  const nativeToolCall = extractToolCall(msg.tool_calls);
-  const contentToolCall = nativeToolCall ? undefined : extractToolCallFromContent(content);
-  const toolCall = nativeToolCall ?? contentToolCall;
+    // Separate inline <think> tags if model returned reasoning in content
+    if (!thinking && content.includes('<think>')) {
+      const thinkMatch = content.match(/<think>([\s\S]*?)(?:<\/think>|$)/);
+      if (thinkMatch) {
+        thinking = thinkMatch[1].trim();
+        content = content.replace(/<think>[\s\S]*?(?:<\/think>|$)/, '').trim();
+      }
+    }
 
-  return {
-    content,
-    thinking: typeof msg.thinking === 'string' ? msg.thinking : undefined,
-    toolCall,
-    toolCallSource: nativeToolCall ? 'native' : contentToolCall ? 'content' : undefined,
-    model: data.model ?? opts.model,
-    totalMs: Date.now() - startedAt,
-    evalCount: data.eval_count,
-  };
+    const nativeToolCall = extractToolCall(msg.tool_calls);
+    const contentToolCall = nativeToolCall ? undefined : extractToolCallFromContent(content);
+    const toolCall = nativeToolCall ?? contentToolCall;
+
+    return {
+      content,
+      thinking,
+      toolCall,
+      toolCallSource: nativeToolCall ? 'native' : contentToolCall ? 'content' : undefined,
+      model: typeof data.model === 'string' ? data.model : opts.model,
+      totalMs: Date.now() - startedAt,
+      evalCount: typeof data.eval_count === 'number' ? data.eval_count : undefined,
+    };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -111,6 +138,24 @@ async function readStreamingResponse(res: Response, opts: OllamaChatOptions, sta
   let lastModel = opts.model;
   let lastToolCalls: unknown;
   let evalCount: number | undefined;
+  let lastUpdateTime = 0;
+
+  const emitUpdate = (force = false) => {
+    const now = Date.now();
+    if (force || now - lastUpdateTime >= 40) {
+      lastUpdateTime = now;
+      let effectiveContent = content;
+      let effectiveThinking = thinking;
+      if (!effectiveThinking && effectiveContent.includes('<think>')) {
+        const thinkMatch = effectiveContent.match(/<think>([\s\S]*?)(?:<\/think>|$)/);
+        if (thinkMatch) {
+          effectiveThinking = thinkMatch[1].trim();
+          effectiveContent = effectiveContent.replace(/<think>[\s\S]*?(?:<\/think>|$)/, '').trim();
+        }
+      }
+      opts.onUpdate?.({ content: effectiveContent, thinking: effectiveThinking || undefined });
+    }
+  };
 
   while (true) {
     const { done, value } = await reader.read();
@@ -130,7 +175,7 @@ async function readStreamingResponse(res: Response, opts: OllamaChatOptions, sta
       if (msg.tool_calls) lastToolCalls = msg.tool_calls;
       if (typeof (chunk as { model?: string }).model === 'string') lastModel = (chunk as { model: string }).model;
       if (typeof (chunk as { eval_count?: number }).eval_count === 'number') evalCount = (chunk as { eval_count: number }).eval_count;
-      opts.onUpdate?.({ content, thinking: thinking || undefined });
+      emitUpdate(false);
     }
   }
 
@@ -143,12 +188,24 @@ async function readStreamingResponse(res: Response, opts: OllamaChatOptions, sta
     if (msg.tool_calls) lastToolCalls = msg.tool_calls;
   }
 
+  emitUpdate(true);
+
+  let finalContent = content;
+  let finalThinking = thinking || undefined;
+  if (!finalThinking && finalContent.includes('<think>')) {
+    const thinkMatch = finalContent.match(/<think>([\s\S]*?)(?:<\/think>|$)/);
+    if (thinkMatch) {
+      finalThinking = thinkMatch[1].trim();
+      finalContent = finalContent.replace(/<think>[\s\S]*?(?:<\/think>|$)/, '').trim();
+    }
+  }
+
   const nativeToolCall = extractToolCall(lastToolCalls);
-  const contentToolCall = nativeToolCall ? undefined : extractToolCallFromContent(content);
+  const contentToolCall = nativeToolCall ? undefined : extractToolCallFromContent(finalContent);
 
   return {
-    content,
-    thinking: thinking || undefined,
+    content: finalContent,
+    thinking: finalThinking,
     toolCall: nativeToolCall ?? contentToolCall,
     toolCallSource: nativeToolCall ? 'native' : contentToolCall ? 'content' : undefined,
     model: lastModel,
@@ -176,44 +233,72 @@ function stripCodeFence(content: string): string {
   return match ? match[1].trim() : content;
 }
 
-function extractToolCall(calls: unknown): ToolCall | undefined {
-  if (!Array.isArray(calls) || calls.length === 0) return undefined;
-  const first = calls[0] as { function?: { name?: string; arguments?: unknown } };
-  const name = first?.function?.name;
-  if (!name || !TOOL_NAMES.includes(name)) return undefined;
-  const rawArgs = first.function!.arguments;
-  const args: Record<string, unknown> =
-    typeof rawArgs === 'string' ? safeJson(rawArgs) : (rawArgs as Record<string, unknown>) ?? {};
-  return { name: name as ToolCall['name'], arguments: args };
+function extractToolCall(rawCalls: unknown): ToolCall | undefined {
+  if (!Array.isArray(rawCalls) || rawCalls.length === 0) return undefined;
+  const first = rawCalls[0];
+  if (!first || typeof first !== 'object') return undefined;
+  const fn = (first as { function?: { name?: unknown; arguments?: unknown } }).function;
+  if (!fn || typeof fn.name !== 'string' || !TOOL_NAMES.includes(fn.name)) return undefined;
+
+  let args: Record<string, unknown> = {};
+  if (typeof fn.arguments === 'string') {
+    const parsed = safeJsonAny(fn.arguments);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      args = parsed as Record<string, unknown>;
+    }
+  } else if (fn.arguments && typeof fn.arguments === 'object' && !Array.isArray(fn.arguments)) {
+    args = fn.arguments as Record<string, unknown>;
+  }
+
+  return {
+    name: fn.name as ToolCall['name'],
+    arguments: args,
+  };
 }
 
-function safeJson(raw: string): Record<string, unknown> {
-  try { return JSON.parse(raw); } catch { return {}; }
-}
-
-function safeJsonAny(raw: string): unknown {
-  try { return JSON.parse(raw); } catch { return undefined; }
-}
-
-function trimTrailing(url: string): string {
-  return url.endsWith('/') ? url.slice(0, -1) : url;
+function safeJsonAny(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
 }
 
 export async function ping(url: string, signal?: AbortSignal): Promise<{ ok: boolean; models: string[]; error?: string }> {
+  const targetUrl = normalizeOllamaUrl(url);
+  if (!targetUrl) return { ok: false, models: [], error: 'Ollama URL is empty' };
+
   try {
-    const res = await fetch(`${trimTrailing(url)}/api/tags`, { signal });
-    if (!res.ok) return { ok: false, models: [], error: `HTTP ${res.status}` };
-    const data = await res.json();
-    const models = Array.isArray(data.models) ? data.models.map((m: { name: string }) => m.name) : [];
+    const res = await fetch(`${targetUrl}/api/tags`, { method: 'GET', signal });
+    if (!res.ok) {
+      const hint = res.status === 403
+        ? ' (Ollama origin block: set OLLAMA_ORIGINS="chrome-extension://*,http://localhost:*")'
+        : '';
+      return { ok: false, models: [], error: `HTTP ${res.status}: ${res.statusText}${hint}` };
+    }
+    const data = await res.json() as { models?: Array<{ name?: unknown }> };
+    const models = Array.isArray(data.models)
+      ? data.models.map((m) => (typeof m.name === 'string' ? m.name : '')).filter(Boolean)
+      : [];
     return { ok: true, models };
   } catch (err) {
     return { ok: false, models: [], error: err instanceof Error ? err.message : String(err) };
   }
 }
 
+export function normalizeOllamaUrl(raw: string): string {
+
+  const trimmed = raw.trim().replace(/\/+$/, '');
+  if (!trimmed) return '';
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+  return `http://${trimmed}`;
+}
+
 export class OllamaError extends Error {
-  constructor(message: string, public status?: number) {
+  status?: number;
+  constructor(message: string, status?: number) {
     super(message);
     this.name = 'OllamaError';
+    this.status = status;
   }
 }

@@ -11,16 +11,26 @@ import {
   saveScheduledTask,
   saveSettings,
   saveTask,
+  saveStep,
   listTasks,
   getTask,
   loadSteps,
   updateScheduledTask,
   db,
+  getSessionState,
+  updateSessionState,
+  getCustomSkills,
+  saveCustomSkill,
+  deleteCustomSkill,
 } from '@/lib/storage';
+
 import { clearCache } from '@/lib/action-cache';
-import { ensureContentScript } from '@/lib/messaging';
-import { onLocalSWEvent } from '@/lib/messaging';
-import type { AgentStep, AgentTask, ScheduledTask, SWEvent, SWMessage, ToolCall } from '@/lib/types';
+import { broadcastEvent, ensureContentScript, onLocalSWEvent, registerPortHost } from '@/lib/messaging';
+
+import { AgentPortHost } from '@/lib/port-channel';
+import type { ActionResult, AgentStep, AgentTask, ScheduledTask, SWEvent, SWMessage, ToolCall } from '@/lib/types';
+import { solveCaptcha, type CaptchaDetection } from '@/lib/captcha-solver';
+
 
 type Pending = { allow: boolean | null; resolve: (v: boolean) => void };
 type BridgeRequestMessage = { kind?: unknown; type?: unknown; payload?: unknown; id?: unknown };
@@ -31,6 +41,34 @@ const state = {
   pendingConfirms: new Map<string, Pending>(),
   runningSchedules: new Set<string>(),
 };
+
+// Initialize Port Host for resilient Side Panel connection
+const portHost = new AgentPortHost();
+registerPortHost(portHost);
+
+portHost.onMessage((msg, port) => {
+  if (msg.kind === 'session:attach') {
+    if (msg.tabId) {
+      void updateSessionState({ activeTabId: msg.tabId });
+    }
+  } else if (msg.kind === 'sw:message') {
+    handle(msg.message).then((result) => {
+      try {
+        port.postMessage({ type: 'sw:response', result });
+      } catch {}
+    }).catch((err) => {
+      try {
+        port.postMessage({ type: 'sw:response', error: err instanceof Error ? err.message : String(err) });
+      } catch {}
+    });
+  }
+});
+
+// Restore session state on startup
+void getSessionState().then((session) => {
+  for (const id of session.pausedTaskIds) state.paused.add(id);
+  for (const id of session.stoppedTaskIds) state.stopped.add(id);
+});
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => {});
@@ -59,6 +97,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   void runScheduledTask(id);
 });
 
+
 async function handle(msg: SWMessage): Promise<unknown> {
   switch (msg.kind) {
     case 'settings:get': return getSettings();
@@ -75,7 +114,9 @@ async function handle(msg: SWMessage): Promise<unknown> {
     case 'eval:waitTask': return waitForEvalTask(msg.id, msg.timeoutMs);
     case 'eval:clear': return clearEvalTasks();
     case 'task:start': return startTask(msg.goal, msg.tabId);
+    case 'task:resume_checkpoint': return resumeTaskFromCheckpoint(msg.id);
     case 'task:pause': state.paused.add(msg.id); return { ok: true };
+
     case 'task:resume': state.paused.delete(msg.id); return { ok: true };
     case 'task:stop': {
       state.stopped.add(msg.id);
@@ -123,8 +164,12 @@ async function handle(msg: SWMessage): Promise<unknown> {
       void runScheduledTask(msg.id, true);
       return listScheduledTasks();
     }
+    case 'custom_skill:list': return getCustomSkills();
+    case 'custom_skill:save': return saveCustomSkill(msg.skill);
+    case 'custom_skill:delete': await deleteCustomSkill(msg.id); return { ok: true };
     default:
       throw new Error('Unknown message');
+
   }
 }
 
@@ -150,7 +195,47 @@ async function startTask(goal: string, tabId: number, options: { autoConfirm?: b
   return task;
 }
 
+async function resumeTaskFromCheckpoint(taskId: string): Promise<AgentTask> {
+  const task = await getTask(taskId);
+  if (!task) throw new Error(`Task ${taskId} not found`);
+  task.steps = await loadSteps(taskId);
+  task.status = 'running';
+  task.error = undefined;
+  task.updatedAt = Date.now();
+  await saveTask(task);
+
+  let tabId = task.tabId;
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab?.id) throw new Error('Tab closed');
+  } catch {
+    const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (active?.id) tabId = active.id;
+  }
+  task.tabId = tabId;
+  await ensureContentScript(tabId);
+
+  const settings = await getSettings();
+  state.stopped.delete(taskId);
+  state.paused.delete(taskId);
+
+  runTask(task, {
+    settings,
+    shouldConfirm: (t: AgentTask) =>
+      new Promise<boolean>((resolve) => {
+        state.pendingConfirms.set(t.id, { allow: null, resolve });
+      }).finally(() => { state.pendingConfirms.delete(task.id); }),
+    isStopped: (id) => state.stopped.has(id),
+    isPaused: (id) => state.paused.has(id),
+    requestPause: (id) => state.paused.add(id),
+    requestResume: (id) => state.paused.delete(id),
+  }).catch((err) => console.error('[agent] resume checkpoint failed', err));
+
+  return task;
+}
+
 const EVAL_TASK_IDS_KEY = 'evalTaskIds';
+
 
 function assertEvalApiEnabled(): void {
   if (import.meta.env.MODE === 'production') {
@@ -356,6 +441,7 @@ function modelUsedFromSettings(settings: Awaited<ReturnType<typeof getSettings>>
   if (settings.provider === 'openrouter') return settings.openRouterModel;
   if (settings.provider === 'siliconflow') return settings.siliconFlowModel;
   if (settings.provider === 'mlx') return settings.mlxModel;
+  if (settings.provider === 'deepseek') return settings.deepseekModel;
   return undefined;
 }
 
@@ -463,6 +549,93 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+let activeBridgeTask: AgentTask | null = null;
+let lastBridgeActionTime = 0;
+
+function describeToolCall(call: ToolCall): string {
+  const args = call.arguments || {};
+  switch (call.name) {
+    case 'navigate': return `Navigate to ${args.url ?? ''}`;
+    case 'click': return `Click element ${args.ref || args.selector || ''}`;
+    case 'type': return `Type "${args.text ?? ''}" into ${args.ref || 'field'}`;
+    case 'press': return `Press key "${args.key ?? 'Enter'}"`;
+    case 'scroll': return `Scroll ${args.direction ?? 'down'} (${args.amountPx ?? 500}px)`;
+    case 'extract': return `Extract page content`;
+    default: return `${call.name}`;
+  }
+}
+
+async function recordBridgeActionStep(
+  tabId: number,
+  toolCall: ToolCall,
+  goalHint: string,
+  executeFn: () => Promise<unknown>
+): Promise<unknown> {
+  const now = Date.now();
+  const settings = await getSettings();
+
+  if (!activeBridgeTask || activeBridgeTask.tabId !== tabId || now - lastBridgeActionTime > 60_000) {
+    activeBridgeTask = createAgentTask(goalHint, tabId, settings);
+    activeBridgeTask.status = 'running';
+    activeBridgeTask.steps = [];
+    await saveTask(activeBridgeTask);
+    broadcastEvent({ kind: 'task:update', task: activeBridgeTask });
+  } else {
+    activeBridgeTask.updatedAt = now;
+    activeBridgeTask.status = 'running';
+    await saveTask(activeBridgeTask);
+    broadcastEvent({ kind: 'task:update', task: activeBridgeTask });
+  }
+
+  lastBridgeActionTime = now;
+  const startTime = Date.now();
+  let stepResult: unknown = null;
+  let stepError: string | undefined = undefined;
+
+  try {
+    stepResult = await executeFn();
+    return stepResult;
+  } catch (err: unknown) {
+    stepError = err instanceof Error ? err.message : String(err);
+    throw err;
+  } finally {
+    const durationMs = Date.now() - startTime;
+    const actionResult: ActionResult = {
+      ok: !stepError,
+      error: stepError,
+      durationMs,
+      extracted: isRecord(stepResult) && 'extracted' in stepResult ? stepResult.extracted : undefined,
+    };
+
+    const stepIndex = (activeBridgeTask.steps?.length ?? 0) + 1;
+    const step: AgentStep = {
+      id: crypto.randomUUID(),
+      index: stepIndex,
+
+      status: stepError ? 'fail' : 'ok',
+      startedAt: startTime,
+      finishedAt: Date.now(),
+      thinking: `External Agent: ${describeToolCall(toolCall)}`,
+      toolCall,
+      result: actionResult,
+      note: stepError ? `Error: ${stepError}` : undefined,
+    };
+
+
+    activeBridgeTask.steps = [...(activeBridgeTask.steps ?? []), step];
+    activeBridgeTask.status = stepError ? 'failed' : 'done';
+    activeBridgeTask.error = stepError;
+    activeBridgeTask.updatedAt = Date.now();
+
+    await saveStep(activeBridgeTask.id, step);
+    await saveTask(activeBridgeTask);
+
+    broadcastEvent({ kind: 'task:step', taskId: activeBridgeTask.id, step });
+    broadcastEvent({ kind: 'task:update', task: activeBridgeTask });
+  }
+
+}
+
 async function executeBridgeRequest(type: string, payload: Record<string, unknown>) {
   switch (type) {
     case 'browser.snapshot': {
@@ -481,9 +654,12 @@ async function executeBridgeRequest(type: string, payload: Record<string, unknow
       const tabId = await activeTabIdFromPayload(payload);
       const url = String(payload.url ?? '');
       if (!url) throw new Error('Missing url');
-      await chrome.tabs.update(tabId, { url });
-      await waitForTabComplete(tabId);
-      return { ok: true, tabId, url };
+      const action: ToolCall = { name: 'navigate', arguments: { url } };
+      return recordBridgeActionStep(tabId, action, `External Agent: Navigate to ${url}`, async () => {
+        await chrome.tabs.update(tabId, { url });
+        await waitForTabComplete(tabId);
+        return { ok: true, tabId, url };
+      });
     }
     case 'browser.click':
     case 'browser.type':
@@ -493,8 +669,19 @@ async function executeBridgeRequest(type: string, payload: Record<string, unknow
       const tabId = await activeTabIdFromPayload(payload);
       await ensureContentScript(tabId);
       const action = bridgePayloadToToolCall(type, payload);
-      const resp = await chrome.tabs.sendMessage(tabId, { kind: 'action:run', action });
-      return resp;
+      return recordBridgeActionStep(tabId, action, `External Agent: ${describeToolCall(action)}`, async () => {
+        const resp = await chrome.tabs.sendMessage(tabId, { kind: 'action:run', action });
+        return resp;
+      });
+    }
+    case 'browser.solve_captcha': {
+      const tabId = await activeTabIdFromPayload(payload);
+      const captchaType = typeof payload.type === 'string' ? (payload.type as CaptchaDetection['type']) : undefined;
+      const action: ToolCall = { name: 'solve_captcha', arguments: { type: captchaType } };
+      return recordBridgeActionStep(tabId, action, 'External Agent: solve_captcha', async () => {
+        const res = await solveCaptcha(tabId, captchaType);
+        return { ok: res.success, message: res.message, type: res.type };
+      });
     }
     case 'tasks.list':
       return listTasks();
@@ -507,7 +694,7 @@ async function executeBridgeRequest(type: string, payload: Record<string, unknow
       return task;
     }
     case 'tasks.start': {
-      const goal = String(payload.goal ?? '');
+      const goal = String(payload.goal ?? payload.prompt ?? '');
       if (!goal) throw new Error('Missing goal');
       let tabId = payload.tabId ? Number(payload.tabId) : undefined;
       const startUrl = payload.startUrl ? String(payload.startUrl) : '';
@@ -561,10 +748,19 @@ async function activeTabFromPayload(payload: Record<string, unknown>): Promise<c
     if (!tab?.id) throw new Error(`Tab not found: ${payload.tabId}`);
     return tab;
   }
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  let [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (!tab?.id) {
+    const tabs = await chrome.tabs.query({ active: true });
+    tab = tabs[0];
+  }
+  if (!tab?.id) {
+    const allTabs = await chrome.tabs.query({});
+    tab = allTabs.find((t) => !t.url?.startsWith('chrome-extension://')) || allTabs[0];
+  }
   if (!tab?.id) throw new Error('No active tab');
   return tab;
 }
+
 
 async function activeTabIdFromPayload(payload: Record<string, unknown>): Promise<number> {
   const tab = await activeTabFromPayload(payload);
@@ -573,14 +769,21 @@ async function activeTabIdFromPayload(payload: Record<string, unknown>): Promise
 }
 
 function bridgePayloadToToolCall(type: string, payload: Record<string, unknown>): ToolCall {
+  const resolveRef = () => {
+    if (payload.ref !== undefined && payload.ref !== '') return String(payload.ref);
+    if (payload.index !== undefined && payload.index !== '') return `@${payload.index}`;
+    if (payload.selector !== undefined && payload.selector !== '') return String(payload.selector);
+    return '';
+  };
+
   if (type === 'browser.click') {
-    return { name: 'click', arguments: { ref: String(payload.ref ?? ''), reason: String(payload.reason ?? 'external api') } };
+    return { name: 'click', arguments: { ref: resolveRef(), reason: String(payload.reason ?? 'external api') } };
   }
   if (type === 'browser.type') {
     return {
       name: 'type',
       arguments: {
-        ref: String(payload.ref ?? ''),
+        ref: resolveRef(),
         text: String(payload.text ?? ''),
         mode: String(payload.mode ?? 'replace'),
         submit: String(payload.submit ?? 'false'),
@@ -593,7 +796,7 @@ function bridgePayloadToToolCall(type: string, payload: Record<string, unknown>)
       arguments: {
         key: String(payload.key ?? 'Enter'),
         modifiers: String(payload.modifiers ?? ''),
-        ...(payload.ref ? { ref: String(payload.ref) } : {}),
+        ...(resolveRef() ? { ref: resolveRef() } : {}),
       },
     };
   }
@@ -603,15 +806,16 @@ function bridgePayloadToToolCall(type: string, payload: Record<string, unknown>)
       arguments: {
         direction: String(payload.direction ?? 'down'),
         amountPx: typeof payload.amountPx === 'number' ? payload.amountPx : Number(payload.amount ?? 500),
-        ...(payload.ref ? { ref: String(payload.ref) } : {}),
+        ...(resolveRef() ? { ref: resolveRef() } : {}),
       },
     };
   }
   if (type === 'browser.extract') {
-    return { name: 'extract', arguments: { refs: String(payload.refs ?? '') } };
+    return { name: 'extract', arguments: { refs: resolveRef() || String(payload.refs ?? '') } };
   }
   throw new Error(`Unsupported browser action: ${type}`);
 }
+
 
 async function waitForTask(id: string, timeoutMs: number): Promise<AgentTask | null> {
   const startedAt = Date.now();

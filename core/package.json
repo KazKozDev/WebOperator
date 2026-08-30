@@ -1,8 +1,9 @@
 {
   "name": "weboperator",
-  "version": "1.2.0",
+  "version": "1.4.0",
   "private": true,
-  "description": "Chrome Browser Agent",
+
+  "description": "AI browser agent and MCP server for Chrome automation",
   "type": "module",
   "scripts": {
     "dev": "vite build --watch --mode development",
@@ -19,6 +20,7 @@
     "eval:repeat": "node ../scripts/eval-repeat.mjs"
   },
   "dependencies": {
+    "@xenova/transformers": "^2.17.2",
     "dexie": "^4.0.8",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

@@ -7,10 +7,19 @@ export const PROFILE_TO_MODEL: Record<ModelProfile, string> = {
   quality: 'gemma4:31b',
 };
 
+/** Resolve the Ollama model: a non-empty free-text override wins over the profile mapping. */
+export function resolveOllamaModel(ollamaModelOverride?: string, profileModel?: string): string {
+  const override = ollamaModelOverride?.trim();
+  return override || profileModel || 'qwen2.5-vl:7b';
+}
+
+
 export type VisualTokenBudget = 70 | 140 | 280 | 560 | 1120;
 
 export interface Settings {
   ollamaUrl: string;
+  /** Free-text override. When non-empty, used as the Ollama model instead of the profile mapping (supports any pulled model, e.g. MLX models served by Ollama). */
+  ollamaModel: string;
   profile: ModelProfile;
   planningProfile: ModelProfile | 'same';
   thinkingPolicy: 'auto' | 'always' | 'never';
@@ -27,9 +36,11 @@ export interface Settings {
   // destroys SPA state, filled forms, and scroll position the user may want
   // the agent to act on.
   resetPageOnStart: boolean;
-  provider: 'ollama' | 'openai' | 'gemini' | 'xai' | 'openrouter' | 'siliconflow' | 'mlx';
+  provider: 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'xai' | 'openrouter' | 'siliconflow' | 'mlx' | 'deepseek';
   openaiApiKey: string;
   openaiModel: string;
+  anthropicApiKey: string;
+  anthropicModel: string;
   geminiApiKey: string;
   geminiModel: string;
   xaiApiKey: string;
@@ -40,15 +51,36 @@ export interface Settings {
   siliconFlowModel: string;
   mlxApiKey: string;
   mlxModel: string;
+  deepseekApiKey: string;
+  deepseekModel: string;
+  /** Smart context compression for long tasks. 'off' = deterministic only; 'same' = compress folded history with the active model; 'cloud' = use DeepSeek/Gemini if a key is set. */
+  contextCompressor: 'off' | 'same' | 'cloud';
   enabledSkills: SkillId[];
   autoSkills: boolean;
   autoResumeTimeoutMs: number;
 }
 
+export type SkillRisk = 'safe' | 'medium' | 'high';
+
+export interface CustomSkillDefinition {
+  id: string;
+  name: string;
+  summary: string;
+  risk: SkillRisk;
+  domains: string[];
+  keywords: string[];
+  prompt: string;
+  isCustom?: boolean;
+  enabled?: boolean;
+  createdAt: number;
+}
+
 export type SkillId = string;
+
 
 export const DEFAULT_SETTINGS: Settings = {
   ollamaUrl: 'http://127.0.0.1:11434',
+  ollamaModel: '',
   profile: 'fast',
   planningProfile: 'same',
   thinkingPolicy: 'auto',
@@ -59,19 +91,18 @@ export const DEFAULT_SETTINGS: Settings = {
   whitelist: [],
   blacklist: [],
   confirmKeywords: [
-    'delete', 'remove', 'pay', 'submit', 'purchase', 'buy',
-    'post', 'tweet', 'reply', 'repost', 'retweet', 'like', 'follow', 'unfollow',
-    'publish', 'unpublish', 'story', 'send', 'comment', 'save',
-    'удалить', 'оплатить', 'отправить', 'купить', 'заказать',
-    'пост', 'твит', 'ответить', 'репост', 'лайк', 'подписаться', 'отписаться',
-    'опубликовать', 'публикация', 'снять с публикации', 'комментарий', 'сохранить',
+    'delete', 'remove', 'pay', 'purchase', 'buy', 'checkout',
+    'удалить', 'оплатить', 'купить', 'оформить заказ',
   ],
+
   useActionCache: true,
   cacheTtlDays: 30,
   resetPageOnStart: false,
   provider: 'ollama',
   openaiApiKey: '',
   openaiModel: '',
+  anthropicApiKey: '',
+  anthropicModel: 'claude-3-7-sonnet-20250219',
   geminiApiKey: '',
   geminiModel: 'gemini-2.5-flash',
   xaiApiKey: '',
@@ -82,12 +113,17 @@ export const DEFAULT_SETTINGS: Settings = {
   siliconFlowModel: '',
   mlxApiKey: '',
   mlxModel: '',
+  deepseekApiKey: '',
+  deepseekModel: 'deepseek-v4-flash',
+  contextCompressor: 'off',
   enabledSkills: [],
   autoSkills: true,
   autoResumeTimeoutMs: 30_000,
 };
 
-export const SETTINGS_VERSION = 12;
+
+export const SETTINGS_VERSION = 16;
+
 
 export type A11yRole =
   | 'button' | 'link' | 'textbox' | 'searchbox' | 'combobox'
@@ -124,7 +160,11 @@ export type AgentActionName =
   | 'paste_table' | 'fill_cells' | 'select_cell' | 'set_cell'
   | 'define_sheet_contract' | 'read_cells'
   | 'fill_login_credentials'
+  | 'solve_captcha'
+  | 'read_downloaded_file'
   | 'start_subtask' | 'finish_subtask' | 'fail_subtask' | 'update_task_memory';
+
+
 
 export interface ToolCall {
   name: AgentActionName;
@@ -209,6 +249,20 @@ export const PROFILE_LATENCY_MULT: Record<ModelProfile, number> = {
 
 export type TaskStatus = 'idle' | 'planning' | 'running' | 'paused' | 'done' | 'failed' | 'awaiting_confirm';
 
+/**
+ * Why a task is sitting in `paused`. `bot_challenge` means the page put up a
+ * verification challenge and the agent handed control back: the person solves
+ * it in the live tab and presses Resume. The agent does not attempt to defeat
+ * the challenge itself.
+ */
+export interface TaskPauseReason {
+  kind: 'bot_challenge';
+  url: string;
+  title: string;
+  note: string;
+  since: number;
+}
+
 export interface AgentTask {
   id: string;
   goal: string;
@@ -223,6 +277,7 @@ export interface AgentTask {
   provider?: Settings['provider'];
   modelUsed?: string;
   error?: string;
+  pauseReason?: TaskPauseReason;
 }
 
 export type ScheduleRepeat = 'once' | 'hourly' | 'daily' | 'weekly';
@@ -250,7 +305,9 @@ export type SWMessage =
   | { kind: 'task:resume'; id: string }
   | { kind: 'task:stop'; id: string }
   | { kind: 'task:confirm'; id: string; allow: boolean }
+  | { kind: 'task:resume_checkpoint'; id: string }
   | { kind: 'settings:get' }
+
   | { kind: 'settings:update'; patch: Partial<Settings> }
   | { kind: 'task:list' }
   | { kind: 'task:get'; id: string }
@@ -268,7 +325,11 @@ export type SWMessage =
   | { kind: 'schedule:set'; entry: Omit<ScheduledTask, 'id' | 'createdAt' | 'updatedAt'> & { id?: string } }
   | { kind: 'schedule:delete'; id: string }
   | { kind: 'schedule:run'; id: string }
-  | { kind: 'schedule:toggle'; id: string; enabled: boolean };
+  | { kind: 'schedule:toggle'; id: string; enabled: boolean }
+  | { kind: 'custom_skill:list' }
+  | { kind: 'custom_skill:save'; skill: Omit<CustomSkillDefinition, 'id' | 'createdAt'> & { id?: string } }
+  | { kind: 'custom_skill:delete'; id: string };
+
 
 export type SWEvent =
   | { kind: 'task:update'; task: AgentTask }
@@ -277,6 +338,7 @@ export type SWEvent =
   | { kind: 'skills:detected'; taskId: string; skills: { id: SkillId; reason: string; auto: boolean }[] };
 
 export type CSMessage =
+  | { kind: 'ping' }
   | { kind: 'snapshot:take'; options?: { allElements?: boolean } }
   | { kind: 'action:run'; action: ToolCall }
   | { kind: 'overlay:show'; refs: string[] }
@@ -284,6 +346,7 @@ export type CSMessage =
   | { kind: 'agent-glow:set'; active: boolean }
   | { kind: 'som:render'; snapshot: A11ySnapshot }
   | { kind: 'som:clear' };
+
 
 export type CSResponse =
   | { kind: 'snapshot'; snapshot: A11ySnapshot }

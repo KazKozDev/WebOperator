@@ -1,0 +1,14 @@
+{
+  "name": "hermes-weboperator",
+  "version": "1.4.0",
+  "description": "Hermes Agent MCP harness configuration for WebOperator browser control",
+  "mcpServers": {
+    "weboperator": {
+      "command": "node",
+      "args": ["weboperator-bridge/mcp-server.js"],
+      "env": {
+        "WEBOPERATOR_AGENT_SOCKET": "/tmp/weboperator-bridge.sock"
+      }
+    }
+  }
+}

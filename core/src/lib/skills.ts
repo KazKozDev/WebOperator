@@ -1,4 +1,5 @@
-import type { SkillId } from './types';
+import type { CustomSkillDefinition, SkillId } from './types';
+
 
 export type SkillRisk = 'safe' | 'medium' | 'high';
 
@@ -23,6 +24,8 @@ export const BUILT_IN_SKILLS: SkillDefinition[] = [
       'fill', 'form', 'register', 'signup', 'survey', 'application',
       'pdf', 'document', 'checkbox', 'radio', 'dropdown',
       'enter', 'input', 'fields',
+      'заполни', 'заполнить', 'форма', 'форму', 'регистрация', 'анкета',
+      'документ', 'поле', 'введи',
     ],
     prompt: `[SKILL: form-filler]
 You are filling out a form or PDF. Follow these rules:
@@ -40,7 +43,7 @@ You are filling out a form or PDF. Follow these rules:
     domains: ['*'],
     keywords: [
       'login', 'log in', 'sign in', 'authenticate', 'credentials',
-      'войти', 'логин', 'пароль', 'авторизация',
+      'войти', 'логин', 'пароль', 'авторизация', 'авторизуйся', 'вход',
     ],
     prompt: `[SKILL: login-assistant]
 You are handling a login flow. Follow these rules:
@@ -57,6 +60,8 @@ You are handling a login flow. Follow these rules:
     domains: ['*'],
     keywords: [
       'extract', 'scrape', 'collect', 'data', 'table', 'list', 'prices',
+      'извлеки', 'извлечь', 'собери', 'собрать', 'спарси', 'парсинг', 'данные',
+      'список', 'цены', 'таблица', 'выгрузи',
     ],
     prompt: `[SKILL: data-extractor]
 You are extracting data from a page. Follow these rules:
@@ -73,7 +78,8 @@ You are extracting data from a page. Follow these rules:
     risk: 'safe',
     domains: ['docs.google.com', 'sheets.google.com'],
     keywords: [
-      'google sheets', 'sheets', 'spreadsheet', 'таблица',
+      'google sheets', 'sheets', 'spreadsheet', 'таблица', 'таблицу', 'гугл таблицы',
+      'таблицы', 'эксель', 'excel',
     ],
     prompt: `[SKILL: google-sheets]
 You are working in Google Sheets. Follow these rules:
@@ -90,7 +96,10 @@ You are working in Google Sheets. Follow these rules:
     summary: 'Read, search, and compose emails',
     risk: 'medium',
     domains: ['mail.google.com', 'outlook.live.com', 'outlook.office.com'],
-    keywords: ['email', 'inbox', 'gmail', 'compose', 'forward', 'reply'],
+    keywords: [
+      'email', 'inbox', 'gmail', 'compose', 'forward', 'reply',
+      'почта', 'письмо', 'напиши письмо', 'мейл', 'ответь на почту',
+    ],
     prompt: `[SKILL: emailer]
 You are working with email. Follow these rules:
 1. Compose: fill To, Subject, Body. Wait for confirmation before Send.
@@ -105,7 +114,11 @@ You are working with email. Follow these rules:
     summary: 'Multi-step web research across sources',
     risk: 'safe',
     domains: ['*'],
-    keywords: ['research', 'compare', 'analyze', 'review', 'find information'],
+    keywords: [
+      'research', 'compare', 'analyze', 'review', 'find information',
+      'исследуй', 'исследование', 'сравни', 'сравнить', 'проанализируй',
+      'найди информацию', 'поищи информацию',
+    ],
     prompt: `[SKILL: researcher]
 You are researching a topic. Follow these rules:
 1. Start with a search engine. Open results in new tabs with open_tab — keep search page open.
@@ -119,7 +132,10 @@ You are researching a topic. Follow these rules:
     summary: 'Find products, compare prices, add to cart',
     risk: 'medium',
     domains: ['*'],
-    keywords: ['buy', 'shop', 'cart', 'order', 'store', 'price', 'checkout'],
+    keywords: [
+      'buy', 'shop', 'cart', 'order', 'store', 'price', 'checkout',
+      'купи', 'купить', 'корзина', 'в корзину', 'магазин', 'цена', 'заказ', 'заказать',
+    ],
     prompt: `[SKILL: shopping]
 You are shopping online. Follow these rules:
 1. Search for the product, compare listings by price and rating.
@@ -134,7 +150,10 @@ You are shopping online. Follow these rules:
     summary: 'Post to Twitter/X, LinkedIn',
     risk: 'high',
     domains: ['x.com', 'twitter.com', 'linkedin.com'],
-    keywords: ['tweet', 'post', 'publish', 'retweet', 'comment', 'reply', 'twitter', 'linkedin'],
+    keywords: [
+      'tweet', 'post', 'publish', 'retweet', 'comment', 'reply', 'twitter', 'linkedin',
+      'твит', 'твиттер', 'пост', 'опубликуй', 'комментарий',
+    ],
     prompt: `[SKILL: social-poster]
 You are posting on social media. Follow these rules:
 1. NEVER post, tweet, reply, like, or follow without explicit confirmation for EACH action.
@@ -150,7 +169,8 @@ You are posting on social media. Follow these rules:
     domains: ['*'],
     keywords: [
       'tab', 'tabs', 'new tab', 'open tab', 'switch tab', 'group tabs',
-      'close tabs', 'bookmark', 'вкладка', 'вкладки',
+      'close tabs', 'bookmark', 'вкладка', 'вкладки', 'открой вкладку',
+      'закрой вкладки', 'сгруппируй', 'закладка',
     ],
     prompt: `[SKILL: tab-manager]
 You are managing browser tabs. Follow these rules:
@@ -166,7 +186,10 @@ You are managing browser tabs. Follow these rules:
     summary: 'Download files from pages',
     risk: 'medium',
     domains: ['*'],
-    keywords: ['download', 'file', 'pdf', 'image', 'document', 'save', 'export'],
+    keywords: [
+      'download', 'file', 'pdf', 'image', 'document', 'save', 'export',
+      'скачай', 'скачать', 'файл', 'загрузи', 'сохрани файл', 'экспорт',
+    ],
     prompt: `[SKILL: file-downloader]
 You are downloading files. Follow these rules:
 1. Identify download links, check file extensions.
@@ -175,6 +198,7 @@ You are downloading files. Follow these rules:
 4. Goal: all requested files queued. Verify: correct file types, sizes reported, no executables downloaded.`,
   },
 ];
+
 
 export interface SkillMeta {
   abbr: string;
@@ -193,24 +217,27 @@ export const SKILL_META: Record<SkillId, SkillMeta> = {
   'file-downloader': { abbr: 'DL' },
 };
 
-// ── Classifier ──
+import { SemanticRouter } from './semantic-router';
+
 export interface ClassifiedSkill {
   id: SkillId;
   reason: string;
-  auto: boolean;    // was auto-detected vs manually enabled
+  auto: boolean;
 }
 
-export function classifyTask(goal: string): ClassifiedSkill[] {
-  const lower = goal.toLowerCase();
-  const results: ClassifiedSkill[] = [];
+export function classifyTask(goal: string, customSkills: CustomSkillDefinition[] = []): ClassifiedSkill[] {
 
-  for (const skill of BUILT_IN_SKILLS) {
-    // High-risk skills are NEVER auto-enabled
+  const lower = goal.toLowerCase();
+  const results = new Map<SkillId, ClassifiedSkill>();
+  const allSkills = [...BUILT_IN_SKILLS, ...customSkills.filter((cs) => cs.enabled !== false)];
+
+  // 1. Stage 1: Fast keyword matches
+  for (const skill of allSkills) {
     if (skill.risk === 'high') continue;
 
-    const matched = skill.keywords.filter((kw) => lower.includes(kw.toLowerCase()));
+    const matched = skill.keywords.filter((kw) => kw && lower.includes(kw.toLowerCase()));
     if (matched.length > 0) {
-      results.push({
+      results.set(skill.id, {
         id: skill.id,
         reason: `matched: ${matched.slice(0, 2).join(', ')}`,
         auto: true,
@@ -218,17 +245,56 @@ export function classifyTask(goal: string): ClassifiedSkill[] {
     }
   }
 
-  return results;
+  // 2. Stage 2: Semantic vector router for synonyms, paraphrasing and semantic concepts
+  const dynamicRouter = new SemanticRouter(
+    allSkills.map((skill) => ({
+      id: skill.id,
+      text: `${skill.name} ${skill.summary} ${skill.keywords.join(' ')} ${skill.prompt}`,
+    }))
+  );
+
+  const semanticMatches = dynamicRouter.query(goal, 0.22);
+  for (const match of semanticMatches) {
+    const skill = getSkill(match.id, customSkills);
+    if (!skill || skill.risk === 'high') continue;
+    if (!results.has(skill.id)) {
+      results.set(skill.id, {
+        id: skill.id,
+        reason: `semantic vector match (${match.score})`,
+        auto: true,
+      });
+    }
+  }
+
+  return Array.from(results.values());
 }
 
-export function getSkill(id: SkillId): SkillDefinition | undefined {
+export async function classifyTaskNeural(goal: string, customSkills: CustomSkillDefinition[] = []): Promise<ClassifiedSkill[]> {
+  const syncResults = classifyTask(goal, customSkills);
+  try {
+    const { classifyWithHuggingFace } = await import('./hf-classifier');
+    const hfResults = await classifyWithHuggingFace(goal);
+    const map = new Map<SkillId, ClassifiedSkill>();
+    for (const r of syncResults) map.set(r.id, r);
+    for (const r of hfResults) {
+      if (!map.has(r.id)) map.set(r.id, r);
+    }
+    return Array.from(map.values());
+  } catch {
+    return syncResults;
+  }
+}
+
+export function getSkill(id: SkillId, customSkills: CustomSkillDefinition[] = []): SkillDefinition | CustomSkillDefinition | undefined {
+  const custom = customSkills.find((s) => s.id === id);
+  if (custom) return custom;
   return BUILT_IN_SKILLS.find((s) => s.id === id);
 }
 
-export function skillPrompts(ids: SkillId[]): string {
+export function skillPrompts(ids: SkillId[], customSkills: CustomSkillDefinition[] = []): string {
   const prompts: string[] = [];
   for (const id of ids) {
-    const skill = getSkill(id);
+    const skill = getSkill(id, customSkills);
     if (skill) {
       prompts.push(skill.prompt);
     }
@@ -236,10 +302,11 @@ export function skillPrompts(ids: SkillId[]): string {
   return prompts.join('\n\n');
 }
 
-export function enabledSkillPrompts(ids: SkillId[]): string {
-  return skillPrompts(ids);
+export function enabledSkillPrompts(ids: SkillId[], customSkills: CustomSkillDefinition[] = []): string {
+  return skillPrompts(ids, customSkills);
 }
 
-export function isKnownSkill(id: string): id is SkillId {
-  return BUILT_IN_SKILLS.some((skill) => skill.id === id);
+export function isKnownSkill(id: string, customSkills: CustomSkillDefinition[] = []): id is SkillId {
+  return BUILT_IN_SKILLS.some((skill) => skill.id === id) || customSkills.some((skill) => skill.id === id);
 }
+

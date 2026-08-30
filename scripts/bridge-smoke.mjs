@@ -20,8 +20,9 @@ const unauthChild = spawn(process.execPath, ['weboperator-bridge/bridge.js'], {
     WEBOPERATOR_AGENT_SOCKET: unauthSocketPath,
     WEBOPERATOR_BRIDGE_LOG: '/tmp/weboperator-bridge-smoke-unauth.log',
     WEBOPERATOR_API_TOKEN: '',
-    WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE: '',
+    WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE: '0',
   },
+
   stdio: ['ignore', 'ignore', 'inherit'],
 });
 
@@ -81,7 +82,24 @@ try {
   assert.match(text, /: connected/);
   await reader.cancel();
 
+  const toolsRes = await fetch(`${base}/v1/tools`, { headers: { authorization: `Bearer ${token}` } });
+  assert.equal(toolsRes.status, 200);
+  const { tools } = await toolsRes.json();
+  assert.ok(Array.isArray(tools) && tools.length > 5);
+  assert.ok(tools.some((t) => t.function.name === 'browser_navigate'));
+
+  const mcpList = await fetch(`${base}/mcp`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+  });
+  assert.equal(mcpList.status, 200);
+  const mcpJson = await mcpList.json();
+  assert.equal(mcpJson.id, 1);
+  assert.ok(mcpJson.result.tools.some((t) => t.name === 'browser_snapshot'));
+
   console.log('Bridge smoke tests passed');
+
 } finally {
   await stopChild(child);
   await stopChild(unauthChild);

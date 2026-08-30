@@ -1,0 +1,23 @@
+{
+  "name": "openclaw-weboperator",
+  "version": "1.4.0",
+  "description": "OpenClaw agent toolset configuration for WebOperator",
+  "gateway": {
+    "url": "http://127.0.0.1:8765/mcp",
+    "headers": {
+      "x-weboperator-token": "${WEBOPERATOR_API_TOKEN:-}"
+    }
+  },
+  "tools": [
+    "browser_snapshot",
+    "browser_navigate",
+    "browser_click",
+    "browser_type",
+    "browser_press",
+    "browser_scroll",
+    "browser_screenshot",
+    "browser_extract",
+    "browser_solve_captcha",
+    "weboperator_execute_goal"
+  ]
+}

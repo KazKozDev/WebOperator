@@ -8,7 +8,7 @@ WebOperator is a Chrome extension with one main idea: keep the agent loop small 
 side panel       user task, settings, plan, answer, trace
 service worker   task lifecycle, model calls, tool loop, storage
 content script   page snapshot, element refs, DOM actions, overlays
-model clients    Ollama / OpenAI-compatible / Gemini / xAI / OpenRouter / SiliconFlow / MLX
+model clients    Ollama / OpenAI-compatible / Anthropic / Gemini / xAI / OpenRouter / SiliconFlow / DeepSeek / MLX
 ```
 
 ## step lifecycle
@@ -89,6 +89,22 @@ Long tasks rely on:
 - globally unique step ids across resumes
 
 The trace should make it obvious where the task drifted or failed.
+
+## context compression
+
+To keep long tasks inside the model's context window (local models run with a small
+`num_ctx`), the loop compresses context continuously (see `lib/context-compression.ts`,
+following arXiv:2510.00615 "Acon"):
+
+- **Observation window** — only the last few page snapshots stay full; older ones collapse
+  to a one-line summary (URL, title, element count). The action taken on each is preserved
+  in the assistant tool-call that follows it.
+- **Budget fold** — when the estimated token count exceeds a provider-aware budget, older
+  whole steps are folded into a single progress summary. The cut always lands on a step
+  boundary, so assistant/tool-call pairs are never split.
+- **Smart compressor** (optional, `contextCompressor` setting, default off) — rewrites the
+  folded summary with an LLM (the active model, or DeepSeek/Gemini in cloud mode). One extra
+  call only when the budget is exceeded; falls back to the deterministic digest on any error.
 
 ## storage
 

@@ -16,15 +16,16 @@ export const AGENT_TOOLS: OllamaToolDef[] = [
     type: 'function',
     function: {
       name: 'set_task_plan',
-      description: 'Set the visible task plan before browser actions. Include intent, approach, evidence/verification steps, and final response criteria. Use 3-8 numbered steps.',
+      description: 'Set a compact visible task plan before browser actions. Use 2-5 concise action steps (3-8 words each).',
       parameters: {
         type: 'object',
         properties: {
-          steps: { type: 'string', description: 'Numbered plan, one step per line. Example: "1. Understand the user intent\\n2. Search the requested source\\n3. Extract evidence\\n4. Verify all requested items\\n5. Answer with citations/evidence only"' },
-          reason: { type: 'string', description: 'brief interpretation of what the user wants and why this plan will satisfy it' },
+          steps: { type: 'string', description: 'Numbered action steps, one per line. Example: "1. Search query\\n2. Open target page\\n3. Extract data"' },
+          reason: { type: 'string', description: 'one short sentence (under 15 words) explaining intent' },
         },
         required: ['steps', 'reason'],
       },
+
     },
   },
   {

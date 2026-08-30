@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 import type { CachedAction } from './action-cache';
-import { DEFAULT_SETTINGS, SETTINGS_VERSION, type AgentStep, type AgentTask, type CredentialEntry, type CredentialSummary, type ScheduledTask, type Settings, type SitePattern, type RecoveryMemory } from './types';
+import { DEFAULT_SETTINGS, SETTINGS_VERSION, type AgentStep, type AgentTask, type CredentialEntry, type CredentialSummary, type CustomSkillDefinition, type ScheduledTask, type Settings, type SitePattern, type RecoveryMemory } from './types';
+
 import { maskTaskForLog } from './masking';
 
 export class AgentDB extends Dexie {
@@ -82,13 +83,35 @@ export async function getSettings(): Promise<Settings> {
     migrated = true;
   }
   if (version < 12) {
+    next.ollamaModel = typeof storedSettings.ollamaModel === 'string' ? storedSettings.ollamaModel : DEFAULT_SETTINGS.ollamaModel;
+    migrated = true;
+  }
+  if (version < 13) {
+    next.deepseekApiKey = typeof storedSettings.deepseekApiKey === 'string' ? storedSettings.deepseekApiKey : '';
+    next.deepseekModel = typeof storedSettings.deepseekModel === 'string' ? storedSettings.deepseekModel : DEFAULT_SETTINGS.deepseekModel;
+    migrated = true;
+  }
+  if (version < 14) {
+    next.contextCompressor = storedSettings.contextCompressor === 'same' || storedSettings.contextCompressor === 'cloud'
+      ? storedSettings.contextCompressor
+      : DEFAULT_SETTINGS.contextCompressor;
+    migrated = true;
+  }
+  if (version < 15) {
+    next.anthropicApiKey = typeof storedSettings.anthropicApiKey === 'string' ? storedSettings.anthropicApiKey : '';
+    next.anthropicModel = typeof storedSettings.anthropicModel === 'string' ? storedSettings.anthropicModel : DEFAULT_SETTINGS.anthropicModel;
+    migrated = true;
+  }
+  if (version < 16) {
     next.siliconFlowApiKey = typeof storedSettings.siliconFlowApiKey === 'string' ? storedSettings.siliconFlowApiKey : '';
     next.siliconFlowModel = typeof storedSettings.siliconFlowModel === 'string' ? storedSettings.siliconFlowModel : DEFAULT_SETTINGS.siliconFlowModel;
+    next.resetPageOnStart = typeof storedSettings.resetPageOnStart === 'boolean' ? storedSettings.resetPageOnStart : DEFAULT_SETTINGS.resetPageOnStart;
     migrated = true;
   }
   if (migrated) {
     await chrome.storage.local.set({ settings: next, settingsVersion: SETTINGS_VERSION });
   }
+
   return next;
 }
 
@@ -124,7 +147,7 @@ export async function loadSteps(taskId: string): Promise<AgentStep[]> {
   });
 }
 
-const CREDENTIALS_KEY = 'credentialVault';
+const CREDENTIALS_KEY = 'vaultCredentials';
 
 export async function listCredentials(): Promise<CredentialSummary[]> {
   const entries = await loadCredentialEntries();
@@ -154,18 +177,18 @@ export async function saveCredential(entry: Omit<CredentialEntry, 'id' | 'create
     updatedAt: now,
   };
   const next = [...entries.filter((item) => item.id !== id && !(item.origin === origin && item.username === entry.username)), nextEntry];
-  await chrome.storage.session.set({ [CREDENTIALS_KEY]: next });
+  await chrome.storage.local.set({ [CREDENTIALS_KEY]: next });
   return listCredentials();
 }
 
 export async function deleteCredential(id: string): Promise<CredentialSummary[]> {
   const entries = await loadCredentialEntries();
-  await chrome.storage.session.set({ [CREDENTIALS_KEY]: entries.filter((entry) => entry.id !== id) });
+  await chrome.storage.local.set({ [CREDENTIALS_KEY]: entries.filter((entry) => entry.id !== id) });
   return listCredentials();
 }
 
 export async function clearCredentials(): Promise<void> {
-  await chrome.storage.session.remove(CREDENTIALS_KEY);
+  await chrome.storage.local.remove(CREDENTIALS_KEY);
 }
 
 export async function findCredentialForUrl(url: string): Promise<CredentialEntry | null> {
@@ -175,10 +198,27 @@ export async function findCredentialForUrl(url: string): Promise<CredentialEntry
 }
 
 async function loadCredentialEntries(): Promise<CredentialEntry[]> {
-  const raw = await chrome.storage.session.get(CREDENTIALS_KEY);
-  const entries = raw[CREDENTIALS_KEY];
-  return Array.isArray(entries) ? entries.filter(isCredentialEntry) : [];
+  const localRaw = await chrome.storage.local.get([CREDENTIALS_KEY, 'credentialVault', 'sessionCredentials']);
+  const localEntries = localRaw?.[CREDENTIALS_KEY] ?? localRaw?.credentialVault ?? localRaw?.sessionCredentials;
+
+  if (Array.isArray(localEntries) && localEntries.length > 0) {
+    return localEntries.filter(isCredentialEntry);
+  }
+
+  // Support fallback / migration from session storage if any exists
+  const sessionRaw = (await chrome.storage.session?.get([CREDENTIALS_KEY, 'credentialVault', 'sessionCredentials']).catch(() => ({}))) as Record<string, unknown> | undefined;
+  const sessionEntries = sessionRaw?.[CREDENTIALS_KEY] ?? sessionRaw?.credentialVault ?? sessionRaw?.sessionCredentials;
+
+
+  if (Array.isArray(sessionEntries) && sessionEntries.length > 0) {
+    const validSession = sessionEntries.filter(isCredentialEntry);
+    await chrome.storage.local.set({ [CREDENTIALS_KEY]: validSession });
+    return validSession;
+  }
+
+  return [];
 }
+
 
 function isCredentialEntry(value: unknown): value is CredentialEntry {
   if (!value || typeof value !== 'object') return false;
@@ -280,3 +320,105 @@ function normalizeHttpUrl(value: string): string {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('Start URL must be http or https');
   return url.href;
 }
+
+// ---------------------------------------------------------------------------
+// Resilient Session State Management (chrome.storage.session)
+// ---------------------------------------------------------------------------
+
+export interface AgentSessionState {
+  activeTaskId: string | null;
+  activeTabId: number | null;
+  pausedTaskIds: string[];
+  stoppedTaskIds: string[];
+}
+
+const DEFAULT_SESSION_STATE: AgentSessionState = {
+  activeTaskId: null,
+  activeTabId: null,
+  pausedTaskIds: [],
+  stoppedTaskIds: [],
+};
+
+const SESSION_STORAGE_KEY = 'agentSessionState';
+let memoryFallbackSessionState: AgentSessionState = { ...DEFAULT_SESSION_STATE };
+
+function getSessionStorageArea(): chrome.storage.StorageArea | null {
+  if (typeof chrome !== 'undefined' && chrome.storage?.session) {
+    return chrome.storage.session;
+  }
+  return null;
+}
+
+export async function getSessionState(): Promise<AgentSessionState> {
+  const area = getSessionStorageArea();
+  if (!area) return { ...memoryFallbackSessionState };
+  try {
+    const raw = await area.get(SESSION_STORAGE_KEY);
+    const data = raw[SESSION_STORAGE_KEY] as Partial<AgentSessionState> | undefined;
+    return {
+      activeTaskId: data?.activeTaskId ?? null,
+      activeTabId: data?.activeTabId ?? null,
+      pausedTaskIds: Array.isArray(data?.pausedTaskIds) ? data.pausedTaskIds : [],
+      stoppedTaskIds: Array.isArray(data?.stoppedTaskIds) ? data.stoppedTaskIds : [],
+    };
+  } catch {
+    return { ...memoryFallbackSessionState };
+  }
+}
+
+export async function updateSessionState(patch: Partial<AgentSessionState>): Promise<AgentSessionState> {
+  const current = await getSessionState();
+  const next: AgentSessionState = {
+    ...current,
+    ...patch,
+    pausedTaskIds: patch.pausedTaskIds ?? current.pausedTaskIds,
+    stoppedTaskIds: patch.stoppedTaskIds ?? current.stoppedTaskIds,
+  };
+  memoryFallbackSessionState = { ...next };
+  const area = getSessionStorageArea();
+  if (area) {
+    try {
+      await area.set({ [SESSION_STORAGE_KEY]: next });
+    } catch (err) {
+      console.warn('[storage] Failed to write session state', err);
+    }
+  }
+  return next;
+}
+
+const CUSTOM_SKILLS_KEY = 'custom_skills';
+
+export async function getCustomSkills(): Promise<CustomSkillDefinition[]> {
+  try {
+    const raw = await chrome.storage.local.get(CUSTOM_SKILLS_KEY);
+    const list = raw[CUSTOM_SKILLS_KEY];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveCustomSkill(skill: Omit<CustomSkillDefinition, 'id' | 'createdAt'> & { id?: string }): Promise<CustomSkillDefinition> {
+  const current = await getCustomSkills();
+  const now = Date.now();
+  const id = skill.id || `custom-${now}-${Math.random().toString(36).slice(2, 7)}`;
+  const full: CustomSkillDefinition = {
+    ...skill,
+    id,
+    isCustom: true,
+    enabled: skill.enabled !== false,
+    createdAt: now,
+  };
+  const existingIdx = current.findIndex((s) => s.id === id);
+  const next = existingIdx >= 0 ? [...current.slice(0, existingIdx), full, ...current.slice(existingIdx + 1)] : [...current, full];
+  await chrome.storage.local.set({ [CUSTOM_SKILLS_KEY]: next });
+  return full;
+}
+
+export async function deleteCustomSkill(id: string): Promise<void> {
+  const current = await getCustomSkills();
+  const next = current.filter((s) => s.id !== id);
+  await chrome.storage.local.set({ [CUSTOM_SKILLS_KEY]: next });
+}
+
+
