@@ -28,7 +28,7 @@ Open `chrome://extensions`, enable Developer mode, click **Load unpacked**, and 
 
 The default provider is Ollama at `http://127.0.0.1:11434`, so a tool-capable local model needs to be running before the first task. Any of the seven remote providers works instead once you paste a key.
 
-## Automate a multi-step task in the active Chrome tab
+## Automate a multi-step task across your open Chrome tabs
 
 WebOperator runs a plan → act → verify loop against the tab you are looking at. It builds a visible plan, calls one browser tool at a time, verifies each result against a fresh page snapshot, and records an inspectable trace of every step.
 
@@ -36,17 +36,26 @@ WebOperator runs a plan → act → verify loop against the tab you are looking 
 Summarize the current page
 ```
 
-The side panel streams the plan, each action, and the final answer. History, checkpoints, and a schedule for recurring runs live in their own tabs.
-
-## Extract and compare data across open browser tabs
-
-Use it when the information you need is visible on the page but spread across tabs. WebOperator can navigate, click, type, press keys, scroll, switch tabs, screenshot, and extract structured text.
+It can navigate, click, type, press keys, scroll, switch tabs, screenshot, and extract structured text — so the same loop works when the information you need is spread across several tabs.
 
 ```text
 Compare info across tabs
 ```
 
-Answers stay tied to browser observations, so hidden, paywalled, or region-specific details may simply be absent from the result.
+The side panel streams the plan, each action, and the final answer; history, checkpoints, and scheduled runs live in their own tabs. Answers stay tied to browser observations, so hidden, paywalled, or region-specific details may simply be absent.
+
+## Schedule recurring browser automation in Chrome
+
+Set a task once and let it run without you. Each schedule stores a start URL, a goal, and how often to repeat it — `once`, `hourly`, `daily`, or `weekly` — and Chrome alarms wake the agent even while the side panel is closed.
+
+```text
+Task name:  Morning price check
+Start URL:  https://example.com/product
+Repeat:     daily
+Goal:       Check the price and tell me if it dropped below 40 EUR
+```
+
+Every run lands in History with its full trace, so a scheduled task is auditable after the fact rather than a black box. A run that hits something only you can clear — a login wall or a verification challenge — is marked `needs_user` instead of failing quietly.
 
 ## Connect Hermes, OpenClaw, or another MCP agent
 
