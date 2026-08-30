@@ -390,43 +390,48 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
           }
         }
 
-        // If automated solver failed or interactive challenge persists, park the task for human handoff
-        if (botChallengeHandoffs >= MAX_BOT_CHALLENGE_HANDOFFS) {
+        // If automated solver failed or challenge persists, only park if the page is actively blocked
+        const recheckAfterSolve = await detectPageCaptcha(activeTabId);
+        const isStillBlocking = isChallengeUrlOrTitle || recheckAfterSolve.detected;
+
+        if (isStillBlocking) {
+          if (botChallengeHandoffs >= MAX_BOT_CHALLENGE_HANDOFFS) {
+            step.status = 'skipped';
+            step.finishedAt = Date.now();
+            step.note = 'Bot challenge still present after the last handoff.';
+            await saveStep(task.id, step);
+            broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
+            task.status = 'failed';
+            task.error = `The site kept showing a verification challenge on ${snapshot.url} after ${MAX_BOT_CHALLENGE_HANDOFFS} attempts. Finish the task manually in the tab.`;
+            task.updatedAt = Date.now();
+            await saveTask(task);
+            broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
+            broadcastEvent({ kind: 'task:error', taskId: task.id, error: task.error });
+            break;
+          }
+
+          botChallengeHandoffs++;
           step.status = 'skipped';
           step.finishedAt = Date.now();
-          step.note = 'Bot challenge still present after the last handoff.';
+          step.note = 'Paused: verification challenge — waiting for the user.';
           await saveStep(task.id, step);
           broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
-          task.status = 'failed';
-          task.error = `The site kept showing a verification challenge on ${snapshot.url} after ${MAX_BOT_CHALLENGE_HANDOFFS} attempts. Finish the task manually in the tab.`;
+          advanceStepCounters();
+
+          task.status = 'paused';
+          task.pauseReason = {
+            kind: 'bot_challenge',
+            url: snapshot.url,
+            title: snapshot.title,
+            note: 'This page is asking to verify you are human. Solve it in the tab, then press Resume.',
+            since: Date.now(),
+          };
           task.updatedAt = Date.now();
           await saveTask(task);
           broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
-          broadcastEvent({ kind: 'task:error', taskId: task.id, error: task.error });
-          break;
+          deps.requestPause?.(task.id);
+          continue;
         }
-
-        botChallengeHandoffs++;
-        step.status = 'skipped';
-        step.finishedAt = Date.now();
-        step.note = 'Paused: verification challenge — waiting for the user.';
-        await saveStep(task.id, step);
-        broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
-        advanceStepCounters();
-
-        task.status = 'paused';
-        task.pauseReason = {
-          kind: 'bot_challenge',
-          url: snapshot.url,
-          title: snapshot.title,
-          note: 'This page is asking to verify you are human. Solve it in the tab, then press Resume.',
-          since: Date.now(),
-        };
-        task.updatedAt = Date.now();
-        await saveTask(task);
-        broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
-        deps.requestPause?.(task.id);
-        continue;
       }
 
 

@@ -20,29 +20,26 @@ export function isBotChallengePage(title: string, url: string, bodySnippet = '')
   const lowerUrl = url.toLowerCase();
   const lowerSnippet = bodySnippet.toLowerCase();
 
-  return (
+  const isChallengeTitle =
     lowerTitle.includes('just a moment') ||
+    lowerTitle.includes('attention required! | cloudflare') ||
     lowerTitle.includes('attention required') ||
     lowerTitle.includes('security check') ||
     lowerTitle.includes('verify you are human') ||
     lowerTitle.includes('checking your browser') ||
-    lowerTitle.includes('cloudflare') ||
-    lowerTitle.includes('recaptcha') ||
-    lowerTitle.includes('hcaptcha') ||
-    lowerTitle.includes('bot challenge') ||
-    lowerTitle.includes('bot detection') ||
-    lowerUrl.includes('challenges.cloudflare') ||
+    lowerTitle.includes('cloudflare bot challenge');
+
+  const isChallengeUrl =
+    lowerUrl.includes('challenges.cloudflare.com') ||
     lowerUrl.includes('/cdn-cgi/challenge') ||
-    lowerUrl.includes('recaptcha') ||
-    lowerUrl.includes('hcaptcha') ||
-    lowerSnippet.includes('cf-turnstile') ||
+    lowerUrl.includes('waf.datadome.co') ||
+    lowerUrl.includes('geo.captcha-delivery.com');
+
+  const isChallengeSnippet =
     lowerSnippet.includes('cf-challenge') ||
-    lowerSnippet.includes('challenges.cloudflare.com') ||
-    lowerSnippet.includes('challenges.cloudflare') ||
-    lowerSnippet.includes('g-recaptcha') ||
-    lowerSnippet.includes('h-captcha') ||
-    lowerSnippet.includes('recaptcha')
-  );
+    lowerSnippet.includes('challenges.cloudflare.com/turnstile');
+
+  return isChallengeTitle || isChallengeUrl || isChallengeSnippet;
 }
 
 /**
@@ -316,21 +313,60 @@ export async function detectPageCaptcha(tabId: number): Promise<CaptchaDetection
           return res;
         }
 
-        const title = document.title;
-        const html = document.documentElement.innerHTML.toLowerCase();
+        function isVisible(el: Element): boolean {
+          const rect = el.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) return false;
+          const style = window.getComputedStyle(el);
+          return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+        }
 
-        if (html.includes('challenges.cloudflare.com') || html.includes('cf-turnstile') || title.toLowerCase().includes('just a moment')) {
-          return { detected: true, type: 'cloudflare' as const, details: 'Cloudflare Turnstile / Challenge detected' };
+        const title = document.title.toLowerCase();
+
+        // 1. Cloudflare Turnstile / Challenge
+        if (title.includes('just a moment') || title.includes('attention required') || title.includes('verify you are human')) {
+          return { detected: true, type: 'cloudflare' as const, details: 'Cloudflare challenge page detected' };
         }
-        if (html.includes('recaptcha') || queryDeep('.g-recaptcha, iframe[src*="recaptcha"]').length > 0) {
-          return { detected: true, type: 'recaptcha' as const, details: 'Google reCAPTCHA detected' };
+        const cfIframes = queryDeep('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"], iframe[src*="cf-chl"]') as HTMLIFrameElement[];
+        if (cfIframes.some(isVisible)) {
+          return { detected: true, type: 'cloudflare' as const, details: 'Visible Cloudflare Turnstile widget detected' };
         }
-        if (html.includes('hcaptcha') || queryDeep('.h-captcha, iframe[src*="hcaptcha"]').length > 0) {
-          return { detected: true, type: 'hcaptcha' as const, details: 'hCaptcha detected' };
+        const cfWrappers = queryDeep('.cf-turnstile, #challenge-stage');
+        if (cfWrappers.some(isVisible)) {
+          return { detected: true, type: 'cloudflare' as const, details: 'Visible Cloudflare challenge stage detected' };
         }
-        const imgs = queryDeep('img[src*="captcha"], img[id*="captcha"], img[class*="captcha"]');
-        const inputs = queryDeep('input[name*="captcha"], input[id*="captcha"], input[placeholder*="captcha" i]');
-        if (imgs.length > 0 && inputs.length > 0) {
+
+        // 2. Google reCAPTCHA (only if VISIBLE checkbox or challenge popup is present)
+        const recaptchaCheckboxes = queryDeep('#recaptcha-anchor, .recaptcha-checkbox, [role="checkbox"][aria-labelledby*="recaptcha"]');
+        if (recaptchaCheckboxes.some(isVisible)) {
+          return { detected: true, type: 'recaptcha' as const, details: 'Visible reCAPTCHA checkbox detected' };
+        }
+        const recaptchaBframes = queryDeep('iframe[src*="recaptcha/api2/bframe"], iframe[title*="recaptcha challenge" i], iframe[title*="challenge reCAPTCHA" i]') as HTMLIFrameElement[];
+        if (recaptchaBframes.some((f) => {
+          const rect = f.getBoundingClientRect();
+          return rect.width > 100 && rect.height > 100 && isVisible(f);
+        })) {
+          return { detected: true, type: 'recaptcha' as const, details: 'Active reCAPTCHA image challenge popup detected' };
+        }
+
+        // 3. hCaptcha (only if VISIBLE checkbox or challenge popup is present)
+        const hcaptchaCheckboxes = queryDeep('#checkbox, [aria-label*="hCaptcha" i][role="checkbox"]');
+        if (hcaptchaCheckboxes.some(isVisible)) {
+          return { detected: true, type: 'hcaptcha' as const, details: 'Visible hCaptcha checkbox detected' };
+        }
+        const hcaptchaFrames = queryDeep('iframe[src*="hcaptcha.com"]') as HTMLIFrameElement[];
+        if (hcaptchaFrames.some((f) => {
+          const rect = f.getBoundingClientRect();
+          return rect.width > 100 && rect.height > 100 && isVisible(f);
+        })) {
+          return { detected: true, type: 'hcaptcha' as const, details: 'Active hCaptcha challenge frame detected' };
+        }
+
+        // 4. Visual text captcha (img + input both visible and non-empty)
+        const imgs = queryDeep('img[src*="captcha" i], img[id*="captcha" i], img[class*="captcha" i]');
+        const inputs = queryDeep('input[name*="captcha" i], input[id*="captcha" i], input[placeholder*="captcha" i]');
+        const visibleImg = imgs.find(isVisible);
+        const visibleInput = inputs.find(isVisible);
+        if (visibleImg && visibleInput) {
           return { detected: true, type: 'image' as const, details: 'Visual Text CAPTCHA detected' };
         }
 

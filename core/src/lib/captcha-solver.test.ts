@@ -13,19 +13,21 @@ describe('captcha-solver', () => {
     vi.restoreAllMocks();
   });
 
-  it('detects Cloudflare, reCAPTCHA, and hCaptcha titles and snippets', () => {
+  it('detects Cloudflare and interstitial bot challenge titles and URLs', () => {
     expect(isBotChallengePage('Just a moment...', 'https://example.com/login')).toBe(true);
     expect(isBotChallengePage('Attention Required! | Cloudflare', 'https://example.com')).toBe(true);
     expect(isBotChallengePage('Security Check', 'https://example.com')).toBe(true);
-    expect(isBotChallengePage('Normal Page Title', 'https://example.com', '<div class="cf-turnstile"></div>')).toBe(true);
-    expect(isBotChallengePage('Login', 'https://example.com', '<div class="g-recaptcha"></div>')).toBe(true);
-    expect(isBotChallengePage('Verify', 'https://example.com', '<div class="h-captcha"></div>')).toBe(true);
-    expect(isBotChallengePage('Bot Challenge Page', 'https://example.com')).toBe(true);
+    expect(isBotChallengePage('Verify you are human', 'https://example.com')).toBe(true);
+    expect(isBotChallengePage('Checking your browser', 'https://example.com')).toBe(true);
+    expect(isBotChallengePage('Cloudflare Bot Challenge', 'https://example.com')).toBe(true);
+    expect(isBotChallengePage('Normal Title', 'https://challenges.cloudflare.com/challenge-platform')).toBe(true);
   });
 
-  it('returns false for ordinary pages', () => {
+  it('returns false for ordinary pages even with recaptcha/hcaptcha in content', () => {
     expect(isBotChallengePage('Google Search', 'https://google.com', '<div>search results</div>')).toBe(false);
     expect(isBotChallengePage('Online Store - Home', 'https://shop.com')).toBe(false);
+    expect(isBotChallengePage('Kit Digital autónomos: cómo conseguirlo | Wolters Kluwer', 'https://www.wolterskluwer.com/es-es/expert-insights/kit-digital-autonomos')).toBe(false);
+    expect(isBotChallengePage('Article about ReCAPTCHA and security', 'https://techblog.com/recaptcha-guide')).toBe(false);
   });
 
   it('detects page captchas via detectPageCaptcha', async () => {
