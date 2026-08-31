@@ -8,18 +8,21 @@ export function AnswerPanel({
   isConfirmationCheckpoint,
   onResumeCheckpoint,
   onExport,
-  followups,
+  onAsk,
 }: {
   answer: string | null;
   task: AgentTask;
   isConfirmationCheckpoint: (task: AgentTask | null) => boolean;
   onResumeCheckpoint?: (taskId: string) => void;
   onExport?: () => void | Promise<void>;
-  /** Answered from this run's evidence; asked from the single composer below. */
-  followups?: { question: string; answer: string }[];
+  onAsk?: (taskId: string, question: string) => Promise<string>;
 }) {
   const [copied, setCopied] = useState(false);
   const [exportState, setExportState] = useState<'idle' | 'exporting' | 'done' | 'error'>('idle');
+  const [question, setQuestion] = useState('');
+  const [asking, setAsking] = useState(false);
+  const [qa, setQa] = useState<{ question: string; answer: string }[]>([]);
+  const [askError, setAskError] = useState<string | null>(null);
   const isStopped = task.status === 'stopped';
   const isFinished = task.status === 'done' || task.status === 'failed' || isStopped;
   const isFailed = task.status === 'failed';
@@ -103,15 +106,47 @@ export function AnswerPanel({
         </div>
       )}
 
-      {isFinished && followups && followups.length > 0 && (
+      {isFinished && onAsk && (
         <div className="answer-followup" style={{ marginTop: '12px', borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
-          {followups.map((entry, i) => (
+          {qa.map((entry, i) => (
             <div key={i} style={{ marginBottom: '10px' }}>
               <div style={{ fontSize: '11px', color: 'var(--text2)', marginBottom: '3px' }}>{entry.question}</div>
               <div className="answer-text" dangerouslySetInnerHTML={{ __html: renderMarkdown(entry.answer) }} />
             </div>
           ))}
-          <div style={{ fontSize: '10px', color: 'var(--text2)' }}>
+          {askError && <div style={{ fontSize: '11px', color: 'var(--danger, #c66)', marginBottom: '6px' }}>{askError}</div>}
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const q = question.trim();
+              if (!q || asking) return;
+              setAsking(true);
+              setAskError(null);
+              try {
+                const reply = await onAsk(task.id, q);
+                setQa((prev) => [...prev, { question: q, answer: reply }]);
+                setQuestion('');
+              } catch (error) {
+                setAskError(error instanceof Error ? error.message : String(error));
+              } finally {
+                setAsking(false);
+              }
+            }}
+            style={{ display: 'flex', gap: '6px' }}
+          >
+            <input
+              type="text"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              placeholder="Ask about what was collected"
+              disabled={asking}
+              style={{ flex: 1, fontSize: '12px', padding: '5px 8px' }}
+            />
+            <button type="submit" className="secondary" disabled={asking || !question.trim()} style={{ fontSize: '11px', padding: '4px 10px' }}>
+              {asking ? '…' : 'Ask'}
+            </button>
+          </form>
+          <div style={{ fontSize: '10px', color: 'var(--text2)', marginTop: '5px' }}>
             Answered from this run's evidence only — no pages are revisited.
           </div>
         </div>
