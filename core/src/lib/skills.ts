@@ -71,7 +71,7 @@ You are handling a login flow. Follow these rules:
 You are extracting data from a page. Follow these rules:
 1. Identify the structure: table, list, grid, cards.
 2. Scroll to load all content before extracting.
-3. Use extract tool to pull structured data. Navigate through pagination if present.
+3. Use extract tool to pull structured data. If the set spans several pages, capture each page exactly once and keep track of which ones you have already read — never re-extract a page after a resume.
 4. Format cleanly: numbers as numbers, dates consistently, no HTML tags.
 5. Goal: structured data ready for the next step. Verify: all visible items captured, data types correct.`,
   },
@@ -157,7 +157,7 @@ The answer lives inside one site, not on a search engine results page. Follow th
 3. Read the result count first. If it is large, tighten the filters instead of paging through everything.
 4. Paginate deliberately: extract each page, then advance with the "Next" control or the page URL parameter. Track which pages you have already read and stop when results repeat or the count is covered.
 5. If the site has no usable search, fall back to a scoped engine query with site:<domain>.
-6. Hand the collected rows to extraction and report how many results the site claimed versus how many you actually captured.`,
+6. Navigation is yours, shaping the rows is not: hand the collected pages to extraction, and report how many results the site claimed versus how many you actually captured.`,
   },
   {
     id: 'fact-checker',
@@ -305,7 +305,11 @@ function keywordHits(goal: string, keyword: string): boolean {
       ? needle.slice(0, -1)
       : needle;
   const escaped = stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}`, 'iu').test(goal);
+  // A short keyword has to be the whole word — an open tail on "поле" or "form"
+  // swallows "полезные", "полет" and "format". Longer ones keep the open tail,
+  // which is what makes inflected forms match.
+  const tail = needle.length <= 4 && !needle.includes(' ') ? '(?:s)?(?![\\p{L}\\p{N}])' : '';
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}${tail}`, 'iu').test(goal);
 }
 
 function applyConflicts(

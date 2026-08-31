@@ -38,6 +38,17 @@ describe('skill routing', () => {
     expect(ids('searching for benchmark results')).toContain('researcher');
   });
 
+  it('requires a short keyword to be the whole word', () => {
+    // "поле" used to fire on "полезные" and "полет"; "form" on "format".
+    for (const goal of ['найди полезные статьи про rust', 'узнай когда полет в Берлин']) {
+      expect(ids(goal)).not.toContain('form-filler');
+    }
+    expect(ids('check the data format of the export')).not.toContain('form-filler');
+    // The whole-word rule must not cost the keywords their inflected forms.
+    expect(ids('какие поля обязательны в этой форме')).toContain('form-filler');
+    expect(ids('reformat the list of tabs')).toContain('tab-manager');
+  });
+
   it('ranks keyword hits above semantic matches', () => {
     const results = classifyTask('скачай отчёт в pdf');
     expect(results[0].id).toBe('file-downloader');

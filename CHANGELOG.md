@@ -27,7 +27,8 @@ evals.
 - Skill keywords matched anywhere inside a word, so "форма" fired on
   "информацию" and pulled the form filler into every research task. Keywords now
   start at a word boundary, and long Russian keywords match by stem so inflected
-  forms still hit.
+  forms still hit. Short keywords have to be the whole word, which stops "поле"
+  from firing on "полезные" and "form" on "format".
 - At most two skill playbooks now reach a task prompt, chosen by routing score
   with keyword hits ranked above semantic ones, and skills declared as
   conflicting resolve to the better-scoring one. Every matching skill used to be
