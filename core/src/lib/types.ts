@@ -160,6 +160,7 @@ export interface A11ySnapshot {
 
 export type AgentActionName =
   | 'set_task_plan'
+  | 'batch_actions'
   | 'click' | 'type' | 'press' | 'select' | 'scroll'
   | 'navigate' | 'wait' | 'extract' | 'done'
   | 'open_tab' | 'switch_tab' | 'list_tabs' | 'close_tabs' | 'bookmark_tabs' | 'group_tabs' | 'ungroup_tabs'
@@ -422,6 +423,10 @@ export interface VerificationResult {
   errorDetected?: string;
   popupDetected?: boolean;
   popupRefs?: string[];
+  /** Read-only tool ran but brought back nothing usable — why, in the model's words. */
+  dataMissing?: string;
+  /** Items a read-only tool actually returned, when it returned any. */
+  itemsExtracted?: number;
   suggestions: string[];
   recommendedStrategy: RetryStrategy;
 }

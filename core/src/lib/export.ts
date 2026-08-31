@@ -1,5 +1,8 @@
 import type { AgentTask, AgentStep, AgentPlan } from './types';
 import { maskTaskForLog } from './masking';
+import pdfMake from 'pdfmake/build/pdfmake';
+import pdfFonts from 'pdfmake/build/vfs_fonts';
+import type { Content, TableCell, TDocumentDefinitions } from 'pdfmake/interfaces';
 
 export interface TraceFile {
   version: 1;
@@ -269,7 +272,7 @@ function buildPdfHtml(task: AgentTask): string {
 </html>`;
 }
 
-export function downloadPdf(task: AgentTask): void {
+export function downloadPdfViaPrint(task: AgentTask): void {
   const html = buildPdfHtml(task);
 
   const iframe = document.createElement('iframe');
@@ -296,22 +299,161 @@ export function downloadPdf(task: AgentTask): void {
   doc.write(html);
   doc.close();
 
-  // Wait for content to render, then trigger print (Save as PDF in Chrome)
-  setTimeout(() => {
-    try {
-      iframe.contentWindow?.print();
-    } catch {
-      // If print is blocked, fall back to downloadable HTML
-      const blob = new Blob([html], { type: 'text/html' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `report-${task.id.slice(0, 8)}.html`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }
-    setTimeout(() => iframe.remove(), 2000);
-  }, 300);
+  // Keep print synchronous with the button click. Chrome only permits print dialogs
+  // initiated during a user gesture; scheduling this even one tick later causes the
+  // dialog to be silently blocked from the extension side panel.
+  const cleanup = () => iframe.remove();
+  iframe.contentWindow?.addEventListener('afterprint', cleanup, { once: true });
+
+  try {
+    iframe.contentWindow?.focus();
+    iframe.contentWindow?.print();
+  } catch {
+    // If printing is unavailable, provide the rendered report as a usable fallback.
+    cleanup();
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `report-${task.id.slice(0, 8)}.html`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return;
+  }
+
+  // Some browsers do not dispatch afterprint for an iframe. Keep it alive long
+  // enough for the print preview, then remove it without leaving hidden frames.
+  setTimeout(cleanup, 30_000);
+}
+
+function printableValue(value: unknown): string {
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function buildPdfDefinition(task: AgentTask): TDocumentDefinitions {
+  const masked = maskTaskForLog(task);
+  const toolSteps = masked.steps.filter((step) => step.toolCall);
+  const lastStep = masked.steps.at(-1);
+  const totalMs = masked.steps.length > 0
+    ? (lastStep?.finishedAt ?? masked.updatedAt) - masked.steps[0].startedAt
+    : 0;
+  const answer = [...masked.steps].reverse()
+    .find((step) => step.toolCall?.name === 'done')?.toolCall?.arguments.answer;
+
+  const content: Content[] = [
+    { text: 'WebOperator Task Report', style: 'eyebrow' },
+    { text: masked.goal, style: 'title' },
+    {
+      columns: [
+        { text: statusLabel(masked.status), color: statusColor(masked.status), bold: true },
+        { text: `Started: ${formatDate(masked.createdAt)}` },
+        { text: totalMs > 0 ? `Duration: ${formatDuration(totalMs)}` : '' },
+        { text: `Steps: ${toolSteps.length}`, alignment: 'right' },
+      ],
+      columnGap: 12,
+      margin: [0, 0, 0, 18],
+      fontSize: 9,
+      color: '#64748b',
+    },
+  ];
+
+  if (answer !== undefined) {
+    content.push(
+      { text: 'ANSWER', style: 'sectionTitle' },
+      {
+        table: { widths: ['*'], body: [[{ text: printableValue(answer), color: '#166534', margin: 8 }]] },
+        layout: {
+          fillColor: () => '#f0fdf4',
+          hLineColor: () => '#bbf7d0',
+          vLineColor: () => '#bbf7d0',
+        },
+        margin: [0, 0, 0, 16],
+      },
+    );
+  }
+
+  if (masked.error) {
+    content.push(
+      { text: 'ERROR', style: 'sectionTitle', color: '#ef4444' },
+      { text: masked.error, color: '#b91c1c', margin: [0, 0, 0, 16] },
+    );
+  }
+
+  if (masked.plan) {
+    const planRows: TableCell[][] = masked.plan.steps.map((step) => [
+      { text: step.status === 'done' ? '✓' : step.status === 'active' ? '▶' : '○', color: statusColor(step.status), alignment: 'center' },
+      { text: step.description },
+      { text: step.status, color: statusColor(step.status), alignment: 'right', fontSize: 8 },
+    ]);
+    content.push(
+      { text: masked.plan.intent ? `PLAN — ${masked.plan.intent}` : 'PLAN', style: 'sectionTitle' },
+      {
+        table: { widths: [18, '*', 55], body: planRows },
+        layout: 'lightHorizontalLines',
+        margin: [0, 0, 0, 16],
+      },
+    );
+  }
+
+  const stepRows: TableCell[][] = toolSteps.map((step, index) => {
+    const call = step.toolCall!;
+    const args = Object.entries(call.arguments)
+      .map(([key, value]) => `${key}=${printableValue(value)}`)
+      .join(', ');
+    const details = [args, step.note, step.result?.error ? `Error: ${step.result.error}` : undefined]
+      .filter(Boolean)
+      .join('\n');
+    const actionCell: TableCell = {
+      stack: [
+        { text: call.name, bold: true, color: '#1e293b' },
+        ...(details ? [{ text: details, color: step.result?.error ? '#b91c1c' : '#64748b', fontSize: 8, margin: [0, 2, 0, 0] as [number, number, number, number] }] : []),
+      ],
+    };
+    return [
+      { text: String(index + 1), color: statusColor(step.status), bold: true, alignment: 'center' },
+      actionCell,
+      { text: step.timings?.totalMs ? formatDuration(step.timings.totalMs) : '', alignment: 'right', color: '#94a3b8', fontSize: 8 },
+    ];
+  });
+
+  content.push(
+    { text: 'EXECUTION STEPS', style: 'sectionTitle' },
+    stepRows.length > 0
+      ? { table: { headerRows: 1, widths: [24, '*', 55], body: [[{ text: '#', bold: true }, { text: 'Action', bold: true }, { text: 'Time', bold: true, alignment: 'right' }], ...stepRows] }, layout: 'lightHorizontalLines' }
+      : { text: 'No steps recorded', color: '#94a3b8', italics: true },
+  );
+
+  return {
+    pageSize: 'A4',
+    pageMargins: [42, 46, 42, 46],
+    defaultStyle: { font: 'Roboto', fontSize: 10, color: '#334155', lineHeight: 1.25 },
+    styles: {
+      eyebrow: { fontSize: 8, bold: true, color: '#64748b', characterSpacing: 1.2, margin: [0, 0, 0, 5] },
+      title: { fontSize: 18, bold: true, color: '#0f172a', margin: [0, 0, 0, 10] },
+      sectionTitle: { fontSize: 10, bold: true, color: '#334155', characterSpacing: 0.6, margin: [0, 8, 0, 7] },
+    },
+    content,
+    footer: (currentPage, pageCount) => ({
+      columns: [
+        { text: `Task ID: ${masked.id.slice(0, 8)}`, alignment: 'left' },
+        { text: `${currentPage} / ${pageCount}`, alignment: 'right' },
+      ],
+      margin: [42, 0],
+      fontSize: 8,
+      color: '#94a3b8',
+    }),
+    info: { title: `WebOperator — ${masked.goal.slice(0, 80)}`, creator: 'WebOperator' },
+  };
+}
+
+export async function downloadPdf(task: AgentTask): Promise<void> {
+  pdfMake.addVirtualFileSystem(pdfFonts);
+  await pdfMake.createPdf(buildPdfDefinition(task)).download(`report-${task.id.slice(0, 8)}.pdf`);
 }

@@ -3,9 +3,11 @@ import type { A11ySnapshot, CSMessage, CSResponse } from './types';
 /**
  * Cross-frame snapshots.
  *
- * The content script runs in every frame, but `chrome.tabs.sendMessage` without a `frameId`
- * only ever resolves with the top document's reply. So a snapshot is taken frame by frame and
- * merged here: the top document keeps plain `@eN` refs, and each child frame gets namespaced
+ * The content script runs in every frame, and `chrome.tabs.sendMessage` without a `frameId`
+ * delivers to all of them and resolves with whichever replies first — which on a page with
+ * hidden service iframes is not the document anyone wants. Every caller therefore names its
+ * frame (`sendToContent` defaults to the main document), and a snapshot is taken frame by frame
+ * and merged here: the top document keeps plain `@eN` refs, and each child frame gets namespaced
  * `@f<frameId>eN` refs. `frameIdFromRef` reads that prefix back so an action lands in the frame
  * that owns the element.
  *

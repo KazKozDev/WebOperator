@@ -67,6 +67,7 @@ export async function chatOpenRouter(opts: OllamaChatOptions, apiKey: string, mo
   const signal = opts.signal ? AbortSignal.any([opts.signal, timeoutController.signal]) : timeoutController.signal;
 
   try {
+    const activeTools = opts.tools ?? AGENT_TOOLS;
     const res = await fetchWithRetry('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -79,7 +80,7 @@ export async function chatOpenRouter(opts: OllamaChatOptions, apiKey: string, mo
         model,
         messages,
         stream: Boolean(opts.onUpdate),
-        tools: AGENT_TOOLS.map((t) => ({ type: 'function', function: t.function })),
+        ...(activeTools.length > 0 ? { tools: activeTools.map((t) => ({ type: 'function', function: t.function })) } : {}),
         temperature: 0.2,
       }),
     }, signal);

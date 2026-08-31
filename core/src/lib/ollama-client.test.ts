@@ -64,4 +64,22 @@ describe('ollama-client', () => {
       arguments: { ref: '@e2' },
     });
   });
+
+  it('omits tool schemas for text-only calls', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({
+      model: 'test-model',
+      message: { content: 'summary' },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await chat({
+      url: 'http://127.0.0.1:11434',
+      model: 'test-model',
+      messages: [{ role: 'user', content: 'Summarize' }],
+      tools: [],
+    });
+
+    const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
+    expect(body).not.toHaveProperty('tools');
+  });
 });

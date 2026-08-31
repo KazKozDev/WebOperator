@@ -1,4 +1,4 @@
-import { AGENT_TOOLS, TOOL_NAMES } from './tools';
+import { AGENT_TOOLS, TOOL_NAMES, type OllamaToolDef } from './tools';
 import type { ToolCall } from './types';
 
 export interface OllamaMessage {
@@ -23,6 +23,8 @@ export interface OllamaChatOptions {
   numCtx?: number;
   signal?: AbortSignal;
   onUpdate?: (partial: { content: string; thinking?: string }) => void;
+  /** Tool schemas available for this call. Empty means a text-only response. */
+  tools?: OllamaToolDef[];
 }
 
 export interface OllamaChatResult {
@@ -55,11 +57,12 @@ export async function chat(opts: OllamaChatOptions): Promise<OllamaChatResult> {
 
   const numCtx = resolveNumCtx(opts.model, opts.numCtx);
 
+  const activeTools = opts.tools ?? AGENT_TOOLS;
   const body = {
     model: opts.model,
     messages,
     stream: Boolean(opts.onUpdate),
-    tools: AGENT_TOOLS,
+    ...(activeTools.length > 0 ? { tools: activeTools } : {}),
     think: opts.thinking ?? false,
     options: {
       temperature: 0.1,

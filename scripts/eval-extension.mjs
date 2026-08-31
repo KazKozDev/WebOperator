@@ -143,10 +143,6 @@ function validateTaskResult(definition, task) {
   if (!task) return ['task did not return'];
   if (task.status !== 'done') errors.push(`task status is ${task.status}, expected done`);
   if (task.error) errors.push(task.error);
-  if (!task.plan || !Array.isArray(task.plan.steps) || task.plan.steps.length === 0) {
-    errors.push('task did not set a visible plan');
-  }
-
   const steps = Array.isArray(task.steps) ? task.steps : [];
   const ids = new Set();
   for (const step of steps) {
@@ -157,9 +153,12 @@ function validateTaskResult(definition, task) {
   const doneStep = [...steps].reverse().find((step) => step.toolCall?.name === 'done');
   if (!doneStep) errors.push('missing final done tool call');
 
-  const firstToolStep = steps.find((step) => step.toolCall);
-  if (firstToolStep?.toolCall?.name !== 'set_task_plan') {
-    errors.push(`first tool call is ${firstToolStep?.toolCall?.name ?? 'missing'}, expected set_task_plan`);
+  const planCall = steps.find((step) => step.toolCall?.name === 'set_task_plan');
+  if (planCall) {
+    const planSteps = task.plan?.steps;
+    if (!Array.isArray(planSteps) || planSteps.length < 2 || planSteps.length > 5) {
+      errors.push(`planned task has ${planSteps?.length ?? 0} steps, expected 2-5`);
+    }
   }
 
   const doneIndex = steps.findLastIndex((step) => step.toolCall?.name === 'done');

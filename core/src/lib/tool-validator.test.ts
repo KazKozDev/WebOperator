@@ -46,4 +46,24 @@ describe('Tool Validator', () => {
     };
     expect(validateAndClassifyToolCall(invalidNav).valid).toBe(false);
   });
+
+  it('validates bounded safe batches', () => {
+    const valid: ToolCall = {
+      name: 'batch_actions',
+      arguments: { actions: [
+        { name: 'type', ref: '@e1', text: 'Ada' },
+        { name: 'select', ref: '@e2', value: 'UK' },
+      ] },
+    };
+    expect(validateAndClassifyToolCall(valid).valid).toBe(true);
+
+    const invalid: ToolCall = {
+      name: 'batch_actions',
+      arguments: { actions: [
+        { name: 'navigate', url: 'https://example.com' },
+        { name: 'press', key: 'Enter' },
+      ] },
+    };
+    expect(validateAndClassifyToolCall(invalid).valid).toBe(false);
+  });
 });

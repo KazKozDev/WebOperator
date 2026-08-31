@@ -66,8 +66,12 @@ import {
   urlPattern as computeUrlPattern,
   makeKey,
 } from '@/lib/action-cache';
+import { selectAgentTools } from '@/lib/tools';
+import { batchPrimaryRef, validateBatchCall } from '@/lib/batch-actions';
 import { verify, verificationToPrompt, describeVerification } from '@/lib/verifier';
-import { parsePlanSteps, advancePlan, completePlan, planContext, markPlanStepFailed, shouldAdvancePlanAfterTool } from '@/lib/planner';
+import { summarizeExtraction } from '@/lib/extraction';
+import { assessPageHealth, describePageTransition, type RecoveryPage } from '@/lib/page-state';
+import { parsePlanSteps, advancePlan, completePlan, planContext, markPlanStepFailed, shouldAdvancePlanAfterTool, isValidPlanStepCount, PLAN_MIN_STEPS, PLAN_MAX_STEPS } from '@/lib/planner';
 import { decideRetry } from '@/lib/retry';
 import { learnFromSuccess, getCookieHint, getSearchHint, getRecoveryHint } from '@/lib/semantic-memory';
 import { learnFromTask, memoryContext } from '@/lib/memory';
@@ -110,6 +114,13 @@ const STUCK_PREFIX = '[STUCK] ';
 // How many times one task may be handed back to the person for a bot challenge
 // before it gives up. A site that keeps re-challenging is not going to yield.
 const MAX_BOT_CHALLENGE_HANDOFFS = 2;
+// An empty snapshot is usually a page mid-redirect, so re-read it a couple of times before
+// treating the emptiness as real.
+const BLANK_SNAPSHOT_RETRIES = 2;
+const BLANK_SNAPSHOT_SETTLE_MS = 400;
+// How many times one task may steer itself back from an interstitial to the last page that had
+// content. Beyond that the redirect is not transient and the model has to find another route.
+const MAX_TRANSITION_RECOVERIES = 2;
 const MAX_RESUMES = 3;
 const ORCHESTRATOR_CHECKPOINT_INTERVAL = 5;
 const TOOL_CALL_REPAIR_PROMPT = `[FORMAT ERROR] Your previous response was not a tool call.
@@ -291,6 +302,12 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
   let stepRetryCount = 0;
   let resumeCount = 0;
   let botChallengeHandoffs = 0;
+  // Where to steer back to when a redirect strands the task on an interstitial. Fed by two
+  // rules in chronological order, so the freshest wins: a page the task navigated to, and any
+  // snapshot that had real content. Without the first rule the target can still be whatever
+  // page happened to be open in the tab before the task started.
+  let recoveryPage: RecoveryPage | null = null;
+  let transitionRecoveries = 0;
 
   const advanceStepCounters = () => {
     stepIndex++;
@@ -300,10 +317,14 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
   while (resumeCount <= MAX_RESUMES) {
     if (stepIndex >= MAX_STEPS) {
       if (resumeCount >= MAX_RESUMES) {
+        // Every other failure path states a reason; this one used to end silently, leaving the
+        // panel with a stopped task and nothing to show for it.
         task.status = 'failed';
+        task.error = `Step budget exhausted: ${MAX_STEPS} steps across ${MAX_RESUMES} resumes without reaching a verified answer. Last page: ${task.steps[task.steps.length - 1]?.snapshot?.url ?? 'unknown'}.`;
         task.updatedAt = Date.now();
         await saveTask(task);
         broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
+        broadcastEvent({ kind: 'task:error', taskId: task.id, error: task.error });
         break;
       }
 
@@ -356,10 +377,53 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       step.snapshot = snapshot;
       if (startSnapshotHash === null) startSnapshotHash = snapshot.domHash;
 
+      // ── Page health: the tab may have been redirected off the working page ──
+      const pageHealth = assessPageHealth(snapshot);
+      if (!pageHealth.blank) {
+        recoveryPage = { url: snapshot.url, title: snapshot.title };
+      } else if (
+        recoveryPage
+        && recoveryPage.url !== snapshot.url
+        && transitionRecoveries < MAX_TRANSITION_RECOVERIES
+        && isDomainAllowed(recoveryPage.url, settings).allowed
+        // A challenge page belongs to the captcha handoff below, not to this recovery: navigating
+        // away from it would just lose the challenge the person still has to clear.
+        && !isBotChallengePage(snapshot.title, snapshot.url)
+      ) {
+        // Nothing on this page can be read or clicked, and we know where the content was.
+        // Steering back is cheaper and more reliable than asking the model to work it out.
+        const target = recoveryPage.url;
+        transitionRecoveries++;
+        await chrome.tabs.update(activeTabId, { url: target }).catch(() => {});
+        await waitForTabComplete(activeTabId).catch(() => {});
+        if (tabMgr.getPrimaryTab()?.tabId === activeTabId) {
+          const updated = await chrome.tabs.get(activeTabId).catch(() => null);
+          tabMgr.setPrimaryTab(activeTabId, updated?.url ?? target, updated?.title ?? '');
+        }
+        const note = `Page in transition at ${snapshot.url} — returned to ${target} (recovery ${transitionRecoveries}/${MAX_TRANSITION_RECOVERIES})`;
+        step.status = 'ok';
+        step.result = { ok: true, durationMs: 0, extracted: note };
+        step.note = note;
+        step.finishedAt = Date.now();
+        step.timings = finalizeTimings(stepStart, { snapshotMs });
+        await saveStep(task.id, step);
+        broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
+        history.push({
+          role: 'user',
+          content: `[RECOVERY] ${snapshot.url} was an interstitial with no readable content — the tab has been returned to ${target}. Continue the task from there and do not extract from the interstitial.`,
+        });
+        advanceStepCounters();
+        task.updatedAt = Date.now();
+        await saveTask(task);
+        continue;
+      }
+
       // ── Semantic memory hints ──
       const cookieHint = await getCookieHint(snapshot);
       const searchHint = await getSearchHint(snapshot);
       const memoryHints: string[] = [];
+      const transitionHint = describePageTransition(snapshot, recoveryPage);
+      if (transitionHint) memoryHints.push(transitionHint);
       if (cookieHint) memoryHints.push(cookieHint);
       if (searchHint) memoryHints.push(searchHint);
       const availableCredential = await findCredentialForUrl(snapshot.url).catch(() => null);
@@ -529,7 +593,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
 
         const useThinking = shouldThink(settings, planWasSetByModel ? stepIndex + 1 : stepIndex, loop);
         step.thought = useThinking;
-        const modelForStep = stepIndex === 0 ? planningModel : stepModel;
+        const modelForStep = stepIndex === 0 && !planWasSetByModel ? planningModel : stepModel;
         step.modelUsed = modelForStep;
         if (settings.provider === 'openai') step.modelUsed = settings.openaiModel;
         if (settings.provider === 'gemini') step.modelUsed = settings.geminiModel;
@@ -547,6 +611,12 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
           thinking: useThinking,
           images,
           visualTokens: vision.attach ? vision.visualTokens : undefined,
+          tools: selectAgentTools({
+            goal: task.goal,
+            snapshot,
+            firstStep: !planWasSetByModel,
+            hasCredential: Boolean(availableCredential),
+          }),
           onUpdate: (partial) => {
             step.thinking = partial.thinking;
             step.note = partial.content ? truncate(partial.content, 200) : step.note;
@@ -641,8 +711,32 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
 
 
 
+      const batchValidationError = validateBatchCall(toolCall, snapshot, settings.confirmKeywords);
+      if (batchValidationError) {
+        const msg = 'Unsafe or invalid batch rejected: ' + batchValidationError + '. Return one corrected batch_actions call or one individual tool call.';
+        step.result = { ok: false, durationMs: 0, error: batchValidationError };
+        step.status = 'fail';
+        step.note = msg;
+        step.finishedAt = Date.now();
+        step.timings = finalizeTimings(stepStart, { snapshotMs, screenshotMs, llmMs });
+        await saveStep(task.id, step);
+        broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
+        history.push(toolCallSource === 'content'
+          ? { role: 'user', content: '[TOOL RESULT: ' + toolCall.name + '] error: ' + batchValidationError }
+          : { role: 'tool', content: 'error: ' + batchValidationError, tool_call_id: toolCall.id ?? toolCall.name });
+        history.push({ role: 'user', content: '[BATCH POLICY] ' + msg });
+        loop.lastStepFailed = true;
+        loop.modelRequestedReasoning = true;
+        advanceStepCounters();
+        task.updatedAt = Date.now();
+        await saveTask(task);
+        continue;
+      }
+
       // ── Pre-action sanity check: ref must exist in snapshot ──
-      const actionRef = String(toolCall.arguments.ref ?? '');
+      const actionRef = toolCall.name === 'batch_actions'
+        ? batchPrimaryRef(toolCall)
+        : String(toolCall.arguments.ref ?? '');
       const refExempt = toolCall.name === 'navigate' || toolCall.name === 'done' || toolCall.name === 'open_tab' || toolCall.name === 'switch_tab';
       if (actionRef && !refExempt && !snapshot.nodes.some(n => n.ref === actionRef)) {
         if (step.cached) {
@@ -872,6 +966,9 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         if (!ok.allowed) throw new Error(`Navigation blocked: ${ok.reason}`);
         await chrome.tabs.update(activeTabId, { url });
         await waitForTabComplete(activeTabId);
+        // Where the task meant to be. If a redirect strands it somewhere unreadable, this is
+        // the page to come back to — not whatever was in the tab beforehand.
+        recoveryPage = { url, title: '' };
         step.result = { ok: true, durationMs: 0 };
         executedCalls.push(toolCall);
         // Update primary tab URL in orchestrator
@@ -889,6 +986,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         await chrome.tabs.update(tab.id!, { url });
         await waitForTabComplete(tab.id!, 20_000);
         activeTabId = tab.id!;
+        recoveryPage = { url, title: '' };
         if (shouldActive) {
           await chrome.tabs.update(activeTabId, { active: true }).catch(() => {});
         }
@@ -1321,6 +1419,16 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       } else {
         step.result = await runBrowserAction(activeTabId, snapshot, toolCall);
         if (step.result.ok) executedCalls.push(toolCall);
+        if (toolCall.name === 'batch_actions' && step.result.extracted && typeof step.result.extracted === 'object') {
+          const batchResult = step.result.extracted as { completed?: number; outcomes?: unknown[]; stoppedAt?: number };
+          const completed = batchResult.completed ?? batchResult.outcomes?.filter(
+            (outcome) => typeof outcome === 'object' && outcome !== null && (outcome as { ok?: boolean }).ok,
+          ).length ?? 0;
+          const total = Array.isArray(toolCall.arguments.actions) ? toolCall.arguments.actions.length : 0;
+          step.note = step.result.ok
+            ? `Batch completed ${completed}/${total} actions`
+            : `Batch stopped after ${completed}/${total} actions`;
+        }
       }
 
       if (step.result?.ok && tabsBeforeAction.length > 0) {
@@ -1363,7 +1471,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       // ── Push tool result message (required by OpenAI-compatible APIs) ──
       const toolResultContent = step.result?.ok
         ? (step.result?.extracted !== undefined ? JSON.stringify(step.result.extracted) : 'ok')
-        : `error: ${step.result?.error ?? 'unknown'}`;
+        : `error: ${step.result?.error ?? 'unknown'}${step.result?.extracted !== undefined ? `; details: ${JSON.stringify(step.result.extracted)}` : ''}`;
       if (toolCallSource === 'content' || step.cached) {
         history.push({
           role: 'user',
@@ -1404,15 +1512,24 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       }
 
       // ── Verification ──
-      // Brief delay to let dynamic content settle after UI actions
-      if (toolCall?.name === 'click' || toolCall?.name === 'type' || toolCall?.name === 'press' || toolCall?.name === 'select') {
-        await sleep(200);
+      // Take a quick verification snapshot, then give slow SPAs one bounded second
+      // chance to expose the expected postcondition before asking the model to retry.
+      if (toolCall?.name === 'click' || toolCall?.name === 'type' || toolCall?.name === 'press' || toolCall?.name === 'select' || toolCall?.name === 'batch_actions') {
+        await sleep(150);
       }
-      const snapshotAfter = await takeSnapshot(activeTabId).catch(() => undefined);
-      step.snapshotAfter = snapshotAfter;
-
       const toolCallName = toolCall?.name ?? 'unknown';
-      const verification = verify(snapshot, snapshotAfter, step.result, toolCallName);
+      let snapshotAfter = await takeSnapshot(activeTabId).catch(() => undefined);
+      let verification = verify(snapshot, snapshotAfter, step.result, toolCallName, toolCall?.arguments);
+      if (
+        step.result?.ok &&
+        verification.status === 'partial' &&
+        ['click', 'type', 'press', 'select', 'batch_actions', 'navigate', 'open_tab', 'switch_tab'].includes(toolCallName)
+      ) {
+        await sleep(450);
+        snapshotAfter = await takeSnapshot(activeTabId).catch(() => snapshotAfter);
+        verification = verify(snapshot, snapshotAfter, step.result, toolCallName, toolCall?.arguments);
+      }
+      step.snapshotAfter = snapshotAfter;
       step.note = (step.note ?? '') + ` | ${describeVerification(verification)}`;
 
       const capturedToolCall = toolCall;
@@ -1467,13 +1584,16 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         }
 
         if (!step.cached) {
-          const successfulExtract = toolCall.name === 'extract' && step.result.extracted !== undefined;
+          const extractSummary = toolCall.name === 'extract'
+            ? summarizeExtraction(step.result.extracted)
+            : undefined;
+          const successfulExtract = extractSummary?.hasData === true;
 
           // ── Orchestrator: inject sub-task progress ──
           const orchCtx = orchPlan ? `\n${orchContext(orchPlan, plan)}` : '';
 
           const review = successfulExtract
-            ? `[REVIEW] ✓ ${toolCall.name} — data extracted. If this satisfies every requested item and verification criterion, call done; otherwise continue with exactly one tool call for the next active plan step. For multi-tab work, call open_tab once per URL.`
+            ? `[REVIEW] ✓ ${toolCall.name} — ${extractSummary?.itemCount ?? 0} item(s) extracted. If this satisfies every requested item and verification criterion, call done; otherwise continue with exactly one tool call for the next active plan step. For multi-tab work, call open_tab once per URL.`
             : `[REVIEW] ✓ ${toolCall.name}(${actionRef || ''}) — OK. Continue.${orchCtx}`;
           history.push({ role: 'user', content: review });
         }
@@ -1521,6 +1641,12 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         loop.lastStepFailed = false;
         consecutiveFailures = 0;
         stepRetryCount = 0;
+
+        if (verification.dataMissing) {
+          // The page holds nothing the a11y tree can see. Vision is the one channel that still
+          // might, so make sure the next step carries a screenshot.
+          loop.modelRequestedVision = true;
+        }
 
         if (!step.cached) {
           const hint = verification.popupDetected
@@ -1651,7 +1777,17 @@ async function takeSnapshot(tabId: number): Promise<A11ySnapshot> {
     break;
   }
 
-  return takeFrameSnapshot(tabId, (msg) => sendToContent(tabId, msg));
+  let snapshot = await takeFrameSnapshot(tabId, (msg) => sendToContent(tabId, msg));
+
+  // A snapshot with nothing in it is usually a page caught mid-redirect. Give it a bounded
+  // moment to settle before handing the model an empty document to reason about — a page that
+  // is genuinely node-less (canvas app) costs only these few hundred milliseconds.
+  for (let attempt = 0; attempt < BLANK_SNAPSHOT_RETRIES && assessPageHealth(snapshot).blank; attempt++) {
+    await sleep(BLANK_SNAPSHOT_SETTLE_MS);
+    snapshot = await takeFrameSnapshot(tabId, (msg) => sendToContent(tabId, msg));
+  }
+
+  return snapshot;
 }
 
 function syncVisiblePlans(task: AgentTask, plan: AgentPlan | null, orchPlan: OrchestrationPlan | null): void {
@@ -1672,10 +1808,10 @@ function applyModelTaskPlan(
   }
 
   const parsedPlan = parsePlanSteps(planText, task.goal);
-  if (parsedPlan.steps.length < 3 || parsedPlan.steps.length > 8) {
+  if (!isValidPlanStepCount(parsedPlan.steps.length)) {
     return {
       ok: false,
-      error: `Plan rejected: expected 3-8 numbered steps, got ${parsedPlan.steps.length}. Include intent, approach, evidence collection, verification, and final answer criteria.`,
+      error: `Plan rejected: expected ${PLAN_MIN_STEPS}-${PLAN_MAX_STEPS} numbered steps, got ${parsedPlan.steps.length}. Keep only distinct browser actions and final verification.`,
     };
   }
 
@@ -1787,6 +1923,7 @@ async function summarizeFoldedHistory(
         },
         { role: 'user', content: `GOAL: ${task.goal}\n\nEARLIER TURNS:\n${transcript}` },
       ],
+      tools: [],
     });
     const text = resp.content?.trim();
     return text ? text : digest;
@@ -1902,7 +2039,8 @@ async function runBrowserAction(tabId: number, snapshot: A11ySnapshot, call: Too
 }
 
 async function runContentAction(tabId: number, call: ToolCall) {
-  const frameId = frameIdFromRef(String(call.arguments.ref ?? ''));
+  const ref = call.name === 'batch_actions' ? batchPrimaryRef(call) : String(call.arguments.ref ?? '');
+  const frameId = frameIdFromRef(ref);
   const actionResp = frameId === 0
     ? await sendToContent(tabId, { kind: 'action:run', action: call })
     : await chrome.tabs.sendMessage(tabId, { kind: 'action:run', action: call }, { frameId }) as CSResponse;

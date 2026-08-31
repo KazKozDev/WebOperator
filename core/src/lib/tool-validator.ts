@@ -4,6 +4,7 @@
  */
 
 import type { ToolCall } from './types';
+import { validateBatchCall } from './batch-actions';
 
 export type ToolRiskLevel = 'safe' | 'low' | 'high';
 
@@ -49,6 +50,12 @@ export function validateAndClassifyToolCall(
         return { valid: false, error: 'set_task_plan requires a "steps" string', riskLevel: 'safe' };
       }
       return { valid: true, sanitizedArgs: args, riskLevel: 'safe' };
+    }
+
+    case 'batch_actions': {
+      const error = validateBatchCall(toolCall, undefined, customConfirmKeywords);
+      if (error) return { valid: false, error, riskLevel: 'safe' };
+      return { valid: true, sanitizedArgs: args, riskLevel: 'low' };
     }
 
     case 'click': {

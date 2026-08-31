@@ -13,9 +13,10 @@ export function AnswerPanel({
   task: AgentTask;
   isConfirmationCheckpoint: (task: AgentTask | null) => boolean;
   onResumeCheckpoint?: (taskId: string) => void;
-  onExport?: () => void;
+  onExport?: () => void | Promise<void>;
 }) {
   const [copied, setCopied] = useState(false);
+  const [exportState, setExportState] = useState<'idle' | 'exporting' | 'done' | 'error'>('idle');
   const isFinished = task.status === 'done' || task.status === 'failed';
   const isFailed = task.status === 'failed';
   const needsConfirmation = isConfirmationCheckpoint(task);
@@ -35,6 +36,20 @@ export function AnswerPanel({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {}
+  };
+
+  const exportPdf = async () => {
+    if (!onExport || exportState === 'exporting') return;
+    setExportState('exporting');
+    try {
+      await onExport();
+      setExportState('done');
+      setTimeout(() => setExportState('idle'), 2000);
+    } catch (error) {
+      console.error('PDF export failed', error);
+      setExportState('error');
+      setTimeout(() => setExportState('idle'), 3000);
+    }
   };
 
   return (
@@ -58,10 +73,11 @@ export function AnswerPanel({
               type="button"
               className="icon-btn-text"
               style={headerBtnStyle}
-              onClick={onExport}
-              title="Export task trace"
+              onClick={exportPdf}
+              title="Save task report as PDF"
+              disabled={exportState === 'exporting'}
             >
-              Export
+              {exportState === 'exporting' ? 'Saving…' : exportState === 'done' ? '✓ Saved' : exportState === 'error' ? 'Export failed' : 'Export PDF'}
             </button>
           )}
         </div>
@@ -83,5 +99,4 @@ export function AnswerPanel({
     </section>
   );
 }
-
 

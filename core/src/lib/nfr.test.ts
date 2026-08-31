@@ -76,6 +76,22 @@ describe('privacy masking', () => {
     expect(maskCallForLog(call, plain)).toBe(call);
   });
 
+  it('masks password text nested inside batch_actions', () => {
+    const call: ToolCall = {
+      name: 'batch_actions',
+      arguments: { actions: [
+        { name: 'type', ref: '@e1', text: 'secret123' },
+        { name: 'press', key: 'Tab' },
+      ] },
+    };
+
+    const masked = maskCallForLog(call, snapshot());
+    expect(masked.arguments.actions).toEqual([
+      { name: 'type', ref: '@e1', text: '••••••' },
+      { name: 'press', key: 'Tab' },
+    ]);
+  });
+
   it('masks task steps before log/export use', () => {
     const sensitive = task({
       steps: [

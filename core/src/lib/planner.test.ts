@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { advancePlan, completePlan, hasStructuredPlan, parsePlanSteps, shouldAdvancePlanAfterTool } from './planner';
+import { advancePlan, completePlan, hasStructuredPlan, isValidPlanStepCount, parsePlanSteps, shouldAdvancePlanAfterTool } from './planner';
 
 describe('planner', () => {
+  it('uses the same 2-5 step contract advertised to the model', () => {
+    expect(isValidPlanStepCount(1)).toBe(false);
+    expect(isValidPlanStepCount(2)).toBe(true);
+    expect(isValidPlanStepCount(5)).toBe(true);
+    expect(isValidPlanStepCount(6)).toBe(false);
+  });
+
   it('activates the first parsed plan step', () => {
     const plan = parsePlanSteps('1. Open the site\n2. Extract the result', 'check result');
 

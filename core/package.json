@@ -25,6 +25,7 @@
   "dependencies": {
     "@xenova/transformers": "^2.17.2",
     "dexie": "^4.0.8",
+    "pdfmake": "^0.3.11",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
@@ -32,6 +33,7 @@
     "@crxjs/vite-plugin": "^2.0.0-beta.28",
     "@eslint/js": "^10.0.1",
     "@types/chrome": "^0.0.270",
+    "@types/pdfmake": "^0.3.3",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^6.0.1",

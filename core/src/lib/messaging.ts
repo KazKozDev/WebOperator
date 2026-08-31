@@ -16,13 +16,22 @@ export async function sendToSW<R>(msg: SWMessage): Promise<R> {
   return res as R;
 }
 
-export async function sendToContent(tabId: number, msg: CSMessage): Promise<CSResponse> {
+/**
+ * Send to one frame of a tab — the main document by default.
+ *
+ * The frameId matters: `chrome.tabs.sendMessage` without one delivers to every frame and
+ * resolves with whichever replies first. The content script runs in all of them, so on a page
+ * with hidden service iframes (Google's cookie-rotation frame, a gapi hovercard widget) a
+ * 0x0 iframe answers before the real document and the caller gets that frame's URL, viewport
+ * and empty node list instead of the page's.
+ */
+export async function sendToContent(tabId: number, msg: CSMessage, frameId = 0): Promise<CSResponse> {
   try {
-    return await chrome.tabs.sendMessage(tabId, msg) as CSResponse;
+    return await chrome.tabs.sendMessage(tabId, msg, { frameId }) as CSResponse;
   } catch (err) {
     if (!isMissingReceiverError(err)) throw err;
     await ensureContentScript(tabId);
-    return chrome.tabs.sendMessage(tabId, msg) as Promise<CSResponse>;
+    return chrome.tabs.sendMessage(tabId, msg, { frameId }) as Promise<CSResponse>;
   }
 }
 

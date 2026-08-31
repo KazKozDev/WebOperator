@@ -6,7 +6,7 @@
     "prompt": "Check whether \"acknowledgment\" or \"acknowledgement\" is the preferred spelling on this dictionary page, and report what the page says.",
     "expectedEvidence": ["acknowledgment", "acknowledgement", "preferred spelling"],
     "expectedAnswerIncludes": ["acknowledgment", "acknowledgement"],
-    "traceAssertions": ["first tool call is set_task_plan", "final tool call is done", "final answer cites visible page evidence"],
+    "traceAssertions": ["uses a direct path or concise plan", "final tool call is done", "final answer cites visible page evidence"],
     "failureModes": ["checks only one spelling", "answers from prior knowledge", "raw JSON instead of done tool call"]
   },
   {
@@ -16,7 +16,7 @@
     "prompt": "Rank the top 5 headphones by review quality using the visible rating, review count, and price data.",
     "expectedEvidence": ["rating", "reviews", "price"],
     "expectedAnswerIncludes": ["rating", "reviews"],
-    "traceAssertions": ["first tool call is set_task_plan", "uses extracted visible product data", "final answer is a numbered list"],
+    "traceAssertions": ["uses a direct path or concise plan", "uses extracted visible product data", "final answer is a numbered list"],
     "failureModes": ["uses sponsored order as ranking", "drops review counts", "malformed final newlines"]
   },
   {
@@ -36,7 +36,7 @@
     "prompt": "Fill the form with the provided test user and submit it.",
     "expectedEvidence": ["Test User", "test@example.com", "Submit"],
     "expectedAnswerIncludes": ["submitted"],
-    "traceAssertions": ["first tool call is set_task_plan", "all required fields are filled", "post-submit state is verified"],
+    "traceAssertions": ["uses a direct path or concise plan", "all required fields are filled", "post-submit state is verified"],
     "failureModes": ["submits before all fields are filled", "logs password-like data", "marks done without verification"]
   },
   {
@@ -68,7 +68,7 @@
     "prompt": "Reveal the shipment details and report the confirmation code shown after the reveal.",
     "expectedEvidence": ["Reveal details", "Confirmation code", "SKY-481"],
     "expectedAnswerIncludes": ["SKY-481"],
-    "traceAssertions": ["first tool call is set_task_plan", "clicks before final done", "final answer cites revealed content"],
+    "traceAssertions": ["uses a direct path or concise plan", "clicks before final done", "final answer cites revealed content"],
     "failureModes": ["answers before revealing details", "uses hidden DOM without visible verification", "raw JSON final answer"]
   },
   {

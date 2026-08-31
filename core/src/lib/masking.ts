@@ -1,6 +1,15 @@
 import type { A11ySnapshot, AgentStep, AgentTask, ToolCall } from './types';
+import { parseBatchActions } from './batch-actions';
 
 export function maskCallForLog(call: ToolCall, snapshot?: A11ySnapshot): ToolCall {
+  if (call.name === 'batch_actions') {
+    const actions = parseBatchActions(call);
+    const maskedActions = actions.map((action) => {
+      const masked = maskCallForLog(action, snapshot);
+      return { name: masked.name, ...masked.arguments };
+    });
+    return { ...call, arguments: { ...call.arguments, actions: maskedActions } };
+  }
   if (call.name !== 'type') return call;
   const ref = String(call.arguments.ref ?? '');
   const node = snapshot?.nodes.find((n) => n.ref === ref);

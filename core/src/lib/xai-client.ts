@@ -61,11 +61,12 @@ export async function chatXai(opts: OllamaChatOptions, apiKey: string, xaiModel:
     return { role: m.role, content: m.content };
   });
 
+  const activeTools = opts.tools ?? AGENT_TOOLS;
   const body = {
     model: xaiModel,
     messages,
     stream: Boolean(opts.onUpdate),
-    tools: AGENT_TOOLS.map(t => ({ type: 'function', function: t.function })),
+    ...(activeTools.length > 0 ? { tools: activeTools.map(t => ({ type: 'function', function: t.function })) } : {}),
     temperature: 0.2,
   };
 

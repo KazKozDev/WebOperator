@@ -624,7 +624,7 @@ function HistoryView({ onReplay, onOpen, onResumeCheckpoint }: { onReplay: (goal
 
   async function exportTask(id: string) {
     const full = await sendToSW<AgentTask | null>({ kind: 'task:get', id });
-    if (full) downloadPdf(full);
+    if (full) await downloadPdf(full);
   }
 
   if (loading) return <section className="view active page-view"><div className="page-empty">Loading...</div></section>;

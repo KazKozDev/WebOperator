@@ -1,5 +1,19 @@
 import type { ActionResult, ToolCall } from './types';
 import { findElementByRef } from './a11y';
+import { parseBatchActions, validateBatchCall } from './batch-actions';
+
+interface BatchActionOutcome {
+  index: number;
+  name: ToolCall['name'];
+  ok: boolean;
+  error?: string;
+}
+
+class BatchActionError extends Error {
+  constructor(message: string, readonly outcomes: BatchActionOutcome[]) {
+    super(message);
+  }
+}
 
 export async function runAction(call: ToolCall, timeoutMs: number): Promise<ActionResult> {
   const start = performance.now();
@@ -7,7 +21,12 @@ export async function runAction(call: ToolCall, timeoutMs: number): Promise<Acti
     const result = await withTimeout(dispatch(call), timeoutMs);
     return { ok: true, durationMs: performance.now() - start, ...(result ? { extracted: result } : {}) };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err), durationMs: performance.now() - start };
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+      durationMs: performance.now() - start,
+      ...(err instanceof BatchActionError ? { extracted: { outcomes: err.outcomes, stoppedAt: err.outcomes.length } } : {}),
+    };
   }
 }
 
@@ -15,6 +34,7 @@ async function dispatch(call: ToolCall): Promise<unknown> {
   switch (call.name) {
     case 'set_task_plan':
       return undefined;
+    case 'batch_actions': return doBatchActions(call);
     case 'click': return doClick(String(call.arguments.ref ?? ''));
     case 'type': return doType(
       String(call.arguments.ref ?? ''),
@@ -67,6 +87,24 @@ async function dispatch(call: ToolCall): Promise<unknown> {
     default:
       throw new Error(`Unknown action: ${(call as { name: string }).name}`);
   }
+}
+
+async function doBatchActions(call: ToolCall): Promise<{ outcomes: BatchActionOutcome[]; completed: number }> {
+  const validationError = validateBatchCall(call);
+  if (validationError) throw new BatchActionError(validationError, []);
+
+  const outcomes: BatchActionOutcome[] = [];
+  for (const [index, action] of parseBatchActions(call).entries()) {
+    try {
+      await dispatch(action);
+      outcomes.push({ index, name: action.name, ok: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      outcomes.push({ index, name: action.name, ok: false, error: message });
+      throw new BatchActionError(`Batch stopped at action ${index + 1} (${action.name}): ${message}`, outcomes);
+    }
+  }
+  return { outcomes, completed: outcomes.length };
 }
 
 function resolve(ref: string): HTMLElement {

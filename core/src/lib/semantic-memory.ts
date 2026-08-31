@@ -1,6 +1,7 @@
 import { db } from './storage';
 import { urlPattern } from './action-cache';
 import type { A11ySnapshot, RecoveryMemory, SitePattern, ToolCall } from './types';
+import { parseBatchActions } from './batch-actions';
 
 export async function getSitePattern(snapshot: A11ySnapshot): Promise<SitePattern | undefined> {
   const pat = urlPattern(snapshot.url);
@@ -22,7 +23,8 @@ export async function learnFromSuccess(
     hitCount: (existing?.hitCount ?? 0) + 1,
   };
 
-  for (const call of toolCalls) {
+  const expandedCalls = toolCalls.flatMap((call) => call.name === 'batch_actions' ? parseBatchActions(call) : [call]);
+  for (const call of expandedCalls) {
     if (call.name === 'click' || call.name === 'type') {
       const ref = String(call.arguments.ref ?? '');
       const node = snapshot.nodes.find((n) => n.ref === ref);

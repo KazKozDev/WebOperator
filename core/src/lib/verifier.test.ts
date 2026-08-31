@@ -40,6 +40,51 @@ describe('verifier', () => {
     expect(result.domChanged).toBe(false);
   });
 
+  it('refuses to call an empty extraction a success', () => {
+    const result = verify(
+      snapshot({ nodes: [node()] }),
+      snapshot({ nodes: [node()], takenAt: 2 }),
+      { ok: true, durationMs: 1, extracted: [] },
+      'extract',
+    );
+
+    expect(result.status).toBe('partial');
+    expect(result.dataMissing).toContain('zero items');
+    expect(result.recommendedStrategy).toBe('try_alternative');
+    expect(describeVerification(result)).toContain('Verification partial (no data extracted)');
+    expect(verificationToPrompt(result)).toContain('NO data was extracted');
+  });
+
+  it('tells the model to leave an interstitial instead of re-extracting', () => {
+    const result = verify(
+      snapshot({ url: 'https://accounts.google.com/RotateCookiesPage' }),
+      snapshot({ url: 'https://accounts.google.com/RotateCookiesPage', takenAt: 2 }),
+      {
+        ok: true,
+        durationMs: 1,
+        extracted: [{ ref: 'document.body', text: "init('-4984232896288535446', 23.0 , 0.0 , 0.0 , 600.0 )" }],
+      },
+      'extract',
+    );
+
+    expect(result.status).toBe('partial');
+    expect(result.recommendedStrategy).toBe('wait_and_retry');
+    expect(result.suggestions.join(' ')).toContain('exposes no accessibility nodes');
+  });
+
+  it('counts the items a successful extraction returned', () => {
+    const result = verify(
+      snapshot(),
+      snapshot({ takenAt: 2 }),
+      { ok: true, durationMs: 1, extracted: [{ ref: '@e1', text: 'Invoice from Acme' }] },
+      'extract',
+    );
+
+    expect(result.status).toBe('success');
+    expect(result.itemsExtracted).toBe(1);
+    expect(describeVerification(result)).toContain('1 item(s) extracted');
+  });
+
   it('detects partial/ghost execution when click produces no DOM/URL changes', () => {
     const result = verify(
       snapshot(),
@@ -68,6 +113,56 @@ describe('verifier', () => {
     expect(result.status).toBe('success');
     expect(result.domChanged).toBe(true);
     expect(verificationToPrompt(result)).toContain('Action confirmed');
+  });
+
+  it('verifies typed input by value even when the DOM hash is unchanged', () => {
+    const before = snapshot({ nodes: [node({ ref: '@e2', role: 'textbox', value: '' })] });
+    const after = snapshot({ takenAt: 2, nodes: [node({ ref: '@e2', role: 'textbox', value: 'hello' })] });
+
+    const result = verify(before, after, okAction, 'type', { ref: '@e2', text: 'hello' });
+
+    expect(result.status).toBe('success');
+    expect(result.suggestions[0]).toContain('Input value matches');
+  });
+
+  it('keeps a mismatched typed value partial when nothing else changed', () => {
+    const before = snapshot({ nodes: [node({ ref: '@e2', role: 'textbox', value: '' })] });
+    const after = snapshot({ takenAt: 2, nodes: [node({ ref: '@e2', role: 'textbox', value: 'hel' })] });
+
+    expect(verify(before, after, okAction, 'type', { ref: '@e2', text: 'hello' }).status).toBe('partial');
+  });
+
+  it('verifies selected values and internally checked spreadsheet actions', () => {
+    const before = snapshot({ nodes: [node({ ref: '@e3', role: 'combobox', value: 'One' })] });
+    const after = snapshot({ takenAt: 2, nodes: [node({ ref: '@e3', role: 'combobox', value: 'Two' })] });
+
+    expect(verify(before, after, okAction, 'select', { ref: '@e3', value: 'Two' }).status).toBe('success');
+    expect(verify(snapshot(), snapshot({ takenAt: 2 }), okAction, 'fill_cells').status).toBe('success');
+  });
+
+  it('verifies every typed or selected value in a batch', () => {
+    const before = snapshot({ nodes: [
+      node({ ref: '@e1', role: 'textbox', value: '' }),
+      node({ ref: '@e2', role: 'combobox', value: 'One' }),
+    ] });
+    const after = snapshot({ takenAt: 2, nodes: [
+      node({ ref: '@e1', role: 'textbox', value: 'Ada' }),
+      node({ ref: '@e2', role: 'combobox', value: 'Two' }),
+    ] });
+    const args = { actions: [
+      { name: 'type', ref: '@e1', text: 'Ada' },
+      { name: 'select', ref: '@e2', value: 'Two' },
+    ] };
+
+    expect(verify(before, after, okAction, 'batch_actions', args).status).toBe('success');
+
+    const mismatched = snapshot({ takenAt: 3, nodes: [
+      node({ ref: '@e1', role: 'textbox', value: 'Ad' }),
+      node({ ref: '@e2', role: 'combobox', value: 'Two' }),
+    ] });
+    const result = verify(before, mismatched, okAction, 'batch_actions', args);
+    expect(result.status).toBe('partial');
+    expect(result.suggestions[0]).toContain('tool-specific verification failed');
   });
 
   it('does not flag error words in pre-existing page text', () => {
@@ -135,4 +230,3 @@ describe('verifier', () => {
     expect(result.errorDetected).toContain('503');
   });
 });
-

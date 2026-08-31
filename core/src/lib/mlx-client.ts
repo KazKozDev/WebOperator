@@ -52,6 +52,7 @@ export async function chatMlx(opts: OllamaChatOptions, apiKey: string, model: st
   const signal = opts.signal ? AbortSignal.any([opts.signal, timeoutController.signal]) : timeoutController.signal;
 
   try {
+    const activeTools = opts.tools ?? AGENT_TOOLS;
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (apiKey.trim()) headers.authorization = `Bearer ${apiKey}`;
 
@@ -62,7 +63,7 @@ export async function chatMlx(opts: OllamaChatOptions, apiKey: string, model: st
         model,
         messages,
         stream: false,
-        tools: AGENT_TOOLS.map((t) => ({ type: 'function', function: t.function })),
+        ...(activeTools.length > 0 ? { tools: activeTools.map((t) => ({ type: 'function', function: t.function })) } : {}),
         temperature: 0.2,
       }),
     }, signal);

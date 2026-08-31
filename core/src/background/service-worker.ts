@@ -644,7 +644,7 @@ async function executeBridgeRequest(type: string, payload: Record<string, unknow
       await ensureContentScript(tabId);
       const snapshot = await takeFrameSnapshot(
         tabId,
-        (msg) => chrome.tabs.sendMessage(tabId, msg) as Promise<CSResponse>,
+        (msg) => chrome.tabs.sendMessage(tabId, msg, { frameId: 0 }) as Promise<CSResponse>,
         { allElements: payload.allElements === true },
       );
       return { kind: 'snapshot', snapshot } satisfies CSResponse;
@@ -677,7 +677,7 @@ async function executeBridgeRequest(type: string, payload: Record<string, unknow
       return recordBridgeActionStep(tabId, action, `External Agent: ${describeToolCall(action)}`, async () => {
         const frameId = frameIdFromRef(String(action.arguments.ref ?? ''));
         const resp = frameId === 0
-          ? await chrome.tabs.sendMessage(tabId, { kind: 'action:run', action })
+          ? await chrome.tabs.sendMessage(tabId, { kind: 'action:run', action }, { frameId: 0 })
           : await chrome.tabs.sendMessage(tabId, { kind: 'action:run', action }, { frameId });
         return resp;
       });

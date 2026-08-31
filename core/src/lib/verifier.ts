@@ -1,4 +1,7 @@
 import type { A11ySnapshot, ActionResult, RetryStrategy, VerificationResult } from './types';
+import { parseBatchActions } from './batch-actions';
+import { summarizeExtraction } from './extraction';
+import { assessPageHealth } from './page-state';
 
 const ERROR_PATTERNS = [
   'error', 'ошибка', 'fehler', 'erro',
@@ -32,6 +35,7 @@ export function verify(
   snapshotAfter: A11ySnapshot | undefined,
   action: ActionResult,
   toolName: string,
+  toolArguments: Record<string, unknown> = {},
 ): VerificationResult {
   if (!snapshotAfter) {
     return {
@@ -89,12 +93,77 @@ export function verify(
   }
 
   if (toolName === 'extract' || toolName === 'read_cells') {
+    // A read-only tool that ran cleanly but brought back nothing is not a step forward. Saying
+    // "success" here would advance the plan on an empty result and — because the loop treats a
+    // verified step as page progress — reset the loop guard on every repeat.
+    const pageIsBlank = assessPageHealth(snapshotAfter).blank;
+    const extraction = summarizeExtraction(action.extracted, { pageIsBlank });
+    if (!extraction.hasData) {
+      return {
+        status: 'partial',
+        domChanged,
+        urlChanged,
+        newUrl: urlChanged ? snapshotAfter.url : undefined,
+        dataMissing: extraction.reason,
+        suggestions: [
+          `${toolName} ran but returned no data: ${extraction.reason}`,
+          pageIsBlank
+            ? `The page at ${snapshotAfter.url} exposes no accessibility nodes — it is an interstitial or is still loading. Repeating ${toolName} cannot help: wait for the real page, or navigate back to the page that held the content.`
+            : `Repeating ${toolName} with the same arguments will return the same nothing. Target concrete refs from the snapshot, or reach the content another way.`,
+        ],
+        recommendedStrategy: pageIsBlank ? 'wait_and_retry' : 'try_alternative',
+      };
+    }
+
     return {
       status: 'success',
       domChanged,
       urlChanged,
       newUrl: urlChanged ? snapshotAfter.url : undefined,
+      itemsExtracted: extraction.itemCount,
       suggestions: ['Read-only action returned data successfully'],
+      recommendedStrategy: 'none',
+    };
+  }
+
+  if (toolName === 'batch_actions') {
+    const actions = parseBatchActions({ name: 'batch_actions', arguments: toolArguments });
+    const postconditions = actions.map((child) =>
+      verifyToolPostcondition(snapshotBefore, snapshotAfter, child.name, child.arguments),
+    );
+    const missingRequired = actions.filter(
+      (child, index) => (child.name === 'type' || child.name === 'select') && !postconditions[index],
+    );
+    if (missingRequired.length > 0) {
+      return {
+        status: 'partial',
+        domChanged,
+        urlChanged,
+        newUrl: urlChanged ? snapshotAfter.url : undefined,
+        suggestions: ['Batch ran, but tool-specific verification failed for: ' + missingRequired.map((child) => child.name).join(', ')],
+        recommendedStrategy: 'different_selector',
+      };
+    }
+    if (actions.length > 0 && postconditions.every(Boolean)) {
+      return {
+        status: 'success',
+        domChanged,
+        urlChanged,
+        newUrl: urlChanged ? snapshotAfter.url : undefined,
+        suggestions: ['Verified all ' + actions.length + ' batched action postconditions'],
+        recommendedStrategy: 'none',
+      };
+    }
+  }
+
+  const postcondition = verifyToolPostcondition(snapshotBefore, snapshotAfter, toolName, toolArguments);
+  if (postcondition) {
+    return {
+      status: 'success',
+      domChanged,
+      urlChanged,
+      newUrl: urlChanged ? snapshotAfter.url : undefined,
+      suggestions: [postcondition],
       recommendedStrategy: 'none',
     };
   }
@@ -125,6 +194,47 @@ export function verify(
     ],
     recommendedStrategy: 'different_selector',
   };
+}
+
+function verifyToolPostcondition(
+  before: A11ySnapshot,
+  after: A11ySnapshot,
+  toolName: string,
+  args: Record<string, unknown>,
+): string | undefined {
+  if (toolName === 'wait') return 'Wait condition completed successfully';
+  if (['paste_table', 'fill_cells', 'select_cell', 'set_cell'].includes(toolName)) {
+    return 'Spreadsheet action completed its internal verification';
+  }
+
+  const ref = typeof args.ref === 'string' ? args.ref : '';
+  if (!ref) return undefined;
+  const beforeNode = before.nodes.find((node) => node.ref === ref);
+  const afterNode = after.nodes.find((node) => node.ref === ref);
+
+  if (toolName === 'type' && afterNode) {
+    const expected = String(args.text ?? '');
+    const actual = afterNode.value ?? '';
+    const mode = String(args.mode ?? 'replace');
+    const matches = mode === 'append' ? actual.endsWith(expected) : actual === expected;
+    if (matches) return `Input value matches the requested ${mode} operation`;
+  }
+
+  if (toolName === 'select' && afterNode) {
+    const expected = String(args.value ?? '').trim().toLowerCase();
+    const actual = `${afterNode.value ?? ''} ${afterNode.name}`.trim().toLowerCase();
+    if (expected && (actual === expected || actual.includes(expected))) {
+      return 'Selected value matches the requested option';
+    }
+  }
+
+  if ((toolName === 'click' || toolName === 'press') && beforeNode && afterNode) {
+    const beforeState = JSON.stringify([beforeNode.value ?? '', ...(beforeNode.state ?? [])]);
+    const afterState = JSON.stringify([afterNode.value ?? '', ...(afterNode.state ?? [])]);
+    if (beforeState !== afterState) return 'Target element state changed as expected';
+  }
+
+  return undefined;
 }
 
 function verifyFailedAction(
@@ -269,10 +379,11 @@ export function describeVerification(v: VerificationResult): string {
   const parts: string[] = [];
   if (v.status === 'success') {
     parts.push('Verification passed');
+    if (v.itemsExtracted !== undefined) parts.push(`${v.itemsExtracted} item(s) extracted`);
     if (v.urlChanged) parts.push('URL changed');
     if (v.elementAppeared) parts.push(`new element: ${v.elementAppeared}`);
   } else if (v.status === 'partial') {
-    parts.push('Verification partial (no DOM/URL change)');
+    parts.push(v.dataMissing ? 'Verification partial (no data extracted)' : 'Verification partial (no DOM/URL change)');
   } else if (v.status === 'failed') {
     parts.push('Verification failed');
     if (v.errorDetected) parts.push(`error: ${v.errorDetected}`);
@@ -288,6 +399,11 @@ export function verificationToPrompt(v: VerificationResult): string {
   if (v.status === 'success') return 'Action confirmed — page changed as expected. Continue.';
   if (v.status === 'partial' && v.popupDetected) {
     return `Action completed, but a popup was detected (${v.popupRefs?.join(', ')}). Close the popup before continuing.`;
+  }
+  if (v.status === 'partial' && v.dataMissing) {
+    const lines = ['The action ran, but NO data was extracted — this step did not make progress.'];
+    lines.push(...v.suggestions.map((s) => `- ${s}`));
+    return lines.join('\n');
   }
   if (v.status === 'partial') {
     const lines = ['Action reported success, but NO observable state or DOM change was detected on the page.'];

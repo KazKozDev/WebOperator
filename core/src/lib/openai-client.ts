@@ -84,11 +84,13 @@ export async function chatOpenAICompatible({
   const signal = opts.signal ? AbortSignal.any([opts.signal, timeoutController.signal]) : timeoutController.signal;
 
   try {
+    const activeTools = opts.tools ?? AGENT_TOOLS;
+    const toolPayload = activeTools.map((t) => ({ type: 'function', function: t.function }));
     const body = {
       model,
       messages,
       stream: Boolean(opts.onUpdate),
-      tools: AGENT_TOOLS.map((t) => ({ type: 'function', function: t.function })),
+      ...(toolPayload.length > 0 ? { tools: toolPayload } : {}),
       temperature: 0.2,
     };
     let res = await requestChatCompletions(url, apiKey, body, signal);
@@ -100,7 +102,7 @@ export async function chatOpenAICompatible({
           model,
           messages,
           stream: Boolean(opts.onUpdate),
-          tools: AGENT_TOOLS.map((t) => ({ type: 'function', function: t.function })),
+          ...(toolPayload.length > 0 ? { tools: toolPayload } : {}),
         };
         res = await requestChatCompletions(url, apiKey, fallbackBody, signal);
       } else {

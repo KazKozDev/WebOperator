@@ -56,6 +56,7 @@ export async function chatDeepSeek(opts: OllamaChatOptions, apiKey: string, mode
   const signal = opts.signal ? AbortSignal.any([opts.signal, timeoutController.signal]) : timeoutController.signal;
 
   try {
+    const activeTools = opts.tools ?? AGENT_TOOLS;
     const res = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: {
@@ -66,7 +67,7 @@ export async function chatDeepSeek(opts: OllamaChatOptions, apiKey: string, mode
         model,
         messages,
         stream: Boolean(opts.onUpdate),
-        tools: AGENT_TOOLS.map((t) => ({ type: 'function', function: t.function })),
+        ...(activeTools.length > 0 ? { tools: activeTools.map((t) => ({ type: 'function', function: t.function })) } : {}),
         temperature: 0.2,
       }),
       signal,

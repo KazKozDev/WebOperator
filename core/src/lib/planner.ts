@@ -1,5 +1,12 @@
 import type { AgentPlan, PlanStep } from './types';
 
+export const PLAN_MIN_STEPS = 2;
+export const PLAN_MAX_STEPS = 5;
+
+export function isValidPlanStepCount(count: number): boolean {
+  return count >= PLAN_MIN_STEPS && count <= PLAN_MAX_STEPS;
+}
+
 export function parsePlanSteps(thinkingText: string, goal: string): AgentPlan {
   const steps: PlanStep[] = [];
   const lines = thinkingText.split(/\n/);

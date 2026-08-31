@@ -18,7 +18,7 @@ export async function chatAnthropic(
   const startedAt = Date.now();
 
   // Convert tools to Anthropic format
-  const tools = AGENT_TOOLS.map((t) => ({
+  const tools = (opts.tools ?? AGENT_TOOLS).map((t) => ({
     name: t.function.name,
     description: t.function.description,
     input_schema: t.function.parameters,
@@ -97,7 +97,7 @@ export async function chatAnthropic(
     model,
     max_tokens: opts.thinking && model.includes('claude-3-7') ? 8192 : 4096,
     messages: anthropicMessages,
-    tools,
+    ...(tools.length > 0 ? { tools } : {}),
   };
 
   if (opts.thinking && model.includes('claude-3-7')) {

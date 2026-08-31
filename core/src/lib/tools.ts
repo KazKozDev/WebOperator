@@ -1,3 +1,5 @@
+import type { AgentActionName, A11ySnapshot } from './types';
+
 export interface OllamaToolDef {
   type: 'function';
   function: {
@@ -5,7 +7,16 @@ export interface OllamaToolDef {
     description: string;
     parameters: {
       type: 'object';
-      properties: Record<string, { type: string; description: string; enum?: string[] }>;
+      properties: Record<string, {
+        type: string;
+        description: string;
+        enum?: string[];
+        items?: {
+          type: string;
+          properties: Record<string, { type: string; description: string; enum?: string[] }>;
+          required: string[];
+        };
+      }>;
       required: string[];
     };
   };
@@ -26,6 +37,37 @@ export const AGENT_TOOLS: OllamaToolDef[] = [
         required: ['steps', 'reason'],
       },
 
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'batch_actions',
+      description: 'Execute 2-5 independent, non-navigating actions in order with one verification snapshot. Stops at the first failure. Only use within the current plan step. Never batch links, submission, Enter, destructive actions, or actions whose targets depend on an earlier action.',
+      parameters: {
+        type: 'object',
+        properties: {
+          actions: {
+            type: 'array',
+            description: 'Ordered safe actions. Allowed names: click, type, press, select.',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', description: 'click|type|press|select', enum: ['click', 'type', 'press', 'select'] },
+                ref: { type: 'string', description: 'element ref from the current snapshot; optional only for press' },
+                text: { type: 'string', description: 'text for type' },
+                mode: { type: 'string', description: 'replace|append for type', enum: ['replace', 'append'] },
+                key: { type: 'string', description: 'non-submitting key for press; Enter is forbidden' },
+                modifiers: { type: 'string', description: 'comma-separated modifiers for press' },
+                value: { type: 'string', description: 'option value or visible text for select' },
+              },
+              required: ['name'],
+            },
+          },
+          reason: { type: 'string', description: 'short reason these actions are independent and safe to batch' },
+        },
+        required: ['actions'],
+      },
     },
   },
   {
@@ -448,3 +490,73 @@ export const AGENT_TOOLS: OllamaToolDef[] = [
 ];
 
 export const TOOL_NAMES = AGENT_TOOLS.map((t) => t.function.name);
+
+const CORE_TOOL_NAMES: AgentActionName[] = [
+  'click', 'type', 'press', 'select', 'scroll', 'navigate', 'wait', 'extract', 'done',
+];
+
+const TAB_TOOL_NAMES: AgentActionName[] = [
+  'open_tab', 'switch_tab', 'list_tabs', 'close_tabs', 'bookmark_tabs', 'group_tabs', 'ungroup_tabs',
+];
+
+const SHEET_TOOL_NAMES: AgentActionName[] = [
+  'paste_table', 'fill_cells', 'select_cell', 'set_cell', 'define_sheet_contract', 'read_cells',
+];
+
+const ORCHESTRATOR_TOOL_NAMES: AgentActionName[] = [
+  'start_subtask', 'finish_subtask', 'fail_subtask', 'update_task_memory',
+];
+
+export interface AgentToolContext {
+  goal: string;
+  snapshot?: Pick<A11ySnapshot, 'url' | 'nodes'>;
+  firstStep?: boolean;
+  hasCredential?: boolean;
+}
+
+/**
+ * Keep each model decision focused on tools that can plausibly help in the current task.
+ * The full registry remains the source of truth; this only narrows the schemas sent on a call.
+ */
+export function selectAgentTools(context: AgentToolContext): OllamaToolDef[] {
+  const goal = context.goal.toLowerCase();
+  const url = context.snapshot?.url.toLowerCase() ?? '';
+  const nodeText = context.snapshot?.nodes
+    .slice(0, 80)
+    .map((node) => `${node.role} ${node.name}`.toLowerCase())
+    .join(' ') ?? '';
+  const names = new Set<AgentActionName>(CORE_TOOL_NAMES);
+
+  const batchableNodes = context.snapshot?.nodes.filter((node) =>
+    ['button', 'textbox', 'searchbox', 'combobox', 'checkbox', 'radio', 'switch', 'tab'].includes(node.role),
+  ).length ?? 0;
+  if (batchableNodes >= 2) names.add('batch_actions');
+
+  if (context.firstStep) names.add('set_task_plan');
+
+  if (/\b(tab|tabs|bookmark|bookmarks|group tabs|multi-tab|multiple sources|several sites|compare|research)\b|вклад|заклад|групп.*вклад|нескольк.*(?:сайт|источник)|сравн|исслед/.test(goal)) {
+    for (const name of TAB_TOOL_NAMES) names.add(name);
+  }
+
+  if (/docs\.google\.com\/spreadsheets|\b(sheet|spreadsheet|cells?|rows?|columns?|table|tsv)\b|таблиц|ячейк|строк|столб/.test(`${goal} ${url}`)) {
+    for (const name of SHEET_TOOL_NAMES) names.add(name);
+  }
+
+  if (context.hasCredential || /\b(log ?in|sign ?in|credential|username|password)\b|войти|логин|парол/.test(`${goal} ${nodeText}`)) {
+    names.add('fill_login_credentials');
+  }
+
+  if (/\b(download|downloaded|file|attachment|pdf|document)\b|скача|файл|вложен|документ/.test(goal)) {
+    names.add('read_downloaded_file');
+  }
+
+  if (/\b(captcha|recaptcha|hcaptcha)\b|капч/.test(`${goal} ${nodeText}`)) {
+    names.add('solve_captcha');
+  }
+
+  if (/\b(subtasks?|parallel|in parallel|workstream)\b|подзадач|параллел/.test(goal)) {
+    for (const name of ORCHESTRATOR_TOOL_NAMES) names.add(name);
+  }
+
+  return AGENT_TOOLS.filter((tool) => names.has(tool.function.name as AgentActionName));
+}

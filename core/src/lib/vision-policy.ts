@@ -26,7 +26,7 @@ export function shouldAttachScreenshot(
   if (settings.screenshotPolicy === 'always') return { attach: true, reason: 'policy=always', visualTokens: base, isVerification: false };
 
   if (snapshot.nodes.length === 0)
-    return { attach: true, reason: 'empty a11y snapshot (canvas/shadow DOM)', visualTokens: verify, isVerification: true };
+    return { attach: true, reason: 'empty a11y snapshot (canvas/shadow DOM) — read the page from the screenshot, refs are unavailable', visualTokens: verify, isVerification: true };
   if (ctx.requestedByModel)
     return { attach: true, reason: 'model requested visual verification', visualTokens: verify, isVerification: true };
   if (ctx.isIframeOnly)
