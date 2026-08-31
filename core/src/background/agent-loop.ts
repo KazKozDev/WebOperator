@@ -884,10 +884,14 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         const ok = isDomainAllowed(url, settings);
         if (!ok.allowed) throw new Error(`Navigation blocked: ${ok.reason}`);
         // Create tab, then force-navigate to ensure URL takes
-        const tab = await chrome.tabs.create({ url, active: false });
+        const shouldActive = settings.followActiveTab ?? true;
+        const tab = await chrome.tabs.create({ url, active: shouldActive });
         await chrome.tabs.update(tab.id!, { url });
         await waitForTabComplete(tab.id!, 20_000);
         activeTabId = tab.id!;
+        if (shouldActive) {
+          await chrome.tabs.update(activeTabId, { active: true }).catch(() => {});
+        }
         await setActiveAgentGlow(activeTabId);
         tabMgr.setPrimaryTab(tab.id!, url, '');
         step.result = {
@@ -899,10 +903,13 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       } else if (toolCall.name === 'switch_tab') {
         const switchToId = Number(toolCall.arguments.tabId);
         if (!switchToId || isNaN(switchToId)) throw new Error('switch_tab requires valid tabId');
+        const shouldActive = settings.followActiveTab ?? true;
         if (tabMgr.getTabContext(switchToId)) {
-          await tabMgr.switchToTab(switchToId);
+          await tabMgr.switchToTab(switchToId, shouldActive);
         } else {
-          await chrome.tabs.update(switchToId, { active: true });
+          if (shouldActive) {
+            await chrome.tabs.update(switchToId, { active: true }).catch(() => {});
+          }
           await waitForTabComplete(switchToId);
         }
         activeTabId = switchToId;
@@ -1325,6 +1332,9 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
           const followTab = shouldFollowOpenedTab(toolCall.name, openedTabs);
           if (followTab) {
             activeTabId = followTab.tabId;
+            if (settings.followActiveTab ?? true) {
+              await chrome.tabs.update(activeTabId, { active: true }).catch(() => {});
+            }
             await setActiveAgentGlow(activeTabId);
             tabMgr.setPrimaryTab(followTab.tabId, followTab.url, followTab.title);
             await waitForTabComplete(followTab.tabId, 20_000).catch(() => {});
@@ -1336,6 +1346,18 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
 
       if (step.result?.ok || shouldRecordAttemptedSheetWrites(toolCall, step.result?.error)) {
         recordSheetWrites(toolCall, sheetWrittenCells);
+      }
+
+      // ── Scroll feedback: tell the model when scroll had no effect ──
+      if (toolCall.name === 'scroll' && step.result?.ok && step.result.extracted) {
+        const scrollResult = step.result.extracted as { scrolled?: boolean; atBoundary?: boolean; note?: string };
+        if (scrollResult.note) {
+          postToolUserMessages.push(`[SCROLL FEEDBACK] ${scrollResult.note}`);
+        }
+        if (scrollResult.scrolled === false) {
+          // Force the loop guard to count this as a no-effect action
+          loopGuard.scrollRun.count = Math.max(loopGuard.scrollRun.count, (loopGuard.scrollRun.count || 0));
+        }
       }
 
       // ── Push tool result message (required by OpenAI-compatible APIs) ──

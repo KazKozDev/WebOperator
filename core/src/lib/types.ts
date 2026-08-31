@@ -36,6 +36,8 @@ export interface Settings {
   // destroys SPA state, filled forms, and scroll position the user may want
   // the agent to act on.
   resetPageOnStart: boolean;
+  /** Automatically activate new tabs opened by the agent so the user follows along. */
+  followActiveTab: boolean;
   provider: 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'xai' | 'openrouter' | 'siliconflow' | 'mlx' | 'deepseek';
   openaiApiKey: string;
   openaiModel: string;
@@ -98,6 +100,7 @@ export const DEFAULT_SETTINGS: Settings = {
   useActionCache: true,
   cacheTtlDays: 30,
   resetPageOnStart: false,
+  followActiveTab: true,
   provider: 'ollama',
   openaiApiKey: '',
   openaiModel: '',
@@ -122,7 +125,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 
-export const SETTINGS_VERSION = 16;
+export const SETTINGS_VERSION = 17;
 
 
 export type A11yRole =

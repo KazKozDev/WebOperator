@@ -27,8 +27,9 @@ export class TabManager {
     taskId: string,
     subtaskId: string,
     url: string,
+    active: boolean = false,
   ): Promise<number> {
-    const tab = await chrome.tabs.create({ url, active: false });
+    const tab = await chrome.tabs.create({ url, active });
     const ctx: TabContext = {
       tabId: tab.id!,
       url,
@@ -73,10 +74,12 @@ export class TabManager {
     }
   }
 
-  async switchToTab(tabId: number): Promise<void> {
+  async switchToTab(tabId: number, active: boolean = true): Promise<void> {
     const ctx = this.tabs.get(tabId);
     if (!ctx) throw new Error(`No context for tab ${tabId}`);
-    await chrome.tabs.update(tabId, { active: true });
+    if (active) {
+      await chrome.tabs.update(tabId, { active: true });
+    }
     await this.waitForLoad(tabId);
   }
 

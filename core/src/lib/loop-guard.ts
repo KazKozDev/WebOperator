@@ -8,7 +8,7 @@ const MAX_CYCLE_LENGTH = 4;
 // not in the snapshot, and touring the same handful of URLs — each navigation "changes the page"
 // and resets the cycle state. These two bound both.
 const REVISIT_LIMIT = 3;
-const SCROLL_RUN_LIMIT = 6;
+const SCROLL_RUN_LIMIT = 3;
 
 export interface LoopGuardState {
   noEffectSignatures: string[];

@@ -107,7 +107,7 @@ describe('loop guard', () => {
     const url = 'https://www.philamuseum.org/members';
     const scroll = (amountPx: number) => call('scroll', { amountPx, direction: amountPx > 0 ? 'down' : 'up' });
     // Different amounts each time, so every signature differs and the cycle check stays quiet.
-    for (const amount of [600, -600, -800, -1200, -1200, -1200]) {
+    for (const amount of [600, -600, -800]) {
       expect(detectRepeatedVisit(state, url, scroll(amount))).toBeNull();
     }
     expect(detectRepeatedVisit(state, url, scroll(-1200))).toContain('scrolls in a row');
@@ -116,7 +116,7 @@ describe('loop guard', () => {
   it('lets an interrupted scroll run start over', () => {
     const state = createLoopGuardState();
     const scroll = call('scroll', { amountPx: 600, direction: 'down' });
-    for (let i = 0; i < 6; i++) expect(detectRepeatedVisit(state, 'https://a.example', scroll)).toBeNull();
+    for (let i = 0; i < 3; i++) expect(detectRepeatedVisit(state, 'https://a.example', scroll)).toBeNull();
     expect(detectRepeatedVisit(state, 'https://a.example', call('click', { ref: '@e1' }))).toBeNull();
     expect(detectRepeatedVisit(state, 'https://a.example', scroll)).toBeNull();
   });

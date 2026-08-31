@@ -1196,6 +1196,14 @@ function SettingsPanel({ settings, updateSetting }: {
               onChange={(e) => updateSetting('resetPageOnStart', e.target.checked)}
             />
           </div>
+          <div className="settings-toggle-row">
+            <span>Follow active tab</span>
+            <input
+              type="checkbox"
+              checked={settings.followActiveTab}
+              onChange={(e) => updateSetting('followActiveTab', e.target.checked)}
+            />
+          </div>
           <input
             type="number"
             min={1}

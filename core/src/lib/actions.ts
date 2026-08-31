@@ -241,20 +241,94 @@ async function doSelect(ref: string, value: string): Promise<void> {
   el.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
-async function doScroll(direction: string, ref: string | undefined, amountPx: number): Promise<void> {
-  switch (direction) {
-    case 'up': window.scrollBy({ top: -amountPx, behavior: 'instant' as ScrollBehavior }); break;
-    case 'down': window.scrollBy({ top: amountPx, behavior: 'instant' as ScrollBehavior }); break;
-    case 'top': window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior }); break;
-    case 'bottom': window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' as ScrollBehavior }); break;
-    case 'to_ref': {
-      if (!ref) throw new Error('scroll to_ref requires ref');
-      resolve(ref);
-      break;
+function findScrollableContainer(target?: HTMLElement | null): HTMLElement | null {
+  let curr = target ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  while (curr && curr !== document.body && curr !== document.documentElement) {
+    try {
+      const style = window.getComputedStyle(curr);
+      const overflowY = style.overflowY;
+      const isScrollable = (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') &&
+        curr.scrollHeight > curr.clientHeight + 10;
+      if (isScrollable) return curr;
+    } catch {
+      // Ignore if disconnected
     }
-    default: throw new Error(`Unknown direction: ${direction}`);
+    curr = curr.parentElement;
+  }
+  return null;
+}
+
+async function doScroll(
+  direction: string,
+  ref: string | undefined,
+  amountPx: number,
+): Promise<{ scrolled: boolean; scrollY: number; atBoundary: boolean; note?: string }> {
+  let container: HTMLElement | null = null;
+  if (ref) {
+    const el = findElementByRef(ref);
+    if (el instanceof HTMLElement) {
+      container = findScrollableContainer(el) ?? el;
+    }
+  } else {
+    container = findScrollableContainer();
+  }
+
+  const isContainer = Boolean(container && container !== document.body && container !== document.documentElement);
+  const beforeY = isContainer && container ? container.scrollTop : window.scrollY;
+  const maxScrollY = isContainer && container
+    ? Math.max(0, container.scrollHeight - container.clientHeight)
+    : Math.max(0, Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) - window.innerHeight);
+
+  if (isContainer && container) {
+    switch (direction) {
+      case 'up': container.scrollBy({ top: -amountPx, behavior: 'instant' as ScrollBehavior }); break;
+      case 'down': container.scrollBy({ top: amountPx, behavior: 'instant' as ScrollBehavior }); break;
+      case 'top': container.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior }); break;
+      case 'bottom': container.scrollTo({ top: container.scrollHeight, behavior: 'instant' as ScrollBehavior }); break;
+      case 'to_ref': {
+        if (!ref) throw new Error('scroll to_ref requires ref');
+        resolve(ref);
+        break;
+      }
+      default: throw new Error(`Unknown direction: ${direction}`);
+    }
+  } else {
+    switch (direction) {
+      case 'up': window.scrollBy({ top: -amountPx, behavior: 'instant' as ScrollBehavior }); break;
+      case 'down': window.scrollBy({ top: amountPx, behavior: 'instant' as ScrollBehavior }); break;
+      case 'top': window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior }); break;
+      case 'bottom': window.scrollTo({ top: Math.max(document.body.scrollHeight, document.documentElement.scrollHeight), behavior: 'instant' as ScrollBehavior }); break;
+      case 'to_ref': {
+        if (!ref) throw new Error('scroll to_ref requires ref');
+        resolve(ref);
+        break;
+      }
+      default: throw new Error(`Unknown direction: ${direction}`);
+    }
   }
   await tick();
+
+  const afterY = isContainer && container ? container.scrollTop : window.scrollY;
+  const delta = Math.abs(afterY - beforeY);
+  const atBottom = afterY >= maxScrollY - 10;
+  const atTop = afterY <= 10;
+  const scrolled = delta > 2;
+
+  let note: string | undefined;
+  if (!scrolled && direction === 'down') {
+    note = 'Page bottom reached or scroll position unchanged. Stop scrolling: extract what is visible, search, or navigate.';
+  } else if (!scrolled && direction === 'up') {
+    note = 'Page top reached or scroll position unchanged.';
+  } else if (atBottom && direction === 'down') {
+    note = 'Page bottom reached. All content on this page is now visible.';
+  }
+
+  return {
+    scrolled,
+    scrollY: Math.round(afterY),
+    atBoundary: atBottom || atTop,
+    ...(note ? { note } : {}),
+  };
 }
 
 async function doWait(ms: number, until: string, ref?: string): Promise<void> {

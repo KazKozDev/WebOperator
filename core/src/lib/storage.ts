@@ -108,6 +108,10 @@ export async function getSettings(): Promise<Settings> {
     next.resetPageOnStart = typeof storedSettings.resetPageOnStart === 'boolean' ? storedSettings.resetPageOnStart : DEFAULT_SETTINGS.resetPageOnStart;
     migrated = true;
   }
+  if (version < 17) {
+    next.followActiveTab = typeof storedSettings.followActiveTab === 'boolean' ? storedSettings.followActiveTab : DEFAULT_SETTINGS.followActiveTab;
+    migrated = true;
+  }
   if (migrated) {
     await chrome.storage.local.set({ settings: next, settingsVersion: SETTINGS_VERSION });
   }
