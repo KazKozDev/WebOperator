@@ -116,6 +116,13 @@ export function App() {
     }
   }
 
+  /** Ask a follow-up about a run's collected evidence, without re-browsing. */
+  async function askAboutTask(taskId: string, question: string): Promise<string> {
+    const res = await sendToSW<{ ok: boolean; answer?: string; error?: string }>({ kind: 'task:ask', id: taskId, question });
+    if (!res.ok || !res.answer) throw new Error(res.error ?? 'Could not answer from this run.');
+    return res.answer;
+  }
+
   async function resumeCheckpoint(id?: string) {
     const targetId = id ?? task?.id;
     if (!targetId) return;
@@ -144,7 +151,7 @@ export function App() {
   const running = isStarting || task?.status === 'running' || task?.status === 'planning';
   const paused = task?.status === 'paused';
   const needsConfirmation = isConfirmationCheckpoint(task);
-  const statusTone = startError || (task?.status === 'failed' && !needsConfirmation) ? 'error' : paused ? 'paused' : running ? 'running' : '';
+  const statusTone = startError || (task?.status === 'failed' && !needsConfirmation) ? 'error' : paused || task?.status === 'stopped' ? 'paused' : running ? 'running' : '';
 
   return (
     <div className="app">
@@ -195,7 +202,7 @@ export function App() {
       )}
 
       {view === 'task' ? (
-        <TaskView goal={goal} setGoal={setGoal} task={task} start={start} isStarting={isStarting} detectedSkills={detectedSkills} onResumeCheckpoint={resumeCheckpoint} />
+        <TaskView goal={goal} setGoal={setGoal} task={task} start={start} isStarting={isStarting} detectedSkills={detectedSkills} onResumeCheckpoint={resumeCheckpoint} onAsk={askAboutTask} />
       ) : view === 'history' ? (
         <HistoryView onReplay={(goal) => { setGoal(goal); start(goal); }} onOpen={(t) => { setTask(t); setView('task'); }} onResumeCheckpoint={resumeCheckpoint} />
       ) : view === 'schedule' ? (
@@ -381,7 +388,7 @@ async function requestTabAccess(url?: string): Promise<void> {
   }
 }
 
-function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onResumeCheckpoint }: {
+function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onResumeCheckpoint, onAsk }: {
   goal: string;
   setGoal: (g: string) => void;
   task: AgentTask | null;
@@ -389,6 +396,7 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
   isStarting: boolean;
   detectedSkills: ClassifiedSkill[];
   onResumeCheckpoint?: (id: string) => void;
+  onAsk?: (taskId: string, question: string) => Promise<string>;
 }) {
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [traceOpen, setTraceOpen] = useState(true);
@@ -414,7 +422,7 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
       return;
     }
     setTraceOpen(taskStatus === 'running' || taskStatus === 'planning' || taskStatus === 'awaiting_confirm');
-    setPlanOpen(!(finalAnswer && (taskStatus === 'done' || taskStatus === 'failed')));
+    setPlanOpen(!(finalAnswer && (taskStatus === 'done' || taskStatus === 'failed' || taskStatus === 'stopped')));
   }, [finalAnswer, taskId, taskStatus]);
 
   return (
@@ -466,7 +474,7 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
                 </div>
               </div>
             )}
-            <AnswerPanel answer={finalAnswer} task={task} isConfirmationCheckpoint={isConfirmationCheckpoint} onResumeCheckpoint={onResumeCheckpoint} onExport={() => downloadPdf(task)} />
+            <AnswerPanel answer={finalAnswer} task={task} isConfirmationCheckpoint={isConfirmationCheckpoint} onResumeCheckpoint={onResumeCheckpoint} onExport={() => downloadPdf(task)} onAsk={onAsk} />
             <PlanPanel task={task} open={planOpen} onToggle={setPlanOpen} />
 
             {detectedSkills.length > 0 && (
@@ -651,7 +659,7 @@ function HistoryView({ onReplay, onOpen, onResumeCheckpoint }: { onReplay: (goal
 
                   <div className="action-row controls">
                     <button className="secondary" onClick={() => openTask(t.id)}>Open</button>
-                    {t.status === 'failed' && onResumeCheckpoint && (
+                    {(t.status === 'failed' || t.status === 'stopped') && onResumeCheckpoint && (
                       <button className="secondary" onClick={() => onResumeCheckpoint(t.id)}>Resume</button>
                     )}
                     <button className="secondary" onClick={() => onReplay(t.goal)}>Repeat</button>
@@ -660,7 +668,7 @@ function HistoryView({ onReplay, onOpen, onResumeCheckpoint }: { onReplay: (goal
                     <div className="history-meta">
                       <span className="item-meta step-detail">{new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                       <span className={`status-pill status-${t.status}`} title={t.status}>
-                        {t.status === 'done' ? '✓' : t.status === 'failed' ? '✕' : t.status}
+                        {t.status === 'done' ? '✓' : t.status === 'failed' ? '✕' : t.status === 'stopped' ? '⏹ stopped' : t.status}
                       </span>
 
                     </div>
@@ -1268,6 +1276,9 @@ function upsertStep(steps: AgentStep[], step: AgentStep): AgentStep[] {
 
 function getTaskAnswer(task: AgentTask | null): string | null {
   if (!task) return null;
+  // A stopped run has no `done` step by definition; its answer is the summary
+  // of what it managed to collect.
+  if (task.status === 'stopped' && task.partialSummary) return formatAnswer(task.partialSummary);
   const doneStep = task.steps.slice().reverse().find((step) => step.toolCall?.name === 'done');
   const summary = doneStep?.result?.extracted ?? doneStep?.toolCall?.arguments.summary;
   if (summary !== undefined && summary !== null && summary !== '') return formatAnswer(summary);
