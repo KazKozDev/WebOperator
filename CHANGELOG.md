@@ -11,6 +11,18 @@ evals.
 
 ## [Unreleased]
 
+### Added
+
+- Stopping a run now keeps its work. A stopped task gets its own `stopped`
+  status instead of being recorded as a failure, and the agent writes a summary
+  of what it collected and what the goal still does not cover — falling back to
+  a summary built without the model when a provider is unreachable.
+- Follow-up questions about a finished or stopped run, answered from that run's
+  own evidence without revisiting any page.
+- Resuming after a pause tells the model the page, tab, or login state may have
+  changed while it was stopped, so a user's intervention is not mistaken for
+  the agent's own progress.
+
 ### Changed
 
 - Migrated to `@types/chrome` 0.2.x, which types `chrome.storage` reads as an

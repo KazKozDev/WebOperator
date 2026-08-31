@@ -1,4 +1,5 @@
-import { runTask } from './agent-loop';
+import { requestModelResponse, runTask } from './agent-loop';
+import { buildTraceQuestionPrompt, collectWork } from '@/lib/partial-work';
 import {
   clearCredentials,
   deleteCredential,
@@ -28,6 +29,7 @@ import { clearCache } from '@/lib/action-cache';
 import { broadcastEvent, ensureContentScript, onLocalSWEvent, registerPortHost } from '@/lib/messaging';
 
 import { AgentPortHost } from '@/lib/port-channel';
+import { resolveOllamaModel } from '@/lib/types';
 import type { ActionResult, AgentStep, AgentTask, CSResponse, ScheduledTask, SWEvent, SWMessage, ToolCall } from '@/lib/types';
 import { frameIdFromRef, takeFrameSnapshot } from '@/lib/frames';
 import { solveCaptcha, type CaptchaDetection } from '@/lib/captcha-solver';
@@ -124,6 +126,9 @@ async function handle(msg: SWMessage): Promise<unknown> {
       state.pendingConfirms.get(msg.id)?.resolve(false);
       return { ok: true };
     }
+    // Questions about a run that already happened, answered from its trace
+    // instead of by walking the pages again.
+    case 'task:ask': return answerFromTrace(msg.id, msg.question);
     case 'task:confirm': {
       state.pendingConfirms.get(msg.id)?.resolve(msg.allow);
       return { ok: true };
@@ -847,3 +852,35 @@ setTimeout(connectApiBridge, 1500);
 
 chrome.alarms?.create?.('agent-heartbeat', { periodInMinutes: 0.5 });
 chrome.alarms?.onAlarm.addListener(() => {});
+
+/**
+ * Answer a follow-up question about a finished or interrupted task using only
+ * what that run collected. No browser action is taken: the point is to get
+ * more out of work already done, including work the user cut short.
+ */
+async function answerFromTrace(id: string, question: string): Promise<{ ok: boolean; answer?: string; error?: string }> {
+  const trimmed = question.trim();
+  if (!trimmed) return { ok: false, error: 'Question is empty.' };
+
+  const task = await getTask(id);
+  if (!task) return { ok: false, error: 'Task not found.' };
+  task.steps = await loadSteps(id);
+
+  const settings = await getSettings();
+  const work = collectWork(task);
+  const prompt = buildTraceQuestionPrompt(task.goal, work, trimmed);
+
+  try {
+    const resp = await requestModelResponse(settings, {
+      url: settings.ollamaUrl,
+      model: resolveOllamaModel(settings.ollamaModel, undefined),
+      thinking: false,
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const answer = resp.content.trim();
+    if (!answer) return { ok: false, error: 'The model returned an empty answer.' };
+    return { ok: true, answer };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}

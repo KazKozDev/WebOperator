@@ -15,7 +15,7 @@ vi.mock('pdfmake/build/vfs_fonts', () => ({
   default: { 'Roboto-Regular.ttf': 'font-data' },
 }));
 
-import { downloadPdf } from './export';
+import { buildPdfHtml, downloadPdf } from './export';
 
 const task: AgentTask = {
   id: '12345678-test-task',
@@ -46,5 +46,25 @@ describe('downloadPdf', () => {
       ]),
     }));
     expect(download).toHaveBeenCalledWith('report-12345678.pdf');
+  });
+});
+
+describe('stopped runs in the report', () => {
+  it('renders the partial summary and labels it as partial', async () => {
+    const html = buildPdfHtml({
+      id: 't1',
+      goal: 'Compare prices',
+      tabId: 1,
+      status: 'stopped',
+      steps: [],
+      createdAt: 0,
+      updatedAt: 0,
+      profile: 'balanced',
+      partialSummary: 'Collected: one price, 39 EUR.',
+    } as never);
+
+    expect(html).toContain('Collected: one price, 39 EUR.');
+    expect(html).toContain('Partial result');
+    expect(html).toContain('Stopped');
   });
 });

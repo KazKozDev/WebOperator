@@ -7,6 +7,7 @@ import { chatSiliconFlow } from '@/lib/siliconflow-client';
 import { chatMlx } from '@/lib/mlx-client';
 import { chatDeepSeek } from '@/lib/deepseek-client';
 import { chatAnthropic } from '@/lib/anthropic-client';
+import { buildPartialSummaryPrompt, collectWork, fallbackPartialSummary } from '@/lib/partial-work';
 
 import {
   collapseOldObservations,
@@ -342,10 +343,20 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       continue;
     }
 
-    if (deps.isStopped(task.id)) { task.status = 'failed'; break; }
+    if (deps.isStopped(task.id)) { task.status = 'stopped'; break; }
+    const wasPaused = deps.isPaused(task.id);
     while (deps.isPaused(task.id)) {
       await sleep(500);
-      if (deps.isStopped(task.id)) { task.status = 'failed'; break; }
+      if (deps.isStopped(task.id)) { task.status = 'stopped'; break; }
+    }
+    // A pause is usually the user stepping in — dismissing a dialog, logging
+    // in, fixing a filter. Say so, or the model reads the changed page as its
+    // own doing and mis-attributes the progress.
+    if (wasPaused && task.status !== 'stopped') {
+      history.push({
+        role: 'user',
+        content: '[USER] The run was paused and has now been resumed. The user may have changed the page, the tab, or the login state in the meantime. Re-read the current snapshot before acting, and do not assume your earlier observations still hold.',
+      });
     }
     if (task.pauseReason && !deps.isPaused(task.id)) {
       task.pauseReason = undefined;
@@ -819,7 +830,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
           await saveTask(task);
           broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
           await waitUntilResumedOrStopped(task.id, deps, settings.autoResumeTimeoutMs);
-          if (deps.isStopped(task.id)) { task.status = 'failed'; break; }
+          if (deps.isStopped(task.id)) { task.status = 'stopped'; break; }
           consecutiveFailures = 0;
           stepRetryCount = 0;
           task.status = 'running';
@@ -1749,6 +1760,13 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
     await saveTask(task);
   }
 
+  // A stopped run is not a failed one: fold what it collected into a summary
+  // the user can read, and leave the checkpoint in place so Resume still works.
+  if (task.status === 'stopped') {
+    task.partialSummary = await summarizeInterruptedWork(task, settings, stepModel);
+    broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
+  }
+
   // Save memory from this task
   const lastStep = task.steps[task.steps.length - 1];
   learnFromTask(
@@ -1985,7 +2003,31 @@ function serializeOrchestration(plan: OrchestrationPlan): AgentOrchestrationStat
   };
 }
 
-async function requestModelResponse(settings: Settings, opts: OllamaChatOptions): Promise<OllamaChatResult> {
+/**
+ * Turn an interrupted run into a readable partial answer. Falls back to a
+ * deterministic summary when the model is unreachable — a provider outage is
+ * one of the reasons a user hits stop, so this must not depend on one.
+ */
+export async function summarizeInterruptedWork(
+  task: AgentTask,
+  settings: Settings,
+  model: string,
+): Promise<string> {
+  const work = collectWork(task);
+  try {
+    const resp = await requestModelResponse(settings, {
+      url: settings.ollamaUrl,
+      model,
+      thinking: false,
+      messages: [{ role: 'user', content: buildPartialSummaryPrompt(task.goal, work) }],
+    });
+    const text = resp.content.trim();
+    if (text) return text;
+  } catch { /* fall through to the offline summary */ }
+  return fallbackPartialSummary(task.goal, work);
+}
+
+export async function requestModelResponse(settings: Settings, opts: OllamaChatOptions): Promise<OllamaChatResult> {
   if (settings.provider === 'anthropic') {
     return chatAnthropic(opts, settings.anthropicApiKey, settings.anthropicModel);
   }

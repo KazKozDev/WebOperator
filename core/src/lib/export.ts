@@ -56,6 +56,7 @@ function statusLabel(status: string): string {
   switch (status) {
     case 'done': return '✓ Completed';
     case 'failed': return '✕ Failed';
+    case 'stopped': return '⏹ Stopped — partial result';
     case 'paused': return '⏸ Paused';
     case 'running': return '⟳ Running';
     default: return status;
@@ -66,7 +67,7 @@ function statusColor(status: string): string {
   switch (status) {
     case 'done': case 'ok': return '#22c55e';
     case 'failed': case 'fail': return '#ef4444';
-    case 'paused': return '#f59e0b';
+    case 'stopped': case 'paused': return '#f59e0b';
     case 'running': return '#3b82f6';
     case 'skipped': return '#94a3b8';
     default: return '#64748b';
@@ -128,7 +129,7 @@ function renderStep(step: AgentStep, index: number): string {
     </tr>`;
 }
 
-function buildPdfHtml(task: AgentTask): string {
+export function buildPdfHtml(task: AgentTask): string {
   const masked = maskTaskForLog(task);
   const totalMs = masked.steps.length > 0
     ? (masked.steps[masked.steps.length - 1].finishedAt ?? masked.updatedAt) - masked.steps[0].startedAt
@@ -141,11 +142,15 @@ function buildPdfHtml(task: AgentTask): string {
 
   const planHtml = masked.plan ? renderPlan(masked.plan) : '';
 
-  const answer = masked.steps.slice().reverse()
+  // A stopped run never reaches `done`, so its report carries the summary of
+  // what was collected instead — and says so, rather than passing a partial
+  // result off as the answer.
+  const doneAnswer = masked.steps.slice().reverse()
     .find((s) => s.toolCall?.name === 'done')?.toolCall?.arguments?.answer as string | undefined;
+  const answer = doneAnswer ?? (masked.status === 'stopped' ? masked.partialSummary : undefined);
   const answerHtml = answer
     ? `<div class="section answer-section">
-        <h2>Answer</h2>
+        <h2>${masked.status === 'stopped' && !doneAnswer ? 'Partial result — run was stopped' : 'Answer'}</h2>
         <div class="answer-text">${escapeHtml(answer)}</div>
       </div>`
     : '';

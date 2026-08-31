@@ -254,7 +254,9 @@ export const PROFILE_LATENCY_MULT: Record<ModelProfile, number> = {
   quality: 0.9,
 };
 
-export type TaskStatus = 'idle' | 'planning' | 'running' | 'paused' | 'done' | 'failed' | 'awaiting_confirm';
+// `stopped` is the user pressing stop, and is deliberately not `failed`: the
+// run was cut short on purpose, its evidence is intact, and it can be resumed.
+export type TaskStatus = 'idle' | 'planning' | 'running' | 'paused' | 'done' | 'failed' | 'stopped' | 'awaiting_confirm';
 
 /**
  * Why a task is sitting in `paused`. `bot_challenge` means the page put up a
@@ -288,6 +290,8 @@ export interface AgentTask {
   modelUsed?: string;
   error?: string;
   pauseReason?: TaskPauseReason;
+  /** Summary of what was collected when a run was stopped before finishing. */
+  partialSummary?: string;
 }
 
 export type ScheduleRepeat = 'once' | 'hourly' | 'daily' | 'weekly';
@@ -314,6 +318,7 @@ export type SWMessage =
   | { kind: 'task:pause'; id: string }
   | { kind: 'task:resume'; id: string }
   | { kind: 'task:stop'; id: string }
+  | { kind: 'task:ask'; id: string; question: string }
   | { kind: 'task:confirm'; id: string; allow: boolean }
   | { kind: 'task:resume_checkpoint'; id: string }
   | { kind: 'settings:get' }
