@@ -36,7 +36,7 @@ export function AnswerPanel({
 
   const textToCopy = answer ?? (isFailed ? fallback : '');
 
-  const headerBtnStyle = { fontSize: '11px', color: 'var(--text2)', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' } as const;
+  const headerBtnStyle = { fontSize: '11px', color: 'var(--text2)', background: 'transparent', border: 'none', padding: '0 2px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' } as const;
 
   const copyAnswer = async () => {
     if (!textToCopy) return;
@@ -65,7 +65,7 @@ export function AnswerPanel({
     <section className={`answer-panel ${tone}`}>
       <div className="answer-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div className="answer-label">{needsConfirmation ? 'Needs confirmation' : isStopped ? 'Stopped — partial result' : isFinished ? (isFailed ? 'Stopped with issue' : 'Answer') : 'Answer pending'}</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           {textToCopy && (
             <button
               type="button"
@@ -86,7 +86,7 @@ export function AnswerPanel({
               title="Save task report as PDF"
               disabled={exportState === 'exporting'}
             >
-              {exportState === 'exporting' ? 'Saving…' : exportState === 'done' ? '✓ Saved' : exportState === 'error' ? 'Export failed' : 'Export PDF'}
+              {exportState === 'exporting' ? 'Saving…' : exportState === 'done' ? '✓ Saved' : exportState === 'error' ? 'Export failed' : 'PDF'}
             </button>
           )}
         </div>
