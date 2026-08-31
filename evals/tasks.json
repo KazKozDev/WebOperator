@@ -100,5 +100,16 @@
     "expectedAnswerIncludes": ["42"],
     "traceAssertions": ["refreshes before extracting", "does not use stale count", "final answer cites updated visible content"],
     "failureModes": ["answers stale 17 count", "extracts before refresh only", "marks done without post-action verification"]
+  },
+  {
+    "id": "site-search-pagination",
+    "title": "Collect in-stock results across the site's own search pagination",
+    "fixture": "site-search-results-1.html",
+    "relatedFixtures": ["site-search-results-2.html"],
+    "prompt": "Using the catalog's own search results for \"bearing\" filtered to In stock, collect every part code and price across all result pages, and report how many results the page claims.",
+    "expectedEvidence": ["7 results", "BR-1180", "BR-4410", "BR-5520", "BR-7740", "Page 2 of 2"],
+    "expectedAnswerIncludes": ["7", "BR-1180", "BR-7740"],
+    "traceAssertions": ["reads the result count before paging", "advances through the Next page control", "captures rows from both result pages"],
+    "failureModes": ["reports only the first page", "ignores the stated result count", "re-reads page one and duplicates rows"]
   }
 ]

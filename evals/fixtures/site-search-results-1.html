@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Parts catalog — search results, page 1</title>
+  </head>
+  <body>
+    <main>
+      <h1>Parts catalog</h1>
+      <form action="./site-search-results-1.html" method="get">
+        <label for="q">Search the catalog</label>
+        <input id="q" name="q" type="search" value="bearing" placeholder="Search parts">
+        <label for="status">Availability</label>
+        <select id="status" name="status">
+          <option value="all">All</option>
+          <option value="in-stock" selected>In stock</option>
+        </select>
+        <button type="submit">Search</button>
+      </form>
+
+      <p id="result-count">7 results for "bearing", filtered to In stock</p>
+
+      <table>
+        <thead><tr><th>Part</th><th>Code</th><th>Price</th></tr></thead>
+        <tbody>
+          <tr><td>Roller bearing</td><td>BR-1180</td><td>$18.40</td></tr>
+          <tr><td>Thrust bearing</td><td>BR-2245</td><td>$26.10</td></tr>
+          <tr><td>Flange bearing</td><td>BR-3390</td><td>$31.75</td></tr>
+          <tr><td>Linear bearing</td><td>BR-4410</td><td>$44.90</td></tr>
+        </tbody>
+      </table>
+
+      <nav>
+        <span>Page 1 of 2</span>
+        <a href="./site-search-results-2.html">Next page</a>
+      </nav>
+    </main>
+  </body>
+</html>

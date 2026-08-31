@@ -75,7 +75,7 @@ node mcp-server.js
 
 ## How it works
 
-The side panel or an external MCP agent supplies the goal. The service worker owns model calls, task state, retries, verification, schedules, and storage. The content script serializes the page into an accessibility snapshot with stable element refs and executes DOM actions against them. Page content is treated as untrusted data, never as instructions. Ten built-in skills act as domain playbooks that steer the agent when a matching site or task is detected.
+The side panel or an external MCP agent supplies the goal. The service worker owns model calls, task state, retries, verification, schedules, and storage. The content script serializes the page into an accessibility snapshot with stable element refs and executes DOM actions against them. Page content is treated as untrusted data, never as instructions. Twelve built-in skills act as domain playbooks that steer the agent when a matching site or task is detected.
 
 ```text
 goal → page snapshot → model tool call → verified action → trace

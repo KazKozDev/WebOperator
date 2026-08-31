@@ -24,6 +24,14 @@ describe('skill routing', () => {
     expect(ids('открой три вкладки и сравни информацию')).not.toContain('form-filler');
   });
 
+  it('does not route documentation or downloads to the form filler', () => {
+    // "документ" as a bare keyword fired on documentation and on report
+    // downloads; filling a document is always phrased with a verb.
+    expect(ids('найди в документации react как работает useEffect')).not.toContain('form-filler');
+    expect(ids('download the annual report document')).not.toContain('form-filler');
+    expect(ids('заполни pdf форму заявления')).toContain('form-filler');
+  });
+
   it('still matches inflected forms of a keyword', () => {
     // The tail stays open: "поиск" → "поиска", "search" → "searching".
     expect(ids('заполни анкету на сайте')).toContain('form-filler');
@@ -40,6 +48,36 @@ describe('skill routing', () => {
     const results = classifyTask('найди цены на ноутбуки и собери в гугл таблицы');
     expect(results[0].id).toBe('google-sheets');
     expect(results.map((r) => r.id)).not.toContain('researcher');
+  });
+
+  it('does not route documentation or downloads to the form filler', () => {
+    // A bare "документ"/"document" keyword fired on documentation and on report
+    // downloads alike; filling one is always phrased with a verb.
+    expect(ids('найди в документации react как работает useEffect')).not.toContain('form-filler');
+    expect(ids('download the annual report document')).not.toContain('form-filler');
+    expect(ids('заполни pdf форму заявления')).toContain('form-filler');
+  });
+
+  it('routes site-scoped goals to site-search', () => {
+    expect(ids('найди в документации react как работает useEffect')).toContain('site-search');
+    expect(ids('find the pricing page on their website and list the tiers')).toContain('site-search');
+    expect(ids('проверь наличие товара в каталоге магазина')).toContain('site-search');
+  });
+
+  it('does not let a short generic phrase outrank a specific skill', () => {
+    // "на сайте" is said in half of all goals; it must not beat two direct hits.
+    const results = classifyTask('заполни анкету на сайте');
+    expect(results[0].id).toBe('form-filler');
+  });
+
+  it('routes claim verification to fact-checker instead of researcher', () => {
+    for (const goal of [
+      'правда ли что компания X закрыла офис в Берлине',
+      'is it true that the CEO resigned last week',
+    ]) {
+      expect(ids(goal)).toContain('fact-checker');
+      expect(ids(goal)).not.toContain('researcher');
+    }
   });
 
   it('keeps the better-scoring skill of a conflicting pair', () => {

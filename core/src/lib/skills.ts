@@ -24,10 +24,12 @@ export const BUILT_IN_SKILLS: SkillDefinition[] = [
     domains: ['*'],
     keywords: [
       'fill', 'form', 'register', 'signup', 'survey', 'application',
-      'pdf', 'document', 'checkbox', 'radio', 'dropdown',
+      // Bare "document" is too broad — it fires on documentation, downloads and
+      // reports alike. Filling one is always said with a verb.
+      'pdf form', 'fill in the document', 'checkbox', 'radio', 'dropdown',
       'enter', 'input', 'fields',
       'заполни', 'заполнить', 'форма', 'форму', 'регистрация', 'анкета',
-      'документ', 'поле', 'введи',
+      'заполни документ', 'поле', 'введи',
     ],
     prompt: `[SKILL: form-filler]
 You are filling out a form or PDF. Follow these rules:
@@ -127,12 +129,57 @@ You are working with email. Follow these rules:
     ],
     prompt: `[SKILL: researcher]
 You are conducting web research across multiple sources. Follow this disciplined strategy:
-1. Query Formulation: Convert conversational user goals into concise, high-signal search keywords (omit filler phrases like "can you find"). Navigate to a search engine (Google/DuckDuckGo/Bing) if not already on one.
-2. SERP Navigation & Filtering: Ignore sponsored ads / promoted links. Evaluate snippet credibility and recency before opening.
-3. Hub-and-Spoke Tab Strategy: Keep the search engine results tab open as your hub. Open promising candidate links in new tabs using open_tab(url). Switch to each tab with switch_tab(tabId), extract findings, and close unneeded tabs with close_tabs to keep context focused.
-4. Information Extraction & Cross-Checking: Use extract tool to capture exact numbers, facts, dates, specifications, and source URLs. Verify critical claims across at least 2 independent reputable sources. Explicitly note discrepancies or conflicts.
-5. Query Reformulation on Dead Ends: If top results lack answers, are paywalled, or blocked, reformulate the query with specific terminology, quotes, or site: operators.
-6. Evidence-Based Reporting: Final done summary must synthesize the findings clearly with attributed source URLs, direct answers to all requested points, and zero truncation.`,
+1. Query Formulation: Convert conversational user goals into concise, high-signal search keywords (omit filler phrases like "can you find"). Narrow the query with operators BEFORE opening any link: site: to pin a domain, filetype:pdf for reports and specs, "quoted phrases" for exact wording, -word to drop a wrong sense, and a year or date range for anything time-sensitive. One well-formed query beats five opened tabs.
+2. Index Selection: Pick the index that indexes the answer, not the one you always use. Code and libraries: GitHub search or the project docs. Papers and studies: arXiv, PubMed, Google Scholar. Companies, filings, registrations: the official registry or regulator. Standards, laws, prices, specs: the primary publisher. Fall back to a general engine (Google/DuckDuckGo/Bing) only when no specialised index fits.
+3. SERP Navigation & Filtering: Ignore sponsored ads / promoted links. Evaluate snippet credibility and recency before opening.
+4. Hub-and-Spoke Tab Strategy: Keep the search engine results tab open as your hub. Open promising candidate links in new tabs using open_tab(url). Switch to each tab with switch_tab(tabId), extract findings, and close unneeded tabs with close_tabs to keep context focused.
+5. Information Extraction & Cross-Checking: Use extract tool to capture exact numbers, facts, dates, specifications, and source URLs. Verify critical claims across at least 2 independent reputable sources. Explicitly note discrepancies or conflicts.
+6. Blocked Page Ladder: A page that will not give up its content is not a dead end — work down this ladder before changing the query. (a) Wayback Machine: https://web.archive.org/web/2/<url> for dead, moved, paywalled or rewritten pages. (b) A text mirror of the same URL. (c) The PDF or print version instead of the HTML one — often linked as "Download" or "Print". (d) A different source carrying the same primary material. Only after all four fail, reformulate the query with more specific terminology.
+7. Evidence-Based Reporting: Final done summary must synthesize the findings clearly with attributed source URLs, direct answers to all requested points, and zero truncation. Say plainly which parts you could not source.`,
+  },
+  {
+    id: 'site-search',
+    name: 'Site Search',
+    summary: 'Search inside one site — its own search box, filters and pagination',
+    risk: 'safe',
+    domains: ['*'],
+    keywords: [
+      'on the site', 'on this site', 'on their website', 'in the docs',
+      'in the documentation', 'in the catalog', 'search the site', 'site search',
+      'filter results', 'browse listings',
+      'на сайте', 'на этом сайте', 'по сайту', 'в документации', 'в каталоге',
+      'в разделе', 'внутренний поиск', 'отфильтруй', 'среди вакансий',
+    ],
+    prompt: `[SKILL: site-search]
+The answer lives inside one site, not on a search engine results page. Follow this strategy:
+1. Use the site's own search: find its search box (magnifier icon, "Search" placeholder, often behind a header button), type the query, submit with Enter. Many sites also accept a query in the URL — reuse that pattern once you have seen it.
+2. Narrow with the site's own filters before reading anything: category, date, region, price, status. Fewer, better results beat more pages.
+3. Read the result count first. If it is large, tighten the filters instead of paging through everything.
+4. Paginate deliberately: extract each page, then advance with the "Next" control or the page URL parameter. Track which pages you have already read and stop when results repeat or the count is covered.
+5. If the site has no usable search, fall back to a scoped engine query with site:<domain>.
+6. Hand the collected rows to extraction and report how many results the site claimed versus how many you actually captured.`,
+  },
+  {
+    id: 'fact-checker',
+    name: 'Fact Checker',
+    summary: 'Verify one claim against its primary source',
+    risk: 'safe',
+    domains: ['*'],
+    keywords: [
+      'is it true', 'fact check', 'verify the claim', 'verify that', 'debunk',
+      'confirm whether',
+      'правда ли', 'это правда', 'верно ли', 'проверь факт', 'проверь утверждение',
+      'подтверди', 'опровергни', 'так ли это',
+    ],
+    conflictsWith: ['researcher'],
+    prompt: `[SKILL: fact-checker]
+You are verifying a single claim, not surveying a topic. Keep it narrow:
+1. State the claim precisely — what, who, when. A claim without a date is usually two different claims.
+2. Find the primary source: the original announcement, filing, paper, dataset or law text. News articles are reports about a source, not the source.
+3. Tell a source from a reprint: several outlets citing one another are one source, not four. Follow the citation chain back.
+4. Record the publication date of the evidence. A claim that was true last year may be false now, and a fresh article may be quoting an old fact.
+5. Two or three good sources are enough. Do not open eight tabs — if the primary source is found and dated, you are done.
+6. Report one of: CONFIRMED, REFUTED, or UNVERIFIABLE — with the source URL, its date, and any contradiction you found stated explicitly. Never round an unverifiable claim up to confirmed.`,
   },
   {
     id: 'shopping',
@@ -219,6 +266,8 @@ export const SKILL_META: Record<SkillId, SkillMeta> = {
   'google-sheets': { abbr: 'Sheet' },
   'emailer':       { abbr: 'Mail' },
   'researcher':    { abbr: 'Rsrch' },
+  'site-search':   { abbr: 'Site' },
+  'fact-checker':  { abbr: 'Fact' },
   'shopping':      { abbr: 'Cart' },
   'social-poster': { abbr: 'Post' },
   'tab-manager':   { abbr: 'Tabs' },
@@ -249,7 +298,13 @@ export const MAX_AUTO_SKILLS = 2;
 function keywordHits(goal: string, keyword: string): boolean {
   const needle = keyword.trim().toLowerCase();
   if (!needle) return false;
-  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // A Russian keyword carries its own ending, and the goal usually inflects it
+  // differently ("анкета" vs "анкету"), so long single words match by stem.
+  const stem =
+    !needle.includes(' ') && needle.length >= 5 && /[аяуюыиеоё]$/.test(needle)
+      ? needle.slice(0, -1)
+      : needle;
+  const escaped = stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}`, 'iu').test(goal);
 }
 
@@ -291,10 +346,12 @@ export function classifyTask(goal: string, customSkills: CustomSkillDefinition[]
 
     const matched = skill.keywords.filter((kw) => keywordHits(goal, kw));
     if (matched.length > 0) {
-      // More hits mean more evidence; a multi-word hit is far more specific
-      // than a single common verb, so it counts for more.
-      const specific = matched.some((kw) => kw.trim().includes(' '));
-      const score = Math.min(0.99, 0.6 + 0.06 * matched.length + (specific ? 0.1 : 0));
+      // More hits mean more evidence, and a phrase beats a lone common verb:
+      // "правда ли" pins an intent that "найди" does not. Length grades it
+      // further — "в документации" is specific, "на сайте" is said everywhere.
+      const longest = matched.reduce((a, b) => (b.trim().length > a.trim().length ? b : a)).trim();
+      const specificity = (longest.includes(' ') ? 0.05 : 0) + (longest.length >= 10 ? 0.05 : 0);
+      const score = Math.min(0.99, 0.6 + 0.06 * matched.length + specificity);
       results.set(skill.id, {
         id: skill.id,
         reason: `matched: ${matched.slice(0, 2).join(', ')}`,

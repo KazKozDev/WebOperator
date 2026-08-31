@@ -11,7 +11,29 @@ evals.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- Two built-in skills. `site-search` drives a site's own search box, filters and
+  pagination, for answers that live inside one site rather than on a results
+  page. `fact-checker` verifies a single claim against its primary source and
+  reports CONFIRMED, REFUTED or UNVERIFIABLE with a dated source.
+- The `researcher` playbook now narrows a query with operators before opening
+  links, picks a specialised index over a general engine, and works down a
+  ladder of fallbacks — archive, text mirror, PDF version, another source —
+  before giving up on a blocked page.
+
+### Fixed
+
+- Skill keywords matched anywhere inside a word, so "форма" fired on
+  "информацию" and pulled the form filler into every research task. Keywords now
+  start at a word boundary, and long Russian keywords match by stem so inflected
+  forms still hit.
+- At most two skill playbooks now reach a task prompt, chosen by routing score
+  with keyword hits ranked above semantic ones, and skills declared as
+  conflicting resolve to the better-scoring one. Every matching skill used to be
+  concatenated into the prompt at once.
+- The semantic router no longer indexes skill prompts, so rewording a playbook
+  cannot silently change which goals it matches.
 
 ## [1.5.0] — 2026-08-31
 
