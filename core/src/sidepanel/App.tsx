@@ -202,7 +202,7 @@ export function App() {
       )}
 
       {view === 'task' ? (
-        <TaskView goal={goal} setGoal={setGoal} task={task} start={start} isStarting={isStarting} detectedSkills={detectedSkills} onResumeCheckpoint={resumeCheckpoint} onAsk={askAboutTask} />
+        <TaskView goal={goal} setGoal={setGoal} task={task} start={start} isStarting={isStarting} detectedSkills={detectedSkills} onResumeCheckpoint={resumeCheckpoint} onAsk={askAboutTask} onNewTask={() => { setTask(null); setGoal(''); }} />
       ) : view === 'history' ? (
         <HistoryView onReplay={(goal) => { setGoal(goal); start(goal); }} onOpen={(t) => { setTask(t); setView('task'); }} onResumeCheckpoint={resumeCheckpoint} />
       ) : view === 'schedule' ? (
@@ -388,7 +388,7 @@ async function requestTabAccess(url?: string): Promise<void> {
   }
 }
 
-function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onResumeCheckpoint, onAsk }: {
+function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onResumeCheckpoint, onAsk, onNewTask }: {
   goal: string;
   setGoal: (g: string) => void;
   task: AgentTask | null;
@@ -397,16 +397,44 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
   detectedSkills: ClassifiedSkill[];
   onResumeCheckpoint?: (id: string) => void;
   onAsk?: (taskId: string, question: string) => Promise<string>;
+  onNewTask: () => void;
 }) {
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
+  // Follow-up questions are asked from the composer below, so the thread lives
+  // here rather than inside the answer panel that renders it.
+  const [followups, setFollowups] = useState<{ question: string; answer: string }[]>([]);
+  const [asking, setAsking] = useState(false);
+  const [askError, setAskError] = useState<string | null>(null);
   const [traceOpen, setTraceOpen] = useState(true);
   const [planOpen, setPlanOpen] = useState(true);
   const running = isStarting || task?.status === 'running' || task?.status === 'planning';
   const paused = task?.status === 'paused';
   const awaitingConfirm = task?.status === 'awaiting_confirm';
   const finalAnswer = getTaskAnswer(task);
+  // A finished run turns the composer into a question box: task:ask answers from
+  // what the run already collected and never revisits a page. "New task" leaves.
+  const askMode = Boolean(
+    onAsk && task && (task.status === 'done' || task.status === 'failed' || task.status === 'stopped'),
+  );
   const taskId = task?.id;
   const taskStatus = task?.status;
+
+  async function submitComposer() {
+    if (!askMode || !task || !onAsk) { void start(); return; }
+    const question = goal.trim();
+    if (!question || asking) return;
+    setAsking(true);
+    setAskError(null);
+    try {
+      const answer = await onAsk(task.id, question);
+      setFollowups((prev) => [...prev, { question, answer }]);
+      setGoal('');
+    } catch (error) {
+      setAskError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAsking(false);
+    }
+  }
 
   const { isListening, toggleListening, error: voiceError } = useVoiceInput({
     onTranscript: (spokenText) => {
@@ -424,6 +452,12 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
     setTraceOpen(taskStatus === 'running' || taskStatus === 'planning' || taskStatus === 'awaiting_confirm');
     setPlanOpen(!(finalAnswer && (taskStatus === 'done' || taskStatus === 'failed' || taskStatus === 'stopped')));
   }, [finalAnswer, taskId, taskStatus]);
+
+  // Follow-ups belong to one run; they must not trail into the next one.
+  useEffect(() => {
+    setFollowups([]);
+    setAskError(null);
+  }, [taskId]);
 
   return (
     <section className="view active task-view">
@@ -474,7 +508,7 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
                 </div>
               </div>
             )}
-            <AnswerPanel answer={finalAnswer} task={task} isConfirmationCheckpoint={isConfirmationCheckpoint} onResumeCheckpoint={onResumeCheckpoint} onExport={() => downloadPdf(task)} onAsk={onAsk} />
+            <AnswerPanel answer={finalAnswer} task={task} isConfirmationCheckpoint={isConfirmationCheckpoint} onResumeCheckpoint={onResumeCheckpoint} onExport={() => downloadPdf(task)} followups={followups} />
             <PlanPanel task={task} open={planOpen} onToggle={setPlanOpen} />
 
             {detectedSkills.length > 0 && (
@@ -524,28 +558,34 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
       )}
 
       <div className="input-area">
-        {voiceError && (
+        {(voiceError || askError) && (
           <div style={{ color: 'var(--error, #ef4444)', fontSize: '11px', paddingBottom: '4px' }}>
-            {voiceError}
+            {voiceError ?? askError}
           </div>
         )}
         <div className="input-row">
           <div className="input-main">
             <textarea
               className="goal-input"
-              placeholder="Tell your browser what to do"
+              placeholder={askMode ? 'Ask about this run' : 'Tell your browser what to do'}
               value={goal}
               onChange={(e) => setGoal(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void start(); }
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void submitComposer(); }
               }}
-              disabled={running}
+              disabled={running || asking}
             />
             <div className="composer-actions">
               <span className="composer-spacer" />
-              <button className="text-btn" onClick={() => task && sendToSW({ kind: paused ? 'task:resume' : 'task:pause', id: task.id })} disabled={!running && !paused}>
-                {paused ? 'Resume' : 'Pause'}
-              </button>
+              {askMode ? (
+                <button className="text-btn" onClick={onNewTask} title="Start a new task instead of asking about this run">
+                  New task
+                </button>
+              ) : (
+                <button className="text-btn" onClick={() => task && sendToSW({ kind: paused ? 'task:resume' : 'task:pause', id: task.id })} disabled={!running && !paused}>
+                  {paused ? 'Resume' : 'Pause'}
+                </button>
+              )}
             </div>
           </div>
           <div className="composer-btns">
@@ -561,10 +601,10 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
             </button>
             <button
               className={`send-btn ${running || paused ? 'stop' : ''}`}
-              title={running || paused ? 'Stop' : 'Start'}
-              aria-label={running || paused ? 'Stop' : 'Start'}
-              onClick={() => running || paused ? task && sendToSW({ kind: 'task:stop', id: task.id }) : start()}
-              disabled={isStarting || (!task && !goal.trim())}
+              title={running || paused ? 'Stop' : askMode ? 'Ask about this run' : 'Start'}
+              aria-label={running || paused ? 'Stop' : askMode ? 'Ask' : 'Start'}
+              onClick={() => running || paused ? task && sendToSW({ kind: 'task:stop', id: task.id }) : void submitComposer()}
+              disabled={isStarting || asking || (askMode ? !goal.trim() : !task && !goal.trim())}
             >
               <Icon name={running || paused ? 'stop' : 'send'} />
             </button>
