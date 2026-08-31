@@ -726,8 +726,11 @@ function keyCode(key: string): string {
   return key;
 }
 
-function send<T = unknown>(target: Debuggee, method: string, params?: object): Promise<T> {
-  return chrome.debugger.sendCommand(target, method, params) as Promise<T>;
+// `sendCommand` is overloaded (promise and callback form), so its type is the
+// intersection of both returns. The command params are keyed by name, and the
+// result shape is per-method and known only to the caller — hence the cast.
+function send<T = unknown>(target: Debuggee, method: string, params?: Record<string, unknown>): Promise<T> {
+  return chrome.debugger.sendCommand(target, method, params) as unknown as Promise<T>;
 }
 
 function sleep(ms: number): Promise<void> {

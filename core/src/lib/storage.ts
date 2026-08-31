@@ -34,12 +34,28 @@ export class AgentDB extends Dexie {
 
 export const db = new AgentDB();
 
+// `chrome.storage.local.get` is typed as returning a bare object: the API
+// cannot know what a key holds. Describing the shape here keeps the assertion
+// in one place instead of at every field access below.
+type StoredSettings = {
+  settings?: Partial<Settings> & Record<string, unknown>;
+  settingsVersion?: number;
+};
+
+// Fields written by old migrations that no longer exist in `Settings`. Nothing
+// reads them, but they are still persisted for installs upgrading from those
+// versions, so the writes stay until a migration removes them outright.
+type LegacySettings = {
+  redditKarma?: Record<string, unknown>;
+  redditCommunities?: unknown[];
+};
+
 export async function getSettings(): Promise<Settings> {
-  const stored = await chrome.storage.local.get(['settings', 'settingsVersion']);
-  const s = stored?.settings ?? {};
-  const storedSettings = s as Partial<Settings> & Record<string, unknown>;
-  const next = { ...DEFAULT_SETTINGS, ...s };
-  const version = stored?.settingsVersion ?? 0;
+  const stored = await chrome.storage.local.get(['settings', 'settingsVersion']) as StoredSettings;
+  const s = stored.settings ?? {};
+  const storedSettings = s;
+  const next: Settings & LegacySettings = { ...DEFAULT_SETTINGS, ...s };
+  const version = stored.settingsVersion ?? 0;
   let migrated = false;
   if (version < SETTINGS_VERSION && next.profile === 'balanced') {
     next.profile = DEFAULT_SETTINGS.profile;

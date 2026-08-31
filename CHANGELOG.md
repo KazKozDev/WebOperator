@@ -11,7 +11,13 @@ evals.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- Migrated to `@types/chrome` 0.2.x, which types `chrome.storage` reads as an
+  untyped bag rather than pretending the stored shape is known. Settings,
+  memory and checkpoint reads now state what they expect and keep their
+  existing runtime guards. No behaviour change.
+- Updated ESLint, Knip and typescript-eslint.
 
 ## [1.4.0] — 2026-08-31
 

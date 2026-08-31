@@ -20,6 +20,14 @@ updates:
           - "typescript*"
           - "vitest"
           - "knip"
+        update-types:
+          - minor
+          - patch
+      # Kept out of dev-tooling: a typings bump can demand real code changes
+      # (@types/chrome 0.0.x to 0.2.x did), and grouping it would hold three
+      # working updates hostage to one that needs a migration.
+      types:
+        patterns:
           - "@types/*"
         update-types:
           - minor

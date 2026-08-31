@@ -1058,7 +1058,9 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       } else if (toolCall.name === 'group_tabs') {
         const tabIds = parseTabIds(toolCall.arguments.tabIds);
         if (tabIds.length === 0) throw new Error('group_tabs requires at least one valid tabId');
-        const groupId = await chrome.tabs.group({ tabIds });
+        // The API types demand a non-empty tuple; the guard above is what makes
+        // that true, and TypeScript cannot carry it across the length check.
+        const groupId = await chrome.tabs.group({ tabIds: tabIds as [number, ...number[]] }) as number;
         const update: chrome.tabGroups.UpdateProperties = {};
         const title = String(toolCall.arguments.title ?? '').trim();
         const color = String(toolCall.arguments.color ?? '').trim();
@@ -1077,7 +1079,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       } else if (toolCall.name === 'ungroup_tabs') {
         const tabIds = parseTabIds(toolCall.arguments.tabIds);
         if (tabIds.length === 0) throw new Error('ungroup_tabs requires at least one valid tabId');
-        await chrome.tabs.ungroup(tabIds);
+        await chrome.tabs.ungroup(tabIds as [number, ...number[]]);
         step.result = {
           ok: true,
           durationMs: 0,
@@ -2419,8 +2421,10 @@ function isBookmarkableUrl(url: string): boolean {
   return /^https?:\/\//i.test(url);
 }
 
-function isTabGroupColor(value: string): value is chrome.tabGroups.ColorEnum {
-  return ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan'].includes(value);
+// `chrome.tabGroups.Color` is an enum in the typings; the API accepts its
+// string values, which is what the template-literal form spells out.
+function isTabGroupColor(value: string): value is `${chrome.tabGroups.Color}` {
+  return ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'].includes(value);
 }
 
 async function waitUntilResumedOrStopped(taskId: string, deps: AgentDeps, timeoutMs?: number): Promise<void> {
