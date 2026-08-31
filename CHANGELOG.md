@@ -30,6 +30,8 @@ evals.
   memory and checkpoint reads now state what they expect and keep their
   existing runtime guards. No behaviour change.
 - Updated ESLint, Knip and typescript-eslint.
+- Moved to React 19. No source changes were needed: the panel already mounts
+  through `createRoot` and uses none of the APIs React 19 removed.
 
 ## [1.4.0] — 2026-08-31
 

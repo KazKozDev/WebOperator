@@ -29,17 +29,25 @@ updates:
       types:
         patterns:
           - "@types/*"
+        # The React typings belong with react/react-dom below, not here: a
+        # dependency joins the first group it matches, and splitting them off
+        # would recreate the peer-resolution deadlock.
+        exclude-patterns:
+          - "@types/react"
+          - "@types/react-dom"
         update-types:
           - minor
           - patch
+      # Majors included on purpose: react and react-dom must move together, and
+      # their @types follow the same major. Split across PRs they each fail
+      # peer resolution and none of them can land.
       react:
         patterns:
           - "react"
           - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
           - "@vitejs/plugin-react"
-        update-types:
-          - minor
-          - patch
       build:
         patterns:
           - "vite"
@@ -47,6 +55,14 @@ updates:
         update-types:
           - minor
           - patch
+
+    ignore:
+      # TypeScript 7 is not installable here yet: typescript-eslint pins
+      # ts-api-utils, whose peer range stops at 5.x, so npm ci fails before
+      # anything is even compiled. Drop this once typescript-eslint ships
+      # TypeScript 7 support.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
