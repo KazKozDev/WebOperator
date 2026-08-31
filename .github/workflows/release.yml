@@ -1,0 +1,105 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and publish, e.g. v1.4.0"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: build and publish
+    runs-on: ubuntu-latest
+    permissions:
+      # Needed to create the release and upload the archive.
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: core/package-lock.json
+
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Install dependencies
+        run: npm --prefix core ci
+
+      # A tag must not ship what a pull request would have rejected.
+      - name: Run the full gate
+        run: ./scripts/check.sh
+
+      - name: Resolve version
+        id: version
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          version="${tag#v}"
+          manifest_version="$(node -p "require('./core/package.json').version")"
+          if [ "$version" != "$manifest_version" ]; then
+            echo "Tag $tag does not match core/package.json ($manifest_version)." >&2
+            echo "Bump the version and the CHANGELOG before tagging." >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # The archive holds the unpacked extension itself, so the contents of the
+      # zip are what Load unpacked expects — not a folder wrapping them.
+      - name: Package the unpacked extension
+        id: package
+        run: |
+          name="weboperator-${{ steps.version.outputs.version }}-chrome.zip"
+          (cd core/dist && zip -qr "../../$name" .)
+          sha256sum "$name" > "$name.sha256"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          unzip -l "$name" | tail -1
+
+      - name: Verify the archive contains a manifest
+        run: unzip -p "${{ steps.package.outputs.name }}" manifest.json > /dev/null
+
+      - name: Build release notes
+        run: |
+          {
+            node scripts/changelog-section.mjs "${{ steps.version.outputs.version }}"
+            cat <<'NOTES'
+
+          ---
+
+          ## Install
+
+          1. Download `${{ steps.package.outputs.name }}` below and unzip it.
+          2. Open `chrome://extensions` and enable **Developer mode**.
+          3. Click **Load unpacked** and select the unzipped folder.
+          4. Press `Cmd+Shift+K` (`Ctrl+Shift+K` on Linux) to open the side panel.
+
+          No Node.js or build step is needed — the archive is the built
+          extension. Verify it against `.sha256` if you want to.
+
+          The default provider is Ollama at `http://127.0.0.1:11434`, so have a
+          tool-capable local model running, or paste an API key for one of the
+          remote providers under **Settings**.
+          NOTES
+          } > release-notes.md
+          cat release-notes.md
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --title "WebOperator ${{ steps.version.outputs.version }}" \
+            --notes-file release-notes.md \
+            "${{ steps.package.outputs.name }}" \
+            "${{ steps.package.outputs.name }}.sha256"

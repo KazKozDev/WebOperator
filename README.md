@@ -16,7 +16,11 @@ Local models or cloud · Ten MCP tools · Open source
 
 ## Quick start
 
-The build writes the unpacked extension to `core/dist`.
+No Node, no build: download the `weboperator-<version>-chrome.zip` archive from
+the [latest release](https://github.com/KazKozDev/WebOperator/releases/latest),
+unzip it, and skip to the paragraph below. The archive is the built extension.
+
+Building from source instead writes the unpacked extension to `core/dist`.
 
 ```text
 vite v8.0.11 building client environment for production...
@@ -110,7 +114,7 @@ Because of `debugger`, Chrome shows a yellow "WebOperator started debugging this
 - Chrome 120 or newer, or a Chromium browser of equivalent version
 - Node.js and npm, to install dependencies and build the extension
 - A tool-capable model served by Ollama or MLX, or an API key for Anthropic, DeepSeek, Gemini, OpenAI, OpenRouter, SiliconFlow, or xAI
-- The unpacked extension loaded from `core/dist`; it is not on the Chrome Web Store
+- The unpacked extension, either from a release archive or built into `core/dist`; it is not on the Chrome Web Store
 - macOS or Linux for the MCP bridge installer
 - `shellcheck`, only to run the full local check gate
 
@@ -135,6 +139,13 @@ described in [SECURITY.md](SECURITY.md).
 
 <details>
 <summary>Manual installation, Docker, development setup</summary>
+
+### From a release
+Download and unzip `weboperator-<version>-chrome.zip` from the
+[releases page](https://github.com/KazKozDev/WebOperator/releases), then load
+the unzipped folder as an unpacked extension. Each archive ships a `.sha256`
+next to it, and is built and published by the `release` workflow from the
+tagged commit after the full check gate passes.
 
 ### From source
 Run `npm --prefix core ci && npm --prefix core run build`, then load `core/dist` as an unpacked extension.

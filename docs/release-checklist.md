@@ -76,6 +76,27 @@ For each run, export the trace and check:
 - failed steps are inspectable
 - long tasks keep plan progress after resume
 
+## Cutting the release
+
+Once the checks above pass:
+
+1. Bump `version` in `core/package.json`.
+2. Move the `Unreleased` entries in `CHANGELOG.md` under the new version
+   heading, with the date, and add the compare link at the bottom.
+3. Commit, then tag: `git tag v1.4.0 && git push origin v1.4.0`.
+
+Pushing the tag is the whole release. The `release` workflow rebuilds from the
+tagged commit, refuses to continue if the tag and `core/package.json` disagree,
+runs the full gate again, packs `core/dist` into
+`weboperator-<version>-chrome.zip` with a `.sha256`, and publishes a GitHub
+Release whose notes come from the matching CHANGELOG section.
+
+The archive contains the unpacked extension at its root, so a user unzips it
+and points **Load unpacked** at the folder — no Node and no build.
+
+If a tag was already pushed and the run needs repeating, trigger the `release`
+workflow manually and give it the tag.
+
 ## Version rule
 
 - Patch release: bug fix, no behavior contract change.

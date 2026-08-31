@@ -103,6 +103,15 @@ alters behaviour, a permission, a default or an environment variable should
 update both. `docs/known-limitations.md` is the honest list — adding to it is a
 contribution, not an admission.
 
+## Releases
+
+Releases are cut by pushing a `v*` tag; the `release` workflow rebuilds from
+that commit, runs the gate, and publishes the extension archive with notes
+taken from `CHANGELOG.md`. Add user-visible changes under `Unreleased` as you
+go — that section becomes the release notes, so writing it later means writing
+it from memory. The full procedure is in
+[docs/release-checklist.md](docs/release-checklist.md).
+
 ## Code of conduct
 
 Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).
