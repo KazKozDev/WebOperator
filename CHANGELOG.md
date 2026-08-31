@@ -11,6 +11,10 @@ evals.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.5.0] — 2026-08-31
+
 ### Added
 
 - Stopping a run now keeps its work. A stopped task gets its own `stopped`
@@ -32,6 +36,11 @@ evals.
 - Updated ESLint, Knip and typescript-eslint.
 - Moved to React 19. No source changes were needed: the panel already mounts
   through `createRoot` and uses none of the APIs React 19 removed.
+- Contribution, security and conduct documents, issue and pull-request
+  templates, Dependabot, CodeQL and a nightly `npm audit`, plus a coverage
+  floor wired into CI.
+- Tagging a release now builds and publishes the unpacked extension as a zip
+  archive, so installing needs no Node and no build step.
 
 ## [1.4.0] — 2026-08-31
 
@@ -105,7 +114,8 @@ plan → act → verify loop, with local and remote model providers, scheduled
 tasks, history with inspectable traces, and an MCP bridge exposing the browser
 as a tool to external agents.
 
-[Unreleased]: https://github.com/KazKozDev/WebOperator/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/KazKozDev/WebOperator/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/KazKozDev/WebOperator/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/KazKozDev/WebOperator/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/KazKozDev/WebOperator/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/KazKozDev/WebOperator/compare/v1.1.0...v1.2.0

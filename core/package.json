@@ -1,6 +1,6 @@
 {
   "name": "weboperator",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "description": "AI browser agent and MCP server for Chrome automation",
   "type": "module",
