@@ -6,7 +6,7 @@ import { DEFAULT_SETTINGS, PROFILE_TO_MODEL, resolveOllamaModel } from '@/lib/ty
 import { sendToSW } from '@/lib/messaging';
 import { ping } from '@/lib/ollama-client';
 import { formatTimings, latencyTarget } from '@/lib/benchmark';
-import { buildTrace, downloadJson } from '@/lib/export';
+import { downloadPdf } from '@/lib/export';
 import { BUILT_IN_SKILLS, getSkill, SKILL_META, type ClassifiedSkill } from '@/lib/skills';
 import { useAgentPort } from './hooks/useAgentPort';
 import { Icon } from './components/Icon';
@@ -466,7 +466,7 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
                 </div>
               </div>
             )}
-            <AnswerPanel answer={finalAnswer} task={task} isConfirmationCheckpoint={isConfirmationCheckpoint} onResumeCheckpoint={onResumeCheckpoint} onExport={() => downloadJson(`trace-${task.id.slice(0, 8)}.json`, buildTrace(task))} />
+            <AnswerPanel answer={finalAnswer} task={task} isConfirmationCheckpoint={isConfirmationCheckpoint} onResumeCheckpoint={onResumeCheckpoint} onExport={() => downloadPdf(task)} />
             <PlanPanel task={task} open={planOpen} onToggle={setPlanOpen} />
 
             {detectedSkills.length > 0 && (
@@ -624,7 +624,7 @@ function HistoryView({ onReplay, onOpen, onResumeCheckpoint }: { onReplay: (goal
 
   async function exportTask(id: string) {
     const full = await sendToSW<AgentTask | null>({ kind: 'task:get', id });
-    if (full) downloadJson(`trace-${full.id.slice(0, 8)}.json`, buildTrace(full));
+    if (full) downloadPdf(full);
   }
 
   if (loading) return <section className="view active page-view"><div className="page-empty">Loading...</div></section>;
