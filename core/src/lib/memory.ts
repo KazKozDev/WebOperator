@@ -48,8 +48,10 @@ const STORAGE_KEY = 'agent_memory';
 
 export async function loadMemory(): Promise<AgentMemory> {
   try {
-    const raw = await chrome.storage.local.get(STORAGE_KEY);
-    const data = raw[STORAGE_KEY];
+    const raw = await chrome.storage.local.get(STORAGE_KEY) as Record<string, unknown>;
+    // Storage returns an untyped bag; the guard below is what actually
+    // establishes the shape, so narrow to a partial and let it do its job.
+    const data = raw[STORAGE_KEY] as Partial<AgentMemory> | undefined;
     if (data && data.version === 1 && data.sites) return data as AgentMemory;
   } catch { /* ignore */ }
   return emptyMemory();

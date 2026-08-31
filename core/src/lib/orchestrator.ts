@@ -153,8 +153,8 @@ export class CheckpointManager {
   }
 
   async load(taskId: string): Promise<Checkpoint | null> {
-    const raw = await chrome.storage.local.get(this.prefix + taskId);
-    const data = raw[this.prefix + taskId];
+    const raw = await chrome.storage.local.get(this.prefix + taskId) as Record<string, unknown>;
+    const data = raw[this.prefix + taskId] as Partial<Checkpoint> | undefined;
     if (data && data.version === 1 && data.plan) {
       return data as Checkpoint;
     }

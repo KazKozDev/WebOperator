@@ -294,7 +294,7 @@ export const AGENT_TOOLS: OllamaToolDef[] = [
         properties: {
           tabIds: { type: 'string', description: 'comma-separated tab IDs to group, e.g. "123,124"' },
           title: { type: 'string', description: 'optional tab group title' },
-          color: { type: 'string', description: 'optional group color', enum: ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan'] },
+          color: { type: 'string', description: 'optional group color', enum: ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'] },
           collapsed: { type: 'string', description: '"true" to collapse the group, otherwise "false"' },
         },
         required: ['tabIds'],
