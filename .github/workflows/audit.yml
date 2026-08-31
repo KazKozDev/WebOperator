@@ -1,0 +1,32 @@
+name: audit
+
+on:
+  schedule:
+    # Nightly, so a freshly disclosed advisory surfaces without a push.
+    - cron: "14 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: core/package-lock.json
+
+      - name: Install dependencies
+        run: npm --prefix core ci
+
+      # High and critical only: the extension ships no server, so a moderate
+      # advisory in a build-time dependency should not page anyone at 03:14.
+      - name: Audit
+        run: npm --prefix core audit --audit-level=high

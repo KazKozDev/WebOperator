@@ -1,0 +1,41 @@
+name: Feature request
+description: Suggest a capability, task type, or integration
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What are you trying to do that WebOperator cannot do today? Describe
+        the task, not the implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+      description: Optional. A rough shape is enough.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - New browser tool or action
+        - Agent reasoning / planning
+        - A new skill (site or task playbook)
+        - Model provider support
+        - MCP bridge / external agents
+        - Side panel UI
+        - Scheduling
+        - Developer tooling
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead
+      description: Existing workarounds, and why they fall short.

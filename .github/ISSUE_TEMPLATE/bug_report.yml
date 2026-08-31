@@ -1,0 +1,92 @@
+name: Bug report
+description: Something in the agent, the extension, or the bridge behaves incorrectly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not report security vulnerabilities here — use a
+        [private advisory](https://github.com/KazKozDev/WebOperator/security/advisories/new)
+        instead. See [SECURITY.md](https://github.com/KazKozDev/WebOperator/blob/main/SECURITY.md).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what the agent did instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: >
+        The goal you typed and the page it ran against. A fixture from
+        `evals/fixtures` reproduces far faster than a live site — use one if
+        you can.
+      placeholder: |
+        1. Load core/dist as an unpacked extension
+        2. Open evals/fixtures/dynamic-wait.html
+        3. Type the goal: ...
+        4. The agent ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: trace
+    attributes:
+      label: Trace
+      description: >
+        Export the task report from History and paste the relevant steps.
+        Redact anything private — traces contain page content.
+      render: text
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Agent loop / planning
+        - Browser actions (click, type, scroll)
+        - Page snapshot / element refs
+        - CAPTCHA and challenge handling
+        - Side panel UI
+        - Schedules
+        - MCP bridge / native host
+        - Build or check gate
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: provider
+    attributes:
+      label: Model provider and model
+      placeholder: "Ollama / qwen3:8b, or Anthropic / claude-sonnet-4-5"
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: WebOperator version or commit
+      placeholder: "1.4.0, or 8fc070c"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: OS and browser version
+      placeholder: "macOS 15.6, Chrome 139"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I rebuilt from the current `main` and the problem persists
+        - label: I checked [known limitations](https://github.com/KazKozDev/WebOperator/blob/main/docs/known-limitations.md)

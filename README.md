@@ -123,6 +123,16 @@ Because of `debugger`, Chrome shows a yellow "WebOperator started debugging this
 - The bridge listens without authentication unless `WEBOPERATOR_API_TOKEN` is set and unauthenticated calls are disabled.
 - Chrome and Brave are the documented targets; other Chromium browsers and Windows are untested, and the bridge installer refuses to run outside macOS and Linux.
 
+## Contributing
+
+Bug reports, feature requests and pull requests are welcome.
+[CONTRIBUTING.md](CONTRIBUTING.md) covers the setup, the eight-step check gate
+every change has to pass, and the commit conventions. Released versions are
+listed in [CHANGELOG.md](CHANGELOG.md).
+
+Found a security problem? Do not open a public issue — report it privately, as
+described in [SECURITY.md](SECURITY.md).
+
 <details>
 <summary>Manual installation, Docker, development setup</summary>
 

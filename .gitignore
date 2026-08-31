@@ -50,3 +50,4 @@ trace-*.json
 export-*.json
 evals/traces/
 evals/reports/
+core/coverage/

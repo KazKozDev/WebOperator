@@ -1,0 +1,49 @@
+version: 2
+updates:
+  # The npm project lives in core/, not the repository root.
+  - package-ecosystem: npm
+    directory: /core
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      # One PR per ecosystem cluster keeps the check gate from running eight
+      # times for what is effectively a single upgrade.
+      dev-tooling:
+        patterns:
+          - "eslint*"
+          - "@eslint/*"
+          - "typescript*"
+          - "vitest"
+          - "knip"
+          - "@types/*"
+        update-types:
+          - minor
+          - patch
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@vitejs/plugin-react"
+        update-types:
+          - minor
+          - patch
+      build:
+        patterns:
+          - "vite"
+          - "@crxjs/*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: ci

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/KazKozDev/WebOperator/security/advisories/new
+    about: Report privately through a security advisory — never in a public issue.
+  - name: Setup and usage questions
+    url: https://github.com/KazKozDev/WebOperator/blob/main/README.md
+    about: Requirements, configuration, and the MCP bridge are documented in the README and docs/.
