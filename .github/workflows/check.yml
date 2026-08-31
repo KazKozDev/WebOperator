@@ -55,7 +55,7 @@ jobs:
 
       - name: Upload coverage
         if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-lcov
           path: core/coverage/lcov.info
