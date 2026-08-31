@@ -10,6 +10,8 @@ export interface SkillDefinition {
   risk: SkillRisk;
   domains: string[];
   keywords: string[];
+  /** Skills that solve the same intent differently; only the better-scoring one survives. */
+  conflictsWith?: SkillId[];
   prompt: string;
 }
 
@@ -229,11 +231,57 @@ export interface ClassifiedSkill {
   id: SkillId;
   reason: string;
   auto: boolean;
+  /** Routing confidence, 0..1. Keyword hits outrank semantic ones. */
+  score: number;
+}
+
+/**
+ * Upper bound on skills injected into one task prompt. Two playbooks still
+ * compose; more start contradicting each other and crowd out the tool list.
+ */
+export const MAX_AUTO_SKILLS = 2;
+
+/**
+ * A keyword hits only when it starts at a word boundary, so "форма" no longer
+ * matches "информацию" and "search" no longer matches "research". The tail is
+ * left open on purpose: inflected forms ("поиска", "searching") must still hit.
+ */
+function keywordHits(goal: string, keyword: string): boolean {
+  const needle = keyword.trim().toLowerCase();
+  if (!needle) return false;
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}`, 'iu').test(goal);
+}
+
+function applyConflicts(
+  ranked: ClassifiedSkill[],
+  customSkills: CustomSkillDefinition[],
+): ClassifiedSkill[] {
+  const kept: ClassifiedSkill[] = [];
+  for (const candidate of ranked) {
+    const skill = getSkill(candidate.id, customSkills);
+    const conflicts = skill?.conflictsWith ?? [];
+    const loses = kept.some(
+      (winner) =>
+        conflicts.includes(winner.id) ||
+        (getSkill(winner.id, customSkills)?.conflictsWith ?? []).includes(candidate.id),
+    );
+    if (!loses) kept.push(candidate);
+  }
+  return kept;
+}
+
+/** Highest confidence first, conflicts resolved, capped at MAX_AUTO_SKILLS. */
+function rank(
+  results: Map<SkillId, ClassifiedSkill>,
+  customSkills: CustomSkillDefinition[],
+): ClassifiedSkill[] {
+  const ordered = Array.from(results.values()).sort((a, b) => b.score - a.score);
+  return applyConflicts(ordered, customSkills).slice(0, MAX_AUTO_SKILLS);
 }
 
 export function classifyTask(goal: string, customSkills: CustomSkillDefinition[] = []): ClassifiedSkill[] {
 
-  const lower = goal.toLowerCase();
   const results = new Map<SkillId, ClassifiedSkill>();
   const allSkills = [...BUILT_IN_SKILLS, ...customSkills.filter((cs) => cs.enabled !== false)];
 
@@ -241,12 +289,17 @@ export function classifyTask(goal: string, customSkills: CustomSkillDefinition[]
   for (const skill of allSkills) {
     if (skill.risk === 'high') continue;
 
-    const matched = skill.keywords.filter((kw) => kw && lower.includes(kw.toLowerCase()));
+    const matched = skill.keywords.filter((kw) => keywordHits(goal, kw));
     if (matched.length > 0) {
+      // More hits mean more evidence; a multi-word hit is far more specific
+      // than a single common verb, so it counts for more.
+      const specific = matched.some((kw) => kw.trim().includes(' '));
+      const score = Math.min(0.99, 0.6 + 0.06 * matched.length + (specific ? 0.1 : 0));
       results.set(skill.id, {
         id: skill.id,
         reason: `matched: ${matched.slice(0, 2).join(', ')}`,
         auto: true,
+        score,
       });
     }
   }
@@ -255,7 +308,9 @@ export function classifyTask(goal: string, customSkills: CustomSkillDefinition[]
   const dynamicRouter = new SemanticRouter(
     allSkills.map((skill) => ({
       id: skill.id,
-      text: `${skill.name} ${skill.summary} ${skill.keywords.join(' ')} ${skill.prompt}`,
+      // The prompt is deliberately left out: it is the longest part of a skill,
+      // so indexing it makes routing drift every time a playbook is reworded.
+      text: `${skill.name} ${skill.summary} ${skill.keywords.join(' ')}`,
     }))
   );
 
@@ -266,13 +321,15 @@ export function classifyTask(goal: string, customSkills: CustomSkillDefinition[]
     if (!results.has(skill.id)) {
       results.set(skill.id, {
         id: skill.id,
+        // Kept below every keyword hit: a vector match is the weaker signal.
         reason: `semantic vector match (${match.score})`,
         auto: true,
+        score: Math.min(0.55, match.score),
       });
     }
   }
 
-  return Array.from(results.values());
+  return rank(results, customSkills);
 }
 
 export async function classifyTaskNeural(goal: string, customSkills: CustomSkillDefinition[] = []): Promise<ClassifiedSkill[]> {
@@ -285,7 +342,7 @@ export async function classifyTaskNeural(goal: string, customSkills: CustomSkill
     for (const r of hfResults) {
       if (!map.has(r.id)) map.set(r.id, r);
     }
-    return Array.from(map.values());
+    return rank(map, customSkills);
   } catch {
     return syncResults;
   }

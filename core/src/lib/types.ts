@@ -71,6 +71,8 @@ export interface CustomSkillDefinition {
   risk: SkillRisk;
   domains: string[];
   keywords: string[];
+  /** Skills that solve the same intent differently; only the better-scoring one survives. */
+  conflictsWith?: SkillId[];
   prompt: string;
   isCustom?: boolean;
   enabled?: boolean;

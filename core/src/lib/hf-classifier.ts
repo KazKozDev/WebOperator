@@ -104,15 +104,12 @@ export async function classifyWithHuggingFace(goal: string, minSimilarity = 0.40
           id: skill.id,
           reason: `HF Transformer (all-MiniLM-L6-v2) score: ${(score * 100).toFixed(0)}%`,
           auto: true,
+          score,
         });
       }
     }
 
-    return matches.sort((a, b) => {
-      const scoreA = parseFloat(a.reason.match(/\d+/)?.[0] ?? '0');
-      const scoreB = parseFloat(b.reason.match(/\d+/)?.[0] ?? '0');
-      return scoreB - scoreA;
-    });
+    return matches.sort((a, b) => b.score - a.score);
   } catch (err) {
     console.warn('[HF-Classifier] Neural inference fallback to vector router:', err);
     return [];
