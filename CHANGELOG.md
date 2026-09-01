@@ -24,6 +24,12 @@ evals.
 
 ### Fixed
 
+- Page content could break out of the block that marks it as untrusted. The
+  observation fence used fixed, public markers, so a page that printed the
+  closing marker in its own text had everything after it read as instruction
+  rather than data — and the URL and tab title, both page-controlled, sit at the
+  top of that block. The fence now carries a random per-observation tag the page
+  cannot guess, and marker-shaped text inside it is defanged.
 - A model without reasoning or vision support no longer fails every task. The
   agent asks for thinking on the first step of every run and attaches a
   screenshot under the default vision policy; Ollama answers an unsupported

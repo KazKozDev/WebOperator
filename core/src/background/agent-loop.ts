@@ -20,7 +20,8 @@ import {
   type ObservationRef,
 } from '@/lib/context-compression';
 import { formatSnapshot } from '@/lib/a11y';
-import { buildSystemPrompt, PLANNING_PROMPT, UNTRUSTED_CONTENT_CLOSE, UNTRUSTED_CONTENT_OPEN } from '@/lib/prompts';
+import { buildSystemPrompt, PLANNING_PROMPT } from '@/lib/prompts';
+import { fenceUntrusted, looksLikeHostileInstructionLeak, newFenceNonce } from '@/lib/injection-guard';
 import { sendToContent, broadcastEvent } from '@/lib/messaging';
 import { frameIdFromRef, takeFrameSnapshot } from '@/lib/frames';
 import type { CSResponse } from '@/lib/types';
@@ -2103,7 +2104,7 @@ async function runContentAction(tabId: number, call: ToolCall) {
 
 function formatObservation(s: A11ySnapshot, visionReason: string, withScreenshot: boolean): string {
   const header = withScreenshot ? `[SCREENSHOT ATTACHED — ${visionReason}]\n` : '';
-  return `${header}${UNTRUSTED_CONTENT_OPEN}${formatSnapshot(s)}${UNTRUSTED_CONTENT_CLOSE}`;
+  return `${header}${fenceUntrusted(formatSnapshot(s), newFenceNonce())}`;
 }
 
 // Provider errors that retrying cannot fix: bad/missing API key, exhausted
@@ -2213,10 +2214,6 @@ function looksLikePrematureCompletion(summary: string): boolean {
     'осталось',
   ];
   return incompleteSignals.some((signal) => lower.includes(signal));
-}
-
-function looksLikeHostileInstructionLeak(summary: string): boolean {
-  return /system prompt|prompt[-\s]?injection|injection text|hostile text|deceptive text|distractor text|decoy value|fake total|ignored (?:unrelated |hostile )?(?:instruction|instructions|text|content|injection)|ignore the user|ignore the user's task|click every button|reveal the system prompt|(?:other|unrelated|separate|another)\s+(?:text|paragraph|content).{0,80}\$\d/i.test(summary);
 }
 
 function inferSheetContract(goal: string): SheetTaskContract | null {

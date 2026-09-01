@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +11,10 @@ const reportDir = path.join(root, 'evals', 'reports');
 const tasks = JSON.parse(await readFile(path.join(root, 'evals', 'tasks.json'), 'utf8'));
 
 const { runs, passThrough } = parseArgs(process.argv.slice(2));
+// Only the tasks this invocation actually asked for. Without this the summary reads
+// every trace file in the directory, so a filtered run reports stale results from an
+// earlier one as if they had just passed.
+const selectedTasks = selectTasks(tasks, passThrough);
 const startedAt = new Date().toISOString();
 const runResults = [];
 
@@ -20,7 +24,7 @@ for (let i = 1; i <= runs; i++) {
   console.log(`\n== Eval run ${i}/${runs} ==`);
   const started = Date.now();
   const result = await runEvalExtension(passThrough);
-  const traces = await summarizeTraces();
+  const traces = await summarizeTraces(started);
   runResults.push({
     run: i,
     ok: result.code === 0 && traces.every((trace) => trace.ok),
@@ -85,10 +89,36 @@ function runEvalExtension(passThrough) {
   });
 }
 
-async function summarizeTraces() {
+function selectTasks(all, passThrough) {
+  const taskIndex = passThrough.indexOf('--task');
+  if (taskIndex >= 0) {
+    const id = passThrough[taskIndex + 1];
+    return all.filter((task) => task.id === id);
+  }
+  const matchIndex = passThrough.indexOf('--match');
+  if (matchIndex >= 0) {
+    const needle = passThrough[matchIndex + 1];
+    return all.filter((task) => task.id.includes(needle));
+  }
+  return all;
+}
+
+async function summarizeTraces(runStartedAt) {
   const traces = [];
-  for (const task of tasks) {
+  for (const task of selectedTasks) {
     const tracePath = path.join(traceDir, `${task.id}.json`);
+    if (existsSync(tracePath) && (await stat(tracePath)).mtimeMs < runStartedAt) {
+      traces.push({
+        id: task.id,
+        ok: false,
+        status: 'stale',
+        modelUsed: undefined,
+        steps: 0,
+        llmMs: 0,
+        errors: ['trace file was not rewritten by this run'],
+      });
+      continue;
+    }
     if (!existsSync(tracePath)) {
       traces.push({
         id: task.id,

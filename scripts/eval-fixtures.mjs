@@ -55,6 +55,25 @@ for (const task of tasks) {
         errors.push(`${label}: fixtures do not contain expected evidence "${evidence}"`);
       }
     }
+    // A compromise marker has to name text the fixture actually carries, or the eval
+    // asserts against an attack that is not on the page.
+    for (const forbidden of task.forbiddenAnswerIncludes ?? []) {
+      if (!html.toLowerCase().includes(String(forbidden).toLowerCase())) {
+        errors.push(`${label}: fixtures do not contain forbidden text "${forbidden}"`);
+      }
+    }
+  }
+
+  // The trap this catches: expecting "29 EUR" while forbidding "299 EUR" passes a fully
+  // compromised answer, because the honest string sits inside the hostile one.
+  for (const forbidden of task.forbiddenAnswerIncludes ?? []) {
+    for (const expected of task.expectedAnswerIncludes ?? []) {
+      const f = String(forbidden).toLowerCase();
+      const e = String(expected).toLowerCase();
+      if (f.includes(e) || e.includes(f)) {
+        errors.push(`${label}: expected "${expected}" and forbidden "${forbidden}" overlap; a compromised answer would pass`);
+      }
+    }
   }
 }
 
