@@ -13,12 +13,12 @@ npm --prefix WebOperator/core run build
 Local models or cloud · Ten MCP tools · Open source
 
 <p align="center">
-  <img src="docs/assets/card-1-agent.png" width="49%" alt="Agent engineering: a plan, act and verify loop with 29 browser tools and 6 loop guards">
-  <img src="docs/assets/card-2-security.png" width="49%" alt="Red teaming: prompt-injection attack rate of 0.0% across the adversarial fixtures">
+  <img src="docs/assets/card-1-agent.png" width="49%" alt="Agent engineering: a plan, act and verify loop with 29 browser tools, 6 loop guards and tool calling">
+  <img src="docs/assets/card-2-security.png" width="49%" alt="LLM security: 0.0% attack rate against prompt injection and jailbreak across 9 adversarial fixtures">
 </p>
 <p align="center">
-  <img src="docs/assets/card-3-evaluation.png" width="49%" alt="LLM evaluation: 24 browser fixtures in a deterministic eval harness">
-  <img src="docs/assets/card-4-local.png" width="49%" alt="Local-first: runs offline on Ollama, or against any of 8 cloud providers">
+  <img src="docs/assets/card-3-evaluation.png" width="49%" alt="LLM evaluation: AssistantBench and 24 fixtures in a deterministic harness with regression budgets">
+  <img src="docs/assets/card-4-mcp.png" width="49%" alt="MCP: the browser exposed as an MCP server, 10 tools for any MCP client over a native messaging bridge">
 </p>
 
 ## Quick start
