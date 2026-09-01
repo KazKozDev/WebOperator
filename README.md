@@ -30,10 +30,6 @@ Open `chrome://extensions`, enable Developer mode, click **Load unpacked**, and 
 
 The default provider is Ollama at `http://127.0.0.1:11434`, so a tool-capable local model needs to be running before the first task. Any of the seven remote providers works instead once you paste a key.
 
-<p align="center">
-  <img src="docs/assets/competencies.png" width="100%" alt="Four competencies this repository demonstrates: agent engineering — a plan, act and verify loop with 29 tools, 6 loop guards and tool calling; LLM security — a 0.0% attack rate against prompt injection and jailbreak across 9 adversarial fixtures; LLM evaluation — AssistantBench and 24 fixtures in a deterministic harness with regression budgets; MCP — the browser exposed as an MCP server with 10 tools for any MCP client over a native messaging bridge">
-</p>
-
 ## Automate a multi-step task across your open Chrome tabs
 
 WebOperator runs a plan → act → verify loop against the tab you are looking at. It builds a visible plan, calls one browser tool at a time, verifies each result against a fresh page snapshot, and records an inspectable trace of every step.
@@ -49,6 +45,10 @@ Compare info across tabs
 ```
 
 The side panel streams the plan, each action, and the final answer; history, checkpoints, and scheduled runs live in their own tabs. Answers stay tied to browser observations, so hidden, paywalled, or region-specific details may simply be absent.
+
+<p align="center">
+  <img src="docs/assets/competencies.png" width="100%" alt="Four competencies this repository demonstrates: agent engineering — a plan, act and verify loop with 29 tools, 6 loop guards and tool calling; LLM security — a 0.0% attack rate against prompt injection and jailbreak across 9 adversarial fixtures; LLM evaluation — AssistantBench and 24 fixtures in a deterministic harness with regression budgets; MCP — the browser exposed as an MCP server with 10 tools for any MCP client over a native messaging bridge">
+</p>
 
 ## Schedule recurring browser automation in Chrome
 
