@@ -47,7 +47,7 @@ Compare info across tabs
 The side panel streams the plan, each action, and the final answer; history, checkpoints, and scheduled runs live in their own tabs. Answers stay tied to browser observations, so hidden, paywalled, or region-specific details may simply be absent.
 
 <p align="center">
-  <img src="docs/assets/competencies-v2.png" width="100%" alt="Four competencies this repository demonstrates: agent engineering — a plan, act and verify loop with 29 tools, 6 loop guards and tool calling; LLM security — a 0.0% attack rate against prompt injection and jailbreak across 9 adversarial fixtures; LLM evaluation — AssistantBench and 24 fixtures in a deterministic harness with regression budgets; MCP — the browser exposed as an MCP server with 10 tools for any MCP client over a native messaging bridge">
+  <img src="docs/assets/competencies.gif" width="100%" alt="Four competencies: agent engineering — a plan, act and verify loop with 29 tools and 6 loop guards; LLM security — the prompt-injection attack rate falling from 44.4% to 0.0% across 9 adversarial fixtures; LLM evaluation — AssistantBench and 24 fixtures in a deterministic harness; MCP — the browser exposed as an MCP server with 10 tools for any client">
 </p>
 
 ## Schedule recurring browser automation in Chrome
