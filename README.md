@@ -1,6 +1,6 @@
 # WebOperator — AI browser agent and MCP server for Chrome automation
 
-Automate browser tasks in Chrome by describing the goal in plain English.
+Tell Chrome what you want done, in plain English, and let the agent do it.
 
 ```bash
 git clone https://github.com/KazKozDev/WebOperator.git
@@ -14,11 +14,13 @@ Local models or cloud · Ten MCP tools · Open source
 
 ## Quick start
 
-No Node, no build: download the `weboperator-<version>-chrome.zip` archive from
-the [latest release](https://github.com/KazKozDev/WebOperator/releases/latest),
-unzip it, and skip to the paragraph below. The archive is the built extension.
+Two ways in. If you would rather not touch Node, grab the
+`weboperator-<version>-chrome.zip` archive from the
+[latest release](https://github.com/KazKozDev/WebOperator/releases/latest) and unzip it —
+that folder *is* the built extension.
 
-Building from source instead writes the unpacked extension to `core/dist`.
+If you ran the commands above instead, the build lands in `core/dist` and finishes in
+well under a second:
 
 ```text
 vite v8.0.11 building client environment for production...
@@ -26,25 +28,25 @@ vite v8.0.11 building client environment for production...
 ✓ built in 189ms
 ```
 
-Open `chrome://extensions`, enable Developer mode, click **Load unpacked**, and select `core/dist`. Press `Cmd+Shift+K` (`Ctrl+Shift+K` on Linux) to open the side panel, pick a provider under **Settings**, and type a goal.
+Either way, open `chrome://extensions`, enable Developer mode, click **Load unpacked**, and point it at the folder you just got. Press `Cmd+Shift+K` (`Ctrl+Shift+K` on Linux) to open the side panel, pick a provider under **Settings**, and type a goal.
 
-The default provider is Ollama at `http://127.0.0.1:11434`, so a tool-capable local model needs to be running before the first task. Any of the seven remote providers works instead once you paste a key.
+Out of the box the agent talks to Ollama at `http://127.0.0.1:11434`, so have a tool-capable local model running before your first task — or paste an API key and use a remote provider instead.
 
 ## Automate a multi-step task across your open Chrome tabs
 
-WebOperator runs a plan → act → verify loop against the tab you are looking at. It builds a visible plan, calls one browser tool at a time, verifies each result against a fresh page snapshot, and records an inspectable trace of every step.
+WebOperator works the tab you are looking at in a plan → act → verify loop: it writes out a plan you can read, calls one browser tool at a time, and checks each result against a fresh snapshot of the page before moving on.
 
 ```text
 Summarize the current page
 ```
 
-It can navigate, click, type, press keys, scroll, switch tabs, screenshot, and extract structured text — so the same loop works when the information you need is spread across several tabs.
+It can navigate, click, type, press keys, scroll, switch tabs, screenshot, and pull out structured text — so the same loop still works when the answer is scattered across half a dozen open tabs.
 
 ```text
 Compare info across tabs
 ```
 
-The side panel streams the plan, each action, and the final answer; history, checkpoints, and scheduled runs live in their own tabs. Answers stay tied to browser observations, so hidden, paywalled, or region-specific details may simply be absent.
+The side panel streams the plan, every action, and the final answer, and keeps the full trace; history, checkpoints, and scheduled runs each get their own tab. The flip side: the agent only knows what it can actually see in the browser, so anything hidden, paywalled, or geo-blocked simply will not show up in the answer.
 
 <br>
 
@@ -56,7 +58,7 @@ The side panel streams the plan, each action, and the final answer; history, che
 
 ## Schedule recurring browser automation in Chrome
 
-Set a task once and let it run without you. Each schedule stores a start URL, a goal, and how often to repeat it — `once`, `hourly`, `daily`, or `weekly` — and Chrome alarms wake the agent even while the side panel is closed.
+Some tasks you want done whether or not you are at the keyboard. Give a schedule a start URL, a goal, and a cadence — `once`, `hourly`, `daily`, or `weekly` — and Chrome alarms wake the agent on time, even with the side panel closed.
 
 ```text
 Task name:  Morning price check
@@ -65,11 +67,11 @@ Repeat:     daily
 Goal:       Check the price and tell me if it dropped below 40 EUR
 ```
 
-Every run lands in History with its full trace, so a scheduled task is auditable after the fact rather than a black box. A run that hits something only you can clear — a login wall or a verification challenge — is marked `needs_user` instead of failing quietly.
+Every run lands in History with its trace, so you can go back afterwards and see exactly what it did. If a run hits something only you can clear — a login wall, a verification challenge — it stops and marks itself `needs_user` rather than failing quietly.
 
 ## Connect Hermes, OpenClaw, or another MCP agent
 
-An external agent can use your live browser as its tool. The local bridge exposes ten MCP tools over stdio: `browser_snapshot`, `browser_navigate`, `browser_click`, `browser_type`, `browser_press`, `browser_scroll`, `browser_screenshot`, `browser_extract`, `browser_solve_captcha`, and `weboperator_execute_goal`.
+Your live browser can be somebody else's tool. The local bridge speaks MCP over stdio and exposes ten of them: `browser_snapshot`, `browser_navigate`, `browser_click`, `browser_type`, `browser_press`, `browser_scroll`, `browser_screenshot`, `browser_extract`, `browser_solve_captcha`, and `weboperator_execute_goal`.
 
 ```bash
 cd weboperator-bridge
@@ -77,11 +79,11 @@ cd weboperator-bridge
 node mcp-server.js
 ```
 
-`install.sh` registers the Native Messaging host that connects those calls to the active Chrome or Brave tab. Ready-made configs for Hermes and OpenClaw ship in `weboperator-bridge/`.
+`install.sh` registers the Native Messaging host that wires those calls to your active Chrome or Brave tab. Drop-in configs for Hermes and OpenClaw are already in `weboperator-bridge/`.
 
 ## How it works
 
-The side panel or an external MCP agent supplies the goal. The service worker owns model calls, task state, retries, verification, schedules, and storage. The content script serializes the page into an accessibility snapshot with stable element refs and executes DOM actions against them. Page content is treated as untrusted data, never as instructions. Twelve built-in skills act as domain playbooks that steer the agent when a matching site or task is detected.
+A goal arrives from the side panel or from an external MCP agent. From there the service worker runs the show — model calls, task state, retries, verification, schedules, storage. The content script does the hands-on part: it turns the page into an accessibility snapshot with stable element refs, then performs DOM actions against those refs. Whatever the page says is treated as data, never as instructions to follow. Twelve built-in skills sit on top as domain playbooks and kick in when the agent recognizes a matching site or task.
 
 ```text
 goal → page snapshot → model tool call → verified action → trace
@@ -89,9 +91,9 @@ goal → page snapshot → model tool call → verified action → trace
 
 ## Permissions
 
-The manifest requests `<all_urls>` and `activeTab`/`tabs`/`scripting` to read and act on the page you point it at, `debugger` to drive Chrome DevTools Protocol actions the DOM API cannot perform, `sidePanel` for the UI, `storage` for settings and history, `alarms` for scheduled tasks, `downloads` for the file-downloader skill, and `nativeMessaging` for the MCP bridge. `bookmarks` and `tabGroups` are optional and requested only when used.
+To read and act on the page you point it at, the extension asks for `<all_urls>` plus `activeTab`/`tabs`/`scripting`, and for `debugger` to reach the DevTools Protocol actions the plain DOM API cannot do. The rest are housekeeping: `sidePanel` for the UI, `storage` for settings and history, `alarms` for scheduled runs, `downloads` for the file-downloader skill, and `nativeMessaging` for the MCP bridge. `bookmarks` and `tabGroups` are optional and only requested when something actually needs them.
 
-Because of `debugger`, Chrome shows a yellow "WebOperator started debugging this browser" bar while an action runs. That bar is Chrome's, not the extension's, and it disappears when the agent detaches.
+The `debugger` permission is why Chrome shows a yellow "WebOperator started debugging this browser" bar while an action runs. That bar belongs to Chrome, not to the extension, and it goes away as soon as the agent detaches.
 
 ## Configuration
 
@@ -105,56 +107,53 @@ Because of `debugger`, Chrome shows a yellow "WebOperator started debugging this
 
 ### Bridge authentication
 
-The bridge listens on `127.0.0.1:8765` and accepts unauthenticated calls until you set
-`WEBOPERATOR_API_TOKEN`. Every bridge variable — bind host, port, socket and log paths — is
-documented in [docs/api.md](docs/api.md).
+The bridge listens on `127.0.0.1:8765` and will accept unauthenticated calls until you set
+`WEBOPERATOR_API_TOKEN`. Set it. Every bridge variable — bind host, port, socket and log
+paths — is documented in [docs/api.md](docs/api.md).
 
 ## Requirements
 
-- Chrome 120 or newer, or a Chromium browser of equivalent version
-- Node.js and npm, to install dependencies and build the extension
-- A tool-capable model served by Ollama or MLX, or an API key for Anthropic, DeepSeek, Gemini, OpenAI, OpenRouter, SiliconFlow, or xAI. Tool calling is the only hard requirement — the agent acts solely through tool calls. Reasoning and vision are optional: a model without either still runs, and the step trace says which one was dropped
-- The unpacked extension, either from a release archive or built into `core/dist`; it is not on the Chrome Web Store
-- macOS or Linux for the MCP bridge installer
-- `shellcheck`, only to run the full local check gate
+- Chrome 120 or newer, or a Chromium browser of the same generation
+- Node.js and npm, if you build the extension yourself
+- A model that can call tools, served locally by Ollama or MLX or reached through one of the remote providers in the table above. Tool calling is the one hard requirement, because tool calls are the only way the agent acts. Reasoning and vision are nice to have — without them the agent still runs, and the step trace tells you which one it went without
+- The extension is not on the Chrome Web Store, so you load it unpacked
+- macOS or Linux, for the MCP bridge installer
+- `shellcheck`, only if you run the full local check gate
 
 ## Limitations
 
-- Dynamic, canvas-heavy, or infinite-scroll pages can invalidate element refs between observation and action.
+- Dynamic, canvas-heavy, or infinite-scroll pages can invalidate element refs between the moment the agent looks and the moment it acts.
 - Sites with bot detection or unusual focus handling can fail outright.
-- Long tasks can drift; checkpoints and context compression reduce but do not eliminate this.
-- A configured remote provider receives page observations, including page text and screenshots.
-- The bridge listens without authentication unless `WEBOPERATOR_API_TOKEN` is set and unauthenticated calls are disabled.
-- Chrome and Brave are the documented targets; other Chromium browsers and Windows are untested, and the bridge installer refuses to run outside macOS and Linux.
+- Long tasks drift. Checkpoints and context compression hold it back, but do not cure it.
+- Point it at a remote provider and that provider sees your page observations — text and screenshots included.
+- Chrome and Brave are the browsers we test. Other Chromium builds and Windows are untested, and the bridge installer flatly refuses to run outside macOS and Linux.
 
 ## Contributing
 
-Bug reports, feature requests and pull requests are welcome.
-[CONTRIBUTING.md](CONTRIBUTING.md) covers the setup, the eight-step check gate
-every change has to pass, and the commit conventions. Released versions are
-listed in [CHANGELOG.md](CHANGELOG.md).
+Bug reports, feature requests and pull requests are all welcome.
+[CONTRIBUTING.md](CONTRIBUTING.md) walks through the setup, the eight-step check gate every
+change has to clear, and the commit conventions. Released versions are listed in
+[CHANGELOG.md](CHANGELOG.md).
 
-Found a security problem? Do not open a public issue — report it privately, as
-described in [SECURITY.md](SECURITY.md).
+Found a security problem? Please don't open a public issue — report it privately, the way
+[SECURITY.md](SECURITY.md) describes.
 
 <details>
 <summary>Manual installation, Docker, development setup</summary>
 
 ### From a release
-Download and unzip `weboperator-<version>-chrome.zip` from the
-[releases page](https://github.com/KazKozDev/WebOperator/releases), then load
-the unzipped folder as an unpacked extension. Each archive ships a `.sha256`
-next to it, and is built and published by the `release` workflow from the
-tagged commit after the full check gate passes.
+Each archive on the [releases page](https://github.com/KazKozDev/WebOperator/releases) ships
+with a `.sha256` beside it, and is built and published by the `release` workflow from the
+tagged commit once the full check gate passes.
 
 ### From source
-Run `npm --prefix core ci && npm --prefix core run build`, then load `core/dist` as an unpacked extension.
+`npm --prefix core ci && npm --prefix core run build`, then load the result as an unpacked extension.
 
 ### Docker
-No Dockerfile or Compose configuration is included.
+There is no Dockerfile or Compose configuration.
 
 ### Development
-Run `npm --prefix core run dev` for watch builds, or `./scripts/check.sh` for the full gate: fixture evals, bridge smoke test, typecheck, lint, unit tests, dead-code scan, shellcheck, and build.
+`npm --prefix core run dev` gives you watch builds. `./scripts/check.sh` runs the whole gate: fixture evals, bridge smoke test, typecheck, lint, unit tests, dead-code scan, shellcheck, and build.
 
 </details>
 
