@@ -1,4 +1,4 @@
-import { chat, OllamaError, type OllamaChatOptions, type OllamaChatResult, type OllamaMessage } from '@/lib/ollama-client';
+import { chat, OllamaError, type DroppedCapability, type OllamaChatOptions, type OllamaChatResult, type OllamaMessage } from '@/lib/ollama-client';
 import { chatOpenAI } from '@/lib/openai-client';
 import { chatGemini } from '@/lib/gemini-client';
 import { chatXai } from '@/lib/xai-client';
@@ -638,6 +638,15 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         let resp = await requestModelResponse(settings, chatOpts);
         llmMs = performance.now() - llmT0;
         step.thinking = resp.thinking;
+
+        // The model turned out to lack something the agent asked for. Say so once, on the
+        // step that discovered it: the run continues without it, and a user who never sees
+        // this has no way to tell why the agent is working blind.
+        if (resp.degraded?.length) {
+          const note = describeDegradation(resp.degraded);
+          step.note = step.note ? `${step.note} ${note}` : note;
+          broadcastEvent({ kind: 'task:step', taskId: task.id, step: maskStepForStorage(step) });
+        }
 
         if (!resp.toolCall) {
           step.note = `Repairing missing tool call: ${truncate(resp.content, 160)}`;
@@ -2152,6 +2161,13 @@ function shouldThink(settings: Settings, stepIndex: number, loop: LoopState): bo
   if (loop.lastStepFailed) return true;
   if (loop.modelRequestedReasoning) return true;
   return false;
+}
+
+function describeDegradation(dropped: DroppedCapability[]): string {
+  const parts = dropped.map((capability) => capability === 'vision'
+    ? 'does not support images — continuing from the page snapshot alone'
+    : 'does not support thinking — continuing without it');
+  return `Model ${parts.join('; ')}.`;
 }
 
 function requiresConfirm(call: ToolCall, snapshot: A11ySnapshot, settings: Settings): boolean {

@@ -34,6 +34,114 @@ describe('ollama-client', () => {
     expect(result.error).toContain('empty');
   });
 
+  it('retries without the thinking flag when the model rejects it, then remembers', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+      bodies.push(body);
+      if (body.think === true) {
+        return new Response(JSON.stringify({ error: '"no-think-model" does not support thinking' }), { status: 400 });
+      }
+      return new Response(JSON.stringify({ message: { content: 'ok' }, model: 'no-think-model' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const first = await chat({ url: 'http://127.0.0.1:11434', model: 'no-think-model', messages: [], thinking: true });
+    expect(first.content).toBe('ok');
+    expect(bodies.map((body) => body.think)).toEqual([true, false]);
+
+    // The rejection is remembered, so the next call asks for no thinking up front.
+    await chat({ url: 'http://127.0.0.1:11434', model: 'no-think-model', messages: [], thinking: true });
+    expect(bodies.map((body) => body.think)).toEqual([true, false, false]);
+  });
+
+  it('keeps a 400 that is not about thinking as an error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('model not found', { status: 400 })));
+
+    await expect(
+      chat({ url: 'http://127.0.0.1:11434', model: 'missing-model', messages: [], thinking: true }),
+    ).rejects.toThrow(/Ollama 400: model not found/);
+  });
+
+  it('never sends the thinking flag when the caller did not ask for it', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      return new Response(JSON.stringify({ message: { content: 'ok' } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }));
+
+    await chat({ url: 'http://127.0.0.1:11434', model: 'plain-model', messages: [] });
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0].think).toBe(false);
+  });
+
+  it('drops images when the model rejects multimodal input', async () => {
+    const bodies: Array<{ think: boolean; messages: Array<{ images?: string[] }> }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      bodies.push(body);
+      if (body.messages.some((m: { images?: string[] }) => m.images?.length)) {
+        return new Response(JSON.stringify({ error: 'Multimodal data provided, but model does not support multimodal requests.' }), { status: 400 });
+      }
+      return new Response(JSON.stringify({ message: { content: 'ok' } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }));
+
+    const result = await chat({
+      url: 'http://127.0.0.1:11434',
+      model: 'text-only-model',
+      messages: [{ role: 'user', content: 'what is on screen' }],
+      images: ['BASE64'],
+    });
+
+    expect(result.content).toBe('ok');
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0].messages[0].images).toEqual(['BASE64']);
+    expect(bodies[1].messages[0].images).toBeUndefined();
+  });
+
+  it('sheds thinking and images in turn for a model that supports neither', async () => {
+    const attempts: Array<{ think: boolean; hasImages: boolean }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      const hasImages = body.messages.some((m: { images?: string[] }) => m.images?.length);
+      attempts.push({ think: body.think, hasImages });
+      if (body.think) {
+        return new Response(JSON.stringify({ error: '"plain" does not support thinking' }), { status: 400 });
+      }
+      if (hasImages) {
+        return new Response(JSON.stringify({ error: 'model does not support multimodal requests' }), { status: 400 });
+      }
+      return new Response(JSON.stringify({ message: { content: 'ok' } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }));
+
+    const result = await chat({
+      url: 'http://127.0.0.1:11434',
+      model: 'plain',
+      messages: [{ role: 'user', content: 'go' }],
+      thinking: true,
+      images: ['BASE64'],
+    });
+
+    expect(result.content).toBe('ok');
+    expect(attempts).toEqual([
+      { think: true, hasImages: true },
+      { think: false, hasImages: true },
+      { think: false, hasImages: false },
+    ]);
+  });
+
   it('parses models correctly when fetch returns 200', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
       models: [{ name: 'llama3:latest' }, { name: 'qwen2.5:latest' }],

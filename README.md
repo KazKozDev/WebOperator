@@ -113,7 +113,7 @@ Because of `debugger`, Chrome shows a yellow "WebOperator started debugging this
 
 - Chrome 120 or newer, or a Chromium browser of equivalent version
 - Node.js and npm, to install dependencies and build the extension
-- A tool-capable model served by Ollama or MLX, or an API key for Anthropic, DeepSeek, Gemini, OpenAI, OpenRouter, SiliconFlow, or xAI
+- A tool-capable model served by Ollama or MLX, or an API key for Anthropic, DeepSeek, Gemini, OpenAI, OpenRouter, SiliconFlow, or xAI. Tool calling is the only hard requirement — the agent acts solely through tool calls. Reasoning and vision are optional: a model without either still runs, and the step trace says which one was dropped
 - The unpacked extension, either from a release archive or built into `core/dist`; it is not on the Chrome Web Store
 - macOS or Linux for the MCP bridge installer
 - `shellcheck`, only to run the full local check gate

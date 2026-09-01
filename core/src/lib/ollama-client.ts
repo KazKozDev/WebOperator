@@ -27,8 +27,17 @@ export interface OllamaChatOptions {
   tools?: OllamaToolDef[];
 }
 
+/** A capability the agent asked for that the model turned out not to have. */
+export type DroppedCapability = 'thinking' | 'vision';
+
 export interface OllamaChatResult {
   content: string;
+  /**
+   * Capabilities this request had to shed to get an answer. Only ever set on the request
+   * that discovered the gap — later calls skip the capability up front — so the agent can
+   * surface it once instead of on every step.
+   */
+  degraded?: DroppedCapability[];
   thinking?: string;
   toolCall?: ToolCall;
   toolCallSource?: 'native' | 'content';
@@ -36,6 +45,19 @@ export interface OllamaChatResult {
   totalMs: number;
   evalCount?: number;
 }
+
+/**
+ * Capabilities the agent asks for by default that a given model turns out not to have.
+ * Ollama rejects both with a 400 rather than ignoring the request, and the agent asks for
+ * thinking on every first step and attaches screenshots under the default vision policy —
+ * so a tool-capable model missing either would fail every task before its first browser
+ * action. Remembered per worker lifetime: one wasted request per model, not per step.
+ */
+const modelsWithoutThinking = new Set<string>();
+const modelsWithoutVision = new Set<string>();
+
+const UNSUPPORTED_THINKING = /does not support thinking/i;
+const UNSUPPORTED_VISION = /does not support (?:multimodal|image|vision)/i;
 
 export function resolveNumCtx(model: string, requestedCtx?: number): number {
   if (requestedCtx && requestedCtx >= 4096) return requestedCtx;
@@ -48,7 +70,12 @@ export function resolveNumCtx(model: string, requestedCtx?: number): number {
 
 export async function chat(opts: OllamaChatOptions): Promise<OllamaChatResult> {
   const startedAt = Date.now();
-  const messages = opts.messages.map((m) => {
+  const buildMessages = (withImages: boolean) => opts.messages.map((m) => {
+    if (!withImages) {
+      if (!m.images) return m;
+      const { images: _dropped, ...rest } = m;
+      return rest;
+    }
     if (m.role === 'user' && opts.images && opts.images.length > 0 && m === opts.messages[opts.messages.length - 1]) {
       return { ...m, images: [...(m.images ?? []), ...opts.images] };
     }
@@ -58,18 +85,18 @@ export async function chat(opts: OllamaChatOptions): Promise<OllamaChatResult> {
   const numCtx = resolveNumCtx(opts.model, opts.numCtx);
 
   const activeTools = opts.tools ?? AGENT_TOOLS;
-  const body = {
+  const buildBody = (thinking: boolean, withImages: boolean) => ({
     model: opts.model,
-    messages,
+    messages: buildMessages(withImages),
     stream: Boolean(opts.onUpdate),
     ...(activeTools.length > 0 ? { tools: activeTools } : {}),
-    think: opts.thinking ?? false,
+    think: thinking,
     options: {
       temperature: 0.1,
       num_ctx: numCtx,
-      ...(opts.visualTokens ? { num_image_tokens: opts.visualTokens } : {}),
+      ...(opts.visualTokens && withImages ? { num_image_tokens: opts.visualTokens } : {}),
     },
-  };
+  });
 
   const timeoutController = new AbortController();
   const timeoutId = setTimeout(() => timeoutController.abort(new Error('LLM Request Timeout')), 120_000); // 2 min timeout
@@ -80,13 +107,37 @@ export async function chat(opts: OllamaChatOptions): Promise<OllamaChatResult> {
     throw new OllamaError('Ollama URL is empty. Check settings.');
   }
 
+  const send = (thinking: boolean, withImages: boolean) => fetch(`${targetUrl}/api/chat`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(buildBody(thinking, withImages)),
+    signal,
+  });
+
   try {
-    const res = await fetch(`${targetUrl}/api/chat`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-      signal,
-    });
+    let useThinking = (opts.thinking ?? false) && !modelsWithoutThinking.has(opts.model);
+    let withImages = !modelsWithoutVision.has(opts.model);
+    const degraded: DroppedCapability[] = [];
+    let res = await send(useThinking, withImages);
+
+    // Ollama answers an unsupported capability with a 400 rather than ignoring it. Drop the
+    // capability the message names and retry once per capability, so a model that is merely
+    // plainer than the default still runs instead of failing the task outright.
+    while (!res.ok && res.status === 400) {
+      const text = await res.text().catch(() => '');
+      if (useThinking && UNSUPPORTED_THINKING.test(text)) {
+        modelsWithoutThinking.add(opts.model);
+        useThinking = false;
+        degraded.push('thinking');
+      } else if (withImages && UNSUPPORTED_VISION.test(text)) {
+        modelsWithoutVision.add(opts.model);
+        withImages = false;
+        if (opts.images?.length) degraded.push('vision');
+      } else {
+        throw new OllamaError(`Ollama 400: ${text || res.statusText}`, 400);
+      }
+      res = await send(useThinking, withImages);
+    }
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -96,7 +147,7 @@ export async function chat(opts: OllamaChatOptions): Promise<OllamaChatResult> {
       throw new OllamaError(`Ollama ${res.status}: ${text || res.statusText}${hint}`, res.status);
     }
 
-    if (opts.onUpdate) return await readStreamingResponse(res, opts, startedAt);
+    if (opts.onUpdate) return await readStreamingResponse(res, opts, startedAt, degraded);
 
     const data = await res.json() as Record<string, unknown>;
     const msg = (data.message ?? {}) as { content?: unknown; thinking?: unknown; tool_calls?: unknown };
@@ -120,6 +171,7 @@ export async function chat(opts: OllamaChatOptions): Promise<OllamaChatResult> {
       content,
       thinking,
       toolCall,
+      ...(degraded.length > 0 ? { degraded } : {}),
       toolCallSource: nativeToolCall ? 'native' : contentToolCall ? 'content' : undefined,
       model: typeof data.model === 'string' ? data.model : opts.model,
       totalMs: Date.now() - startedAt,
@@ -130,7 +182,7 @@ export async function chat(opts: OllamaChatOptions): Promise<OllamaChatResult> {
   }
 }
 
-async function readStreamingResponse(res: Response, opts: OllamaChatOptions, startedAt: number): Promise<OllamaChatResult> {
+async function readStreamingResponse(res: Response, opts: OllamaChatOptions, startedAt: number, degraded: DroppedCapability[] = []): Promise<OllamaChatResult> {
   if (!res.body) throw new OllamaError('Ollama stream response has no body');
 
   const reader = res.body.getReader();
@@ -210,6 +262,7 @@ async function readStreamingResponse(res: Response, opts: OllamaChatOptions, sta
     content: finalContent,
     thinking: finalThinking,
     toolCall: nativeToolCall ?? contentToolCall,
+    ...(degraded.length > 0 ? { degraded } : {}),
     toolCallSource: nativeToolCall ? 'native' : contentToolCall ? 'content' : undefined,
     model: lastModel,
     totalMs: Date.now() - startedAt,

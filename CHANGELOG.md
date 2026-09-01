@@ -24,6 +24,14 @@ evals.
 
 ### Fixed
 
+- A model without reasoning or vision support no longer fails every task. The
+  agent asks for thinking on the first step of every run and attaches a
+  screenshot under the default vision policy; Ollama answers an unsupported
+  capability with an error rather than ignoring the request, so a tool-capable
+  model missing either died before its first browser action. The client now
+  drops the capability the error names, remembers it for that model, and
+  retries. The step trace says which capability was dropped, so a run working
+  from the page snapshot alone is visible rather than silent.
 - Skill keywords matched anywhere inside a word, so "форма" fired on
   "информацию" and pulled the form filler into every research task. Keywords now
   start at a word boundary, and long Russian keywords match by stem so inflected
