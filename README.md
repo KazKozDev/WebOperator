@@ -31,12 +31,7 @@ Open `chrome://extensions`, enable Developer mode, click **Load unpacked**, and 
 The default provider is Ollama at `http://127.0.0.1:11434`, so a tool-capable local model needs to be running before the first task. Any of the seven remote providers works instead once you paste a key.
 
 <p align="center">
-  <img src="docs/assets/card-1-agent.png" width="49%" alt="Agent engineering: a plan, act and verify loop with 29 browser tools, 6 loop guards and tool calling">
-  <img src="docs/assets/card-2-security.png" width="49%" alt="LLM security: 0.0% attack rate against prompt injection and jailbreak across 9 adversarial fixtures">
-</p>
-<p align="center">
-  <img src="docs/assets/card-3-evaluation.png" width="49%" alt="LLM evaluation: AssistantBench and 24 fixtures in a deterministic harness with regression budgets">
-  <img src="docs/assets/card-4-mcp.png" width="49%" alt="MCP: the browser exposed as an MCP server, 10 tools for any MCP client over a native messaging bridge">
+  <img src="docs/assets/competencies.png" width="100%" alt="Four competencies this repository demonstrates: agent engineering — a plan, act and verify loop with 29 tools, 6 loop guards and tool calling; LLM security — a 0.0% attack rate against prompt injection and jailbreak across 9 adversarial fixtures; LLM evaluation — AssistantBench and 24 fixtures in a deterministic harness with regression budgets; MCP — the browser exposed as an MCP server with 10 tools for any MCP client over a native messaging bridge">
 </p>
 
 ## Automate a multi-step task across your open Chrome tabs
