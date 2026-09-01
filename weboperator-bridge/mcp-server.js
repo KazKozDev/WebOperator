@@ -10,6 +10,8 @@ const http = require('http');
 const readline = require('readline');
 const { randomUUID } = require('crypto');
 
+const { version: SERVER_VERSION } = require('./package.json');
+
 const SOCKET_PATH = process.env.WEBOPERATOR_AGENT_SOCKET || '/tmp/weboperator-bridge.sock';
 const BRIDGE_HOST = process.env.WEBOPERATOR_BRIDGE_HOST || '127.0.0.1';
 const BRIDGE_PORT = Number(process.env.WEBOPERATOR_BRIDGE_PORT || 8765);
@@ -560,7 +562,7 @@ rl.on('line', async (line) => {
       },
       serverInfo: {
         name: 'weboperator-mcp',
-        version: '1.4.0',
+        version: SERVER_VERSION,
       },
     });
     return;

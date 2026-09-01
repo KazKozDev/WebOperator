@@ -1,0 +1,44 @@
+{
+  "name": "weboperator-mcp",
+  "version": "1.5.0",
+  "mcpName": "io.github.kazkozdev/weboperator",
+  "description": "Hands your live Chrome tab to any MCP client — snapshot, navigate, click, type, extract.",
+  "keywords": [
+    "mcp",
+    "modelcontextprotocol",
+    "browser",
+    "chrome",
+    "browser-automation",
+    "web-agent",
+    "accessibility-tree"
+  ],
+  "homepage": "https://github.com/KazKozDev/WebOperator#readme",
+  "bugs": "https://github.com/KazKozDev/WebOperator/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KazKozDev/WebOperator.git",
+    "directory": "weboperator-bridge"
+  },
+  "license": "MIT",
+  "author": "Artem KK",
+  "type": "commonjs",
+  "bin": {
+    "weboperator-mcp": "mcp-server.js",
+    "weboperator-bridge": "bridge.js",
+    "weboperator-bridge-install": "install.sh"
+  },
+  "files": [
+    "mcp-server.js",
+    "bridge.js",
+    "agent-client.js",
+    "native-host.sh",
+    "native-host-template.json",
+    "install.sh",
+    "hermes-config.json",
+    "openclaw-tools.json",
+    "SKILL.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

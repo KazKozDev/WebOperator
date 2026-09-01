@@ -1,0 +1,46 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.kazkozdev/weboperator",
+  "description": "Hands your live Chrome tab to any MCP client — snapshot, navigate, click, type, extract.",
+  "repository": {
+    "url": "https://github.com/KazKozDev/WebOperator",
+    "source": "github"
+  },
+  "version": "1.5.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "weboperator-mcp",
+      "version": "1.5.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "WEBOPERATOR_BRIDGE_PORT",
+          "description": "Port of the local WebOperator bridge HTTP API.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false,
+          "default": "8765"
+        },
+        {
+          "name": "WEBOPERATOR_AGENT_SOCKET",
+          "description": "Unix socket path the bridge listens on.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "default": "/tmp/weboperator-bridge.sock"
+        },
+        {
+          "name": "WEBOPERATOR_API_TOKEN",
+          "description": "Shared token required by the bridge when unauthenticated access is disabled.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}
