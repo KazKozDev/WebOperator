@@ -1,18 +1,18 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.kazkozdev/weboperator",
+  "name": "io.github.KazKozDev/weboperator",
   "description": "Hands your live Chrome tab to any MCP client — snapshot, navigate, click, type, extract.",
   "repository": {
     "url": "https://github.com/KazKozDev/WebOperator",
     "source": "github"
   },
-  "version": "1.5.0",
+  "version": "1.5.1",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "weboperator-mcp",
-      "version": "1.5.0",
+      "version": "1.5.1",
       "transport": {
         "type": "stdio"
       },

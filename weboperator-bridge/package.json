@@ -1,7 +1,7 @@
 {
   "name": "weboperator-mcp",
-  "version": "1.5.0",
-  "mcpName": "io.github.kazkozdev/weboperator",
+  "version": "1.5.1",
+  "mcpName": "io.github.KazKozDev/weboperator",
   "description": "Hands your live Chrome tab to any MCP client — snapshot, navigate, click, type, extract.",
   "keywords": [
     "mcp",

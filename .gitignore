@@ -51,3 +51,6 @@ export-*.json
 evals/traces/
 evals/reports/
 core/coverage/
+
+# mcp-publisher local auth tokens
+.mcpregistry_*_token
