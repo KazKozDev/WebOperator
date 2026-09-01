@@ -15,7 +15,7 @@ Your goal, typed once · The agent plans, acts, verifies · Every step visible
 ## Quick start
 
 Two ways in. If you would rather not touch Node, grab the
-`weboperator-<version>-chrome.zip` archive from the
+`weboperator-1.5.0-chrome.zip` archive from the
 [latest release](https://github.com/KazKozDev/WebOperator/releases/latest) and unzip it —
 that folder *is* the built extension.
 
