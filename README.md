@@ -61,10 +61,10 @@ The side panel streams the plan, every action, and the final answer, and keeps t
 Some tasks you want done whether or not you are at the keyboard. Give a schedule a start URL, a goal, and a cadence — `once`, `hourly`, `daily`, or `weekly` — and Chrome alarms wake the agent on time, even with the side panel closed.
 
 ```text
-Task name:  Morning price check
-Start URL:  https://example.com/product
+Task name:  Morning release check
+Start URL:  https://github.com/KazKozDev/WebOperator/releases
 Repeat:     daily
-Goal:       Check the price and tell me if it dropped below 40 EUR
+Goal:       Tell me if a new version was published since yesterday
 ```
 
 Every run lands in History with its trace, so you can go back afterwards and see exactly what it did. If a run hits something only you can clear — a login wall, a verification challenge — it stops and marks itself `needs_user` rather than failing quietly.
