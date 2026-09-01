@@ -10,7 +10,7 @@ npm --prefix WebOperator/core run build
 
 ![WebOperator side panel in Chrome showing the task, skills, and schedule views](https://raw.githubusercontent.com/KazKozDev/WebOperator/main/docs/assets/weboperator-demo.gif)
 
-Local models or cloud · Ten MCP tools · Open source
+Your goal, typed once · The agent plans, acts, verifies · Every step visible
 
 ## Quick start
 
