@@ -49,7 +49,7 @@ The side panel streams the plan, each action, and the final answer; history, che
 <br>
 
 <p align="center">
-  <img src="docs/assets/competencies-v6.gif" width="100%" alt="Four competencies: agent engineering — a plan, act and verify loop with 29 tools and 6 loop guards; LLM security — the prompt-injection attack rate falling from 44.4% to 0.0% across 9 adversarial fixtures; LLM evaluation — AssistantBench and 24 fixtures in a deterministic harness; MCP — the browser exposed as an MCP server with 10 tools for any agent client">
+  <img src="docs/assets/competencies-v7.gif" width="100%" alt="Four competencies: agent engineering — a plan, act and verify loop with 29 tools and 6 loop guards; LLM security — the prompt-injection attack rate reduced from 44.4% to 0.0% across 9 adversarial fixtures; LLM evaluation — AssistantBench and 24 fixtures in a deterministic harness; MCP — the browser exposed as an MCP server with 10 tools for any agent client">
 </p>
 
 <br>
