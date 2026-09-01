@@ -189,3 +189,24 @@ export function isInterrupted(status: AgentTask['status']): boolean {
 }
 
 export type { AgentStep };
+
+/** Evidence below this is too thin for the question to be worth asking. */
+const SUFFICIENCY_MIN_EVIDENCE = 2;
+
+/**
+ * Asks the one question the loop never asks: is what you already have enough?
+ *
+ * Nothing in the run ever checks. On the AssistantBench task that took 82 steps, a single
+ * `extract` at step 5 had already returned 27 of the 36 rows needed — including four of the five
+ * gold answers — and the other 77 steps were spent not noticing. Every guard added so far is a
+ * prohibition ("stop re-reading", "stop scrolling"); this is the one positive prompt, and it
+ * deliberately does not repeat the evidence itself, which is already in the history. Re-listing
+ * it would cost tokens to say what the model can already see; what is missing is the question.
+ */
+export function describeSufficiencyCheck(work: CollectedWork): string | null {
+  if (work.evidence.length < SUFFICIENCY_MIN_EVIDENCE) return null;
+
+  const steps = work.evidence.slice(-4).map((item) => `#${item.stepIndex}`).join(', ');
+  const pages = work.visitedUrls.length;
+  return `[SUFFICIENCY] You have ${work.evidence.length} finding(s) from ${pages} page(s) (most recent: ${steps}). Before choosing the next action, answer this to yourself: does what you already collected answer the goal? If it does, call done now. If it does not, name the one specific fact still missing and go get exactly that — do not re-read what you have or look for confirmation of it.`;
+}

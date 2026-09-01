@@ -7,7 +7,7 @@ import { chatSiliconFlow } from '@/lib/siliconflow-client';
 import { chatMlx } from '@/lib/mlx-client';
 import { chatDeepSeek } from '@/lib/deepseek-client';
 import { chatAnthropic } from '@/lib/anthropic-client';
-import { buildPartialSummaryPrompt, collectWork, fallbackPartialSummary } from '@/lib/partial-work';
+import { buildPartialSummaryPrompt, collectWork, describeSufficiencyCheck, fallbackPartialSummary } from '@/lib/partial-work';
 
 import {
   collapseOldObservations,
@@ -53,6 +53,7 @@ import {
   createLoopGuardState,
   detectLoopGuardCycle,
   detectRepeatedVisit,
+  detectRepeatedResult,
   isLoopGuardEligible,
   recordLoopGuardOutcome,
   toolCallSignature,
@@ -72,7 +73,7 @@ import { selectAgentTools } from '@/lib/tools';
 import { batchPrimaryRef, validateBatchCall } from '@/lib/batch-actions';
 import { verify, verificationToPrompt, describeVerification } from '@/lib/verifier';
 import { summarizeExtraction } from '@/lib/extraction';
-import { assessPageHealth, describePageTransition, type RecoveryPage } from '@/lib/page-state';
+import { ERROR_PAGE_DOM_HASH_PREFIX, assessPageHealth, describePageTransition, type RecoveryPage } from '@/lib/page-state';
 import { parsePlanSteps, advancePlan, completePlan, planContext, markPlanStepFailed, shouldAdvancePlanAfterTool, isValidPlanStepCount, PLAN_MIN_STEPS, PLAN_MAX_STEPS } from '@/lib/planner';
 import { decideRetry } from '@/lib/retry';
 import { learnFromSuccess, getCookieHint, getSearchHint, getRecoveryHint } from '@/lib/semantic-memory';
@@ -123,6 +124,11 @@ const BLANK_SNAPSHOT_SETTLE_MS = 400;
 // How many times one task may steer itself back from an interstitial to the last page that had
 // content. Beyond that the redirect is not transient and the model has to find another route.
 const MAX_TRANSITION_RECOVERIES = 2;
+const ERROR_PAGE_SNAPSHOT_RETRIES = 3;
+const ERROR_PAGE_SETTLE_MS = 700;
+// How much room is left when the agent should stop exploring and land what it has.
+const WRAP_UP_STEPS = 8;
+const WRAP_UP_MS = 90_000;
 const MAX_RESUMES = 3;
 const ORCHESTRATOR_CHECKPOINT_INTERVAL = 5;
 const TOOL_CALL_REPAIR_PROMPT = `[FORMAT ERROR] Your previous response was not a tool call.
@@ -384,7 +390,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
     try {
       toolCall = undefined;
       const snapT0 = performance.now();
-      const snapshot = await takeSnapshot(activeTabId);
+      const snapshot = await takeSnapshotOrRecover(activeTabId, recoveryPage?.url);
       const snapshotMs = performance.now() - snapT0;
       step.snapshot = snapshot;
       if (startSnapshotHash === null) startSnapshotHash = snapshot.domHash;
@@ -436,6 +442,10 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       const memoryHints: string[] = [];
       const transitionHint = describePageTransition(snapshot, recoveryPage);
       if (transitionHint) memoryHints.push(transitionHint);
+      const budgetHint = describeBudgetPressure(stepIndex, resumeCount, task.createdAt, settings.taskDeadlineMs);
+      if (budgetHint) memoryHints.push(budgetHint);
+      const sufficiencyHint = describeSufficiencyCheck(collectWork(task));
+      if (sufficiencyHint) memoryHints.push(sufficiencyHint);
       if (cookieHint) memoryHints.push(cookieHint);
       if (searchHint) memoryHints.push(searchHint);
       const availableCredential = await findCredentialForUrl(snapshot.url).catch(() => null);
@@ -583,7 +593,11 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
             step.note = `Screenshot skipped: ${reason}`;
             loop.modelRequestedVision = false;
           } finally {
-            await sendToContent(activeTabId, { kind: 'som:clear' });
+            // Best-effort cleanup of the overlay, and it has to stay best-effort: a throw here
+            // replaces whatever the catch above just handled and escapes the step entirely. On a
+            // tab parked on Chrome's error page this call always throws, which is how a dead link
+            // killed five AssistantBench tasks even after the snapshot itself was made survivable.
+            await sendToContent(activeTabId, { kind: 'som:clear' }).catch(() => {});
           }
           screenshotMs = performance.now() - shotT0;
         }
@@ -1495,6 +1509,13 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       const toolResultContent = step.result?.ok
         ? (step.result?.extracted !== undefined ? JSON.stringify(step.result.extracted) : 'ok')
         : `error: ${step.result?.error ?? 'unknown'}${step.result?.extracted !== undefined ? `; details: ${JSON.stringify(step.result.extracted)}` : ''}`;
+
+      // Say so the first time a call hands back content the model already has, instead of letting
+      // three more identical reads look like progress before the visit counter notices.
+      if (loopGuardEligible && !step.cached && step.result?.ok) {
+        const repeated = detectRepeatedResult(loopGuard, toolCall, toolResultContent, step.index);
+        if (repeated) postToolUserMessages.push(`[ALREADY COLLECTED] ${repeated}`);
+      }
       if (toolCallSource === 'content' || step.cached) {
         history.push({
           role: 'user',
@@ -1792,6 +1813,98 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
   broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
   await setActiveAgentGlow(null);
   return task;
+}
+
+/**
+ * Chrome refuses to message a tab parked on its own error page, so `takeSnapshot` throws before
+ * the model is ever consulted. That throw lands in the generic retry counter, which re-takes the
+ * snapshot three times on a tab that cannot change by itself and then fails the whole task.
+ *
+ * Five of the sixteen reachable AssistantBench tasks died exactly there, every one of them after
+ * a blocking page left the tab stranded — the largest fixable cluster in the benchmark. Steering
+ * back to the last page that worked costs one navigation and keeps the run alive.
+ */
+export async function takeSnapshotOrRecover(tabId: number, recoveryUrl: string | undefined): Promise<A11ySnapshot> {
+  try {
+    return await takeSnapshot(tabId);
+  } catch (err) {
+    if (!isErrorPageFailure(err)) throw err;
+
+    // Chrome will not run a content script in a tab parked on its own error page, so there is
+    // nothing to snapshot and no way to ask the model what to do — the throw lands in the retry
+    // counter, which re-takes the snapshot three times on a tab that cannot change by itself and
+    // then fails the whole task. Five of the sixteen reachable AssistantBench tasks died there.
+    if (recoveryUrl) {
+      await chrome.tabs.update(tabId, { url: recoveryUrl }).catch(() => {});
+      await waitForTabComplete(tabId).catch(() => {});
+      for (let attempt = 0; attempt < ERROR_PAGE_SNAPSHOT_RETRIES; attempt++) {
+        try {
+          return await takeSnapshot(tabId);
+        } catch (retryErr) {
+          if (!isErrorPageFailure(retryErr)) throw retryErr;
+          await sleep(ERROR_PAGE_SETTLE_MS);
+        }
+      }
+    }
+
+    // Steering back did not take, or there was nowhere to steer back to. Rather than throw —
+    // which ends the run without the model ever being told what happened — hand back an empty
+    // snapshot describing the dead page. It reads as a blank page, which is exactly what the
+    // existing transition recovery and the model's own prompt already know how to handle.
+    return errorPageSnapshot(tabId, recoveryUrl);
+  }
+}
+
+/** A snapshot standing in for a page that cannot be read, so the run can reason instead of dying. */
+async function errorPageSnapshot(tabId: number, recoveryUrl: string | undefined): Promise<A11ySnapshot> {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  const url = tab?.url || recoveryUrl || 'about:blank';
+  return {
+    url,
+    title: tab?.title || 'Page failed to load',
+    viewport: { w: 0, h: 0, scrollX: 0, scrollY: 0 },
+    nodes: [],
+    textSnippets: [],
+    domHash: `${ERROR_PAGE_DOM_HASH_PREFIX}${url}`,
+    takenAt: Date.now(),
+  };
+}
+
+/**
+ * Tells the model when the run is about to be cut off, so it can land what it has.
+ *
+ * Without this the agent behaves identically at step 5 and step 55: four of the sixteen reachable
+ * AssistantBench tasks ran out of time holding evidence that would have scored partial credit,
+ * and threw all of it away. A partial answer scores; running out scores nothing.
+ *
+ * Fires on the last stretch of the final resume, and — when a deadline actually exists — on the
+ * last stretch of the clock. No deadline is invented for a person's own task.
+ */
+export function describeBudgetPressure(
+  stepIndex: number,
+  resumeCount: number,
+  startedAt: number,
+  deadlineMs: number,
+  now: number = Date.now(),
+): string | null {
+  const stepsLeft = MAX_STEPS - stepIndex;
+  const onFinalPass = resumeCount >= MAX_RESUMES;
+  const stepPressure = onFinalPass && stepsLeft <= WRAP_UP_STEPS;
+
+  const msLeft = deadlineMs > 0 ? deadlineMs - (now - startedAt) : Infinity;
+  const timePressure = msLeft <= WRAP_UP_MS;
+  if (!stepPressure && !timePressure) return null;
+
+  const budget = timePressure
+    ? `about ${Math.max(0, Math.round(msLeft / 1000))}s`
+    : `${Math.max(0, stepsLeft)} step(s)`;
+  return `[BUDGET] Only ${budget} left before this task is cut off and everything collected is discarded. Stop exploring and stop looking for confirmation. If what you already have answers the question even partly, call done now with that answer and state plainly what is uncertain or missing — a partial answer counts for something, running out counts for nothing.`;
+}
+
+/** Chrome's own wording when the tab is sitting on a network/blocked error page. */
+export function isErrorPageFailure(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes('showing error page');
 }
 
 async function takeSnapshot(tabId: number): Promise<A11ySnapshot> {
@@ -2197,23 +2310,54 @@ function isOrchestratorControlTool(name: ToolCall['name']): boolean {
 
 
 
-function looksLikePrematureCompletion(summary: string): boolean {
+/**
+ * Does the summary admit the deliverable itself is unfinished?
+ *
+ * Every signal here has to be a phrase about the work product. Bare words used to be on this
+ * list — 'partial', 'remaining', 'not fully', 'частично' — and they matched ordinary prose in
+ * good answers: a thorough summary that said "the remaining page-2 trails were also screened"
+ * was blocked from ever finishing, because "remaining" appeared in it. The agent then wandered
+ * until it ran out of steps, throwing away an answer it had already earned.
+ *
+ * Sheet tasks get a real completeness check against recorded cells before this runs; this is
+ * only the backstop for the model announcing it stopped early.
+ */
+export function looksLikePrematureCompletion(summary: string): boolean {
   const lower = summary.toLowerCase();
   const incompleteSignals = [
     'full data entry would require',
     'would require visiting more',
     'verification criteria met',
     'only required cells',
-    'partial',
-    'not fully',
-    'not complete',
-    'remaining',
     'could not fill all',
-    'не полностью',
-    'частично',
-    'осталось',
+    'could not complete',
+    'unable to complete',
+    'partial results',
+    'partial answer',
+    'partial list',
+    'partially filled',
+    'not fully filled',
+    'not fully complete',
+    'is not complete',
+    'remains incomplete',
+    'не полностью заполн',
+    'частичный ответ',
+    'осталось заполнить',
   ];
-  return incompleteSignals.some((signal) => lower.includes(signal));
+  return incompleteSignals.some((signal) => {
+    const at = lower.indexOf(signal);
+    return at >= 0 && !isNegatedAt(lower, at);
+  });
+}
+
+/**
+ * "Screening is complete, with no partial results outstanding" is a claim of completeness, and
+ * blocking it stopped a finished run eleven times in a row. A phrase carried inside a negation
+ * says the opposite of the same phrase standing alone, so look at what comes just before it.
+ */
+function isNegatedAt(lower: string, index: number): boolean {
+  const before = lower.slice(Math.max(0, index - 24), index);
+  return /\b(no|not|never|without|nothing|zero|нет|без)\b[^.]*$/.test(before);
 }
 
 function inferSheetContract(goal: string): SheetTaskContract | null {

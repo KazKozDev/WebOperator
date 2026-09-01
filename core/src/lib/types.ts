@@ -60,6 +60,13 @@ export interface Settings {
   enabledSkills: SkillId[];
   autoSkills: boolean;
   autoResumeTimeoutMs: number;
+  /**
+   * Wall-clock budget for one task, or 0 for none. Nothing in the loop behaves differently at
+   * step 55 than at step 5, so a run that already holds the answer keeps exploring until whoever
+   * is waiting gives up, and everything it collected is thrown away. When a deadline genuinely
+   * exists, telling the agent about it lets it land a partial answer instead of nothing.
+   */
+  taskDeadlineMs: number;
 }
 
 export type SkillRisk = 'safe' | 'medium' | 'high';
@@ -124,6 +131,8 @@ export const DEFAULT_SETTINGS: Settings = {
   enabledSkills: [],
   autoSkills: true,
   autoResumeTimeoutMs: 30_000,
+  // Off by default: a person's own task has no deadline until they say so.
+  taskDeadlineMs: 0,
 };
 
 

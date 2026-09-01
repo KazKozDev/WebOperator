@@ -20,6 +20,18 @@ export interface RecoveryPage {
   title: string;
 }
 
+/**
+ * Marks the stand-in snapshot handed back when a tab is parked on Chrome's own error page and
+ * cannot be read at all. Chrome will not run a content script there, so the alternative to a
+ * stand-in is throwing, which used to end the run without the model ever being told.
+ */
+export const ERROR_PAGE_DOM_HASH_PREFIX = 'error-page:';
+
+/** Is this the stand-in for a page that could not be read, rather than a real empty document? */
+export function isErrorPageSnapshot(snapshot: A11ySnapshot): boolean {
+  return snapshot.domHash.startsWith(ERROR_PAGE_DOM_HASH_PREFIX);
+}
+
 export function assessPageHealth(snapshot: A11ySnapshot): PageHealth {
   const hasText = (snapshot.textSnippets ?? []).some((snippet) => snippet.trim().length > 0);
   return {

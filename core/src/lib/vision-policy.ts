@@ -1,4 +1,5 @@
 import type { A11ySnapshot, Settings, VisualTokenBudget } from './types';
+import { isErrorPageSnapshot } from './page-state';
 
 export interface VisionContext {
   stepIndex: number;
@@ -25,6 +26,10 @@ export function shouldAttachScreenshot(
   if (settings.screenshotPolicy === 'never') return { attach: false, reason: 'policy=never', visualTokens: base, isVerification: false };
   if (settings.screenshotPolicy === 'always') return { attach: true, reason: 'policy=always', visualTokens: base, isVerification: false };
 
+  // A page that cannot be read at all has nothing to photograph either: Chrome's error page is
+  // the same few words every time, and spending a screenshot on it buys nothing.
+  if (isErrorPageSnapshot(snapshot))
+    return { attach: false, reason: 'tab is on an error page — nothing to see', visualTokens: base, isVerification: false };
   if (snapshot.nodes.length === 0)
     return { attach: true, reason: 'empty a11y snapshot (canvas/shadow DOM) — read the page from the screenshot, refs are unavailable', visualTokens: verify, isVerification: true };
   if (ctx.requestedByModel)
