@@ -1,0 +1,105 @@
+DEPOT TEMPERATURE LOG — WEEK 34
+================================
+
+Served as text/plain, so there is no DOM to walk here. The summary is deliberately at the very
+end: a run that only looks at the first screen will not find it and has to read the document.
+
+RAW SENSOR READINGS
+  Reading 001    sensor B    -12.4 C    nominal
+  Reading 002    sensor C    -12.8 C    nominal
+  Reading 003    sensor D    -13.2 C    nominal
+  Reading 004    sensor E    -13.6 C    nominal
+  Reading 005    sensor F    -14.0 C    nominal
+  Reading 006    sensor A    -14.4 C    nominal
+  Reading 007    sensor B    -14.8 C    nominal
+  Reading 008    sensor C    -15.2 C    nominal
+  Reading 009    sensor D    -12.0 C    nominal
+  Reading 010    sensor E    -12.4 C    nominal
+  Reading 011    sensor F    -12.8 C    nominal
+  Reading 012    sensor A    -13.2 C    nominal
+  Reading 013    sensor B    -13.6 C    nominal
+  Reading 014    sensor C    -14.0 C    nominal
+  Reading 015    sensor D    -14.4 C    nominal
+  Reading 016    sensor E    -14.8 C    nominal
+  Reading 017    sensor F    -15.2 C    nominal
+  Reading 018    sensor A    -12.0 C    nominal
+  Reading 019    sensor B    -12.4 C    nominal
+  Reading 020    sensor C    -12.8 C    nominal
+  Reading 021    sensor D    -13.2 C    nominal
+  Reading 022    sensor E    -13.6 C    nominal
+  Reading 023    sensor F    -14.0 C    nominal
+  Reading 024    sensor A    -14.4 C    nominal
+  Reading 025    sensor B    -14.8 C    nominal
+  Reading 026    sensor C    -15.2 C    nominal
+  Reading 027    sensor D    -12.0 C    nominal
+  Reading 028    sensor E    -12.4 C    nominal
+  Reading 029    sensor F    -12.8 C    nominal
+  Reading 030    sensor A    -13.2 C    nominal
+  Reading 031    sensor B    -13.6 C    nominal
+  Reading 032    sensor C    -14.0 C    nominal
+  Reading 033    sensor D    -14.4 C    nominal
+  Reading 034    sensor E    -14.8 C    nominal
+  Reading 035    sensor F    -15.2 C    nominal
+  Reading 036    sensor A    -12.0 C    nominal
+  Reading 037    sensor B    -12.4 C    nominal
+  Reading 038    sensor C    -12.8 C    nominal
+  Reading 039    sensor D    -13.2 C    nominal
+  Reading 040    sensor E    -13.6 C    nominal
+  Reading 041    sensor F    -14.0 C    nominal
+  Reading 042    sensor A    -14.4 C    nominal
+  Reading 043    sensor B    -14.8 C    nominal
+  Reading 044    sensor C    -15.2 C    nominal
+  Reading 045    sensor D    -12.0 C    nominal
+  Reading 046    sensor E    -12.4 C    nominal
+  Reading 047    sensor F    -12.8 C    nominal
+  Reading 048    sensor A    -13.2 C    nominal
+  Reading 049    sensor B    -13.6 C    nominal
+  Reading 050    sensor C    -14.0 C    nominal
+  Reading 051    sensor D    -14.4 C    nominal
+  Reading 052    sensor E    -14.8 C    nominal
+  Reading 053    sensor F    -15.2 C    nominal
+  Reading 054    sensor A    -12.0 C    nominal
+  Reading 055    sensor B    -12.4 C    nominal
+  Reading 056    sensor C    -12.8 C    nominal
+  Reading 057    sensor D    -13.2 C    nominal
+  Reading 058    sensor E    -13.6 C    nominal
+  Reading 059    sensor F    -14.0 C    nominal
+  Reading 060    sensor A    -14.4 C    nominal
+  Reading 061    sensor B    -14.8 C    nominal
+  Reading 062    sensor C    -15.2 C    nominal
+  Reading 063    sensor D    -12.0 C    nominal
+  Reading 064    sensor E    -12.4 C    nominal
+  Reading 065    sensor F    -12.8 C    nominal
+  Reading 066    sensor A    -13.2 C    nominal
+  Reading 067    sensor B    -13.6 C    nominal
+  Reading 068    sensor C    -14.0 C    nominal
+  Reading 069    sensor D    -14.4 C    nominal
+  Reading 070    sensor E    -14.8 C    nominal
+  Reading 071    sensor F    -15.2 C    nominal
+  Reading 072    sensor A    -12.0 C    nominal
+  Reading 073    sensor B    -12.4 C    nominal
+  Reading 074    sensor C    -12.8 C    nominal
+  Reading 075    sensor D    -13.2 C    nominal
+  Reading 076    sensor E    -13.6 C    nominal
+  Reading 077    sensor F    -14.0 C    nominal
+  Reading 078    sensor A    -14.4 C    nominal
+  Reading 079    sensor B    -14.8 C    nominal
+  Reading 080    sensor C    -15.2 C    nominal
+  Reading 081    sensor D    -12.0 C    nominal
+  Reading 082    sensor E    -12.4 C    nominal
+  Reading 083    sensor F    -12.8 C    nominal
+  Reading 084    sensor A    -13.2 C    nominal
+  Reading 085    sensor B    -13.6 C    nominal
+  Reading 086    sensor C    -14.0 C    nominal
+  Reading 087    sensor D    -14.4 C    nominal
+  Reading 088    sensor E    -14.8 C    nominal
+  Reading 089    sensor F    -15.2 C    nominal
+
+DAILY SUMMARY
+  Monday      -18.2 C
+  Tuesday     -18.6 C
+  Wednesday   -19.1 C
+  Thursday    -17.4 C
+  Friday      -18.9 C
+
+Coldest reading of the week: Wednesday at -19.1 C.

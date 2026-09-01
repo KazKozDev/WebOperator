@@ -22,6 +22,10 @@ const tasks = JSON.parse(await readFile(tasksPath, 'utf8'));
 // Those runs are scored and reported rather than asserted pass/fail: partial credit is the
 // point there, and a hard gate would only ever say "the open web is hard".
 const scored = tasks.some((task) => task.goldAnswer);
+// Live benchmark tasks get the long budget; fixture tasks have a short direct route.
+const BENCHMARK_TIMEOUT_MS = 600_000;
+const FIXTURE_TIMEOUT_MS = 180_000;
+const taskTimeoutMs = Number(args.timeoutMs ?? (scored ? BENCHMARK_TIMEOUT_MS : FIXTURE_TIMEOUT_MS));
 
 const selectedTasks = tasks.filter((task) => {
   if (args.task) return task.id === args.task;
@@ -76,8 +80,10 @@ try {
     const result = await runTaskEval(controlPage, task);
     results.push(result);
     if (scored) {
-      console.log(`${result.score.toFixed(2)}  ${task.id}  ${task.title ?? ''}`);
-      if (result.errors.length > 0) console.log(`      ${result.errors.join(' | ')}`);
+      const flag = result.blocked ? ' [blocked]' : '';
+      console.log(`${result.score.toFixed(2)}${flag}  ${task.id}  ${task.title ?? ''}`);
+      if (result.blocked) console.log(`      bot challenge on ${result.blockedOn}`);
+      else if (result.errors.length > 0) console.log(`      ${result.errors.join(' | ')}`);
     } else {
       console.log(`${result.ok ? 'ok' : 'fail'}: ${task.id}`);
       if (!result.ok) for (const error of result.errors) console.log(`  - ${error}`);
@@ -88,8 +94,20 @@ try {
     const total = results.reduce((sum, result) => sum + result.score, 0);
     const exact = results.filter((result) => result.score >= 1).length;
     const accuracy = results.length > 0 ? total / results.length : 0;
+    // Tasks the site refused to serve an unattended browser at all. They count as zeros in the
+    // headline — the agent did not answer them — but they say nothing about the model, so report
+    // the count next to the score instead of letting it quietly drag the number down unexplained.
+    const blocked = results.filter((result) => result.blocked);
+    const reachable = results.length - blocked.length;
+    const reachableAccuracy = reachable > 0
+      ? results.filter((result) => !result.blocked).reduce((sum, result) => sum + result.score, 0) / reachable
+      : 0;
     console.log('');
     console.log(`Score: ${(accuracy * 100).toFixed(1)}% partial credit, ${exact}/${results.length} fully correct`);
+    if (blocked.length > 0) {
+      console.log(`Blocked by bot challenges: ${blocked.length}/${results.length}`);
+      console.log(`Score over the ${reachable} reachable tasks: ${(reachableAccuracy * 100).toFixed(1)}%`);
+    }
 
     const reportPath = path.join(evalDir, 'reports', `benchmark-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
     await mkdir(path.dirname(reportPath), { recursive: true });
@@ -99,6 +117,9 @@ try {
       accuracy,
       exact,
       count: results.length,
+      blocked: blocked.length,
+      reachable,
+      reachableAccuracy,
       results,
     }, null, 2));
     console.log(`Report: ${path.relative(root, reportPath)}`);
@@ -139,17 +160,18 @@ async function runTaskEval(controlPage, task) {
   });
   if (started?.error) return { ok: false, errors: [started.error], score: 0, id: task.id, answer: '', gold: task.goldAnswer ?? null };
 
-  const defaultTimeoutMs = task.goldAnswer ? 600_000 : 180_000;
-  const finalTask = await waitForTask(controlPage, started.id, Number(args.timeoutMs ?? defaultTimeoutMs));
+  const finalTask = await waitForTask(controlPage, started.id, taskTimeoutMs);
+  await stopTask(context, controlPage, started.id);
 
   const errors = validateTaskResult(task, finalTask);
   const answer = finalAnswer(finalTask);
   const attacked = (task.forbiddenAnswerIncludes ?? task.forbiddenHosts) !== undefined;
   const compromise = attacked ? compromiseErrors(task, finalTask) : [];
+  const blocked = isBlocked(finalTask);
   const score = task.goldAnswer ? scoreAnswer(task.goldAnswer, answer) : (errors.length === 0 ? 1 : 0);
   await writeFile(
     path.join(traceDir, `${task.id}.json`),
-    JSON.stringify({ task, result: finalTask, errors, answer, score, attacked, compromise }, null, 2),
+    JSON.stringify({ task, result: finalTask, errors, answer, score, attacked, compromise, blocked }, null, 2),
   );
 
   return {
@@ -161,6 +183,8 @@ async function runTaskEval(controlPage, task) {
     gold: task.goldAnswer ?? null,
     attacked,
     compromised: compromise.length > 0,
+    blocked,
+    blockedOn: blocked ? finalTask.pauseReason.url : null,
   };
 }
 
@@ -201,6 +225,13 @@ function validateTaskResult(definition, task) {
     if (!summary.toLowerCase().includes(String(expected).toLowerCase())) {
       errors.push(`final answer missing "${expected}"`);
     }
+  }
+
+  // A right answer reached by flailing is still a regression. These fixtures each have a short
+  // direct route, so a run that wanders far past it has lost something worth catching — that is
+  // how a page got scrolled 34 times while the answer sat in the first extract.
+  if (definition.maxSteps && steps.length > definition.maxSteps) {
+    errors.push(`took ${steps.length} steps, budget is ${definition.maxSteps}`);
   }
 
   errors.push(...compromiseErrors(definition, task));
@@ -316,15 +347,45 @@ async function sendEvalMessage(page, message) {
   return page.evaluate((payload) => chrome.runtime.sendMessage(payload), message);
 }
 
+/**
+ * `paused` is not one terminal state, it is two very different ones, and treating them alike
+ * scored every request for help as a wrong answer.
+ *
+ * The loop guard parks a run after MAX_STEP_RETRIES and then calls waitUntilResumedOrStopped,
+ * which resumes on its own after settings.autoResumeTimeoutMs. Returning there ended the task
+ * at the exact moment it was about to recover, so keep polling and let the auto-resume happen.
+ *
+ * A bot challenge parks a run in waitForCaptchaClearOrResume, which has no timeout at all — it
+ * waits for a human to clear the CAPTCHA. Unattended there is no human, so stop waiting and let
+ * the caller record the task as blocked rather than burn the whole budget on it.
+ */
 async function waitForTask(page, id, timeoutMs) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     const task = await sendEvalMessage(page, { kind: 'eval:getTask', id });
     if (!task) return null;
-    if (['done', 'failed', 'paused', 'awaiting_confirm'].includes(task.status)) return task;
+    if (['done', 'failed', 'awaiting_confirm'].includes(task.status)) return task;
+    if (task.status === 'paused' && isBlocked(task)) return task;
     await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
   return sendEvalMessage(page, { kind: 'eval:getTask', id });
+}
+
+/** Parked on a CAPTCHA or interstitial that only a human could clear. */
+function isBlocked(task) {
+  return task?.status === 'paused' && task?.pauseReason?.kind === 'bot_challenge';
+}
+
+/**
+ * Every eval task opens its own tab and keeps running until it is told not to. Without this the
+ * abandoned loops kept driving the browser underneath the next task and stealing focus back to
+ * their own tab, so later tasks were scored against a browser two other agents were fighting over.
+ */
+async function stopTask(context, controlPage, id) {
+  await sendEvalMessage(controlPage, { kind: 'task:stop', id }).catch(() => {});
+  for (const page of context.pages()) {
+    if (page !== controlPage) await page.close().catch(() => {});
+  }
 }
 
 async function getExtensionId(context) {
@@ -341,15 +402,27 @@ async function startFixtureServer() {
     try {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       const pathname = decodeURIComponent(url.pathname).replace(/^\/+/, '') || 'index.html';
+
+      // A link that looks ordinary and only fails once followed. Reading the href is not enough
+      // to know it is dead, so the run actually lands on Chrome's error page — which is the
+      // state the recovery has to survive. Port 1 refuses connections.
+      if (pathname === 'branch-roster') {
+        res.writeHead(302, { location: 'http://127.0.0.1:1/branch-roster' });
+        res.end();
+        return;
+      }
       const filePath = path.normalize(path.join(fixtureDir, pathname));
       if (!filePath.startsWith(fixtureDir) || !existsSync(filePath)) {
         res.writeHead(404, { 'content-type': 'text/plain' });
         res.end('not found');
         return;
       }
-      const html = await readFile(filePath);
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      res.end(html);
+      const body = await readFile(filePath);
+      // A non-HTML document is a real case the agent has to survive — an API answering in plain
+      // text leaves nothing for the accessibility snapshot to walk. Serving everything as HTML
+      // would hide that, so honour the extension.
+      res.writeHead(200, { 'content-type': contentTypeFor(filePath) });
+      res.end(body);
     } catch (err) {
       res.writeHead(500, { 'content-type': 'text/plain' });
       res.end(err instanceof Error ? err.message : String(err));
@@ -361,6 +434,12 @@ async function startFixtureServer() {
   if (!address || typeof address === 'string') throw new Error('Could not start fixture server');
   server.origin = `http://127.0.0.1:${address.port}`;
   return server;
+}
+
+function contentTypeFor(filePath) {
+  if (filePath.endsWith('.txt')) return 'text/plain; charset=utf-8';
+  if (filePath.endsWith('.json')) return 'application/json; charset=utf-8';
+  return 'text/html; charset=utf-8';
 }
 
 async function startOllamaProxy() {
@@ -479,6 +558,9 @@ function parseArgs(argv) {
 function settingsPatchFromArgs(args, ollamaProxy) {
   const base = providerPatchFromArgs(args, ollamaProxy);
   if (args.vision) base.screenshotPolicy = args.vision; // auto | always | never
+  // The harness enforces a per-task timeout either way; telling the agent about it is what lets
+  // it land a partial answer instead of being cut off mid-exploration with everything discarded.
+  base.taskDeadlineMs = taskTimeoutMs;
   return base;
 }
 

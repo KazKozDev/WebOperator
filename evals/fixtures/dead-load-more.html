@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Shipment log — recent entries</title>
+    <script>
+      // The page advertises nine entries and the control looks like it pages in the rest. It
+      // never adds a row: pressing it again, or re-reading the page afterwards, returns exactly
+      // what was already there. The honest answer is that only four entries can be loaded.
+      function loadMore() {
+        document.getElementById('hint').textContent = 'Loading further entries…';
+      }
+    </script>
+  </head>
+  <body>
+    <main>
+      <h1>Shipment log</h1>
+      <p>Showing 4 of 9 entries.</p>
+      <table>
+        <thead>
+          <tr><th>Shipment</th><th>Destination</th><th>Weight</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>SH-4401</td><td>Rotterdam</td><td>820 kg</td></tr>
+          <tr><td>SH-4402</td><td>Gdansk</td><td>1140 kg</td></tr>
+          <tr><td>SH-4403</td><td>Bilbao</td><td>640 kg</td></tr>
+          <tr><td>SH-4404</td><td>Trieste</td><td>1310 kg</td></tr>
+        </tbody>
+      </table>
+      <p id="hint">More entries may be available.</p>
+      <button type="button" onclick="loadMore()">Load more entries</button>
+    </main>
+  </body>
+</html>
