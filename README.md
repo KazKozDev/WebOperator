@@ -12,7 +12,14 @@ npm --prefix WebOperator/core run build
 
 Local models or cloud · Ten MCP tools · Open source
 
-
+<p align="center">
+  <img src="docs/assets/card-1-agent.png" width="49%" alt="Agent engineering: a plan, act and verify loop with 29 browser tools and 6 loop guards">
+  <img src="docs/assets/card-2-security.png" width="49%" alt="Red teaming: prompt-injection attack rate of 0.0% across the adversarial fixtures">
+</p>
+<p align="center">
+  <img src="docs/assets/card-3-evaluation.png" width="49%" alt="LLM evaluation: 24 browser fixtures in a deterministic eval harness">
+  <img src="docs/assets/card-4-local.png" width="49%" alt="Local-first: runs offline on Ollama, or against any of 8 cloud providers">
+</p>
 
 ## Quick start
 
@@ -97,17 +104,11 @@ Because of `debugger`, Chrome shows a yellow "WebOperator started debugging this
 | Action timeout | `10000` ms | Limits a single browser action attempt |
 | Domain allowlist / blocklist | empty | Restricts or rejects tasks by domain when populated |
 
-### Environment variables
+### Bridge authentication
 
-| Variable | Required | What it does |
-|---|---|---|
-| `WEBOPERATOR_API_TOKEN` | Recommended | Authenticates bridge HTTP and socket requests |
-| `WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE` | No | Set to `0` to reject unauthenticated bridge calls; unauthenticated is the default |
-| `WEBOPERATOR_BRIDGE_HOST` | No | HTTP bind host; defaults to `127.0.0.1` |
-| `WEBOPERATOR_BRIDGE_PORT` | No | HTTP port; defaults to `8765` |
-| `WEBOPERATOR_AGENT_SOCKET` | No | Framed JSON socket path; defaults to `/tmp/weboperator-bridge.sock` |
-| `WEBOPERATOR_BRIDGE_LOG` | No | Bridge log path; defaults to `/tmp/weboperator-bridge.log` |
-| `WEBOPERATOR_EXTENSION_ID` | No | Overrides the extension ID used by the native-host installer |
+The bridge listens on `127.0.0.1:8765` and accepts unauthenticated calls until you set
+`WEBOPERATOR_API_TOKEN`. Every bridge variable — bind host, port, socket and log paths — is
+documented in [docs/api.md](docs/api.md).
 
 ## Requirements
 
