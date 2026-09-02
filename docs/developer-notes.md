@@ -5,7 +5,7 @@
 WebOperator can talk to local and remote model backends. The current code has clients for:
 
 - Ollama
-- OpenAI-compatible APIs
+- OpenAI-compatible APIs (including a user-supplied base URL: LM Studio, vLLM, LiteLLM, gateways)
 - Google Gemini
 - xAI
 - OpenRouter

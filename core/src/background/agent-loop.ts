@@ -4,6 +4,7 @@ import { chatGemini } from '@/lib/gemini-client';
 import { chatXai } from '@/lib/xai-client';
 import { chatOpenRouter } from '@/lib/openrouter-client';
 import { chatSiliconFlow } from '@/lib/siliconflow-client';
+import { chatOpenAICompatibleProvider } from '@/lib/openai-compatible-client';
 import { chatMlx } from '@/lib/mlx-client';
 import { chatDeepSeek } from '@/lib/deepseek-client';
 import { chatAnthropic } from '@/lib/anthropic-client';
@@ -628,6 +629,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         if (settings.provider === 'siliconflow') step.modelUsed = settings.siliconFlowModel;
         if (settings.provider === 'mlx') step.modelUsed = settings.mlxModel;
         if (settings.provider === 'deepseek') step.modelUsed = settings.deepseekModel;
+        if (settings.provider === 'openai-compatible') step.modelUsed = settings.openAiCompatibleModel;
 
         const llmT0 = performance.now();
         chatOpts = {
@@ -2176,6 +2178,14 @@ export async function requestModelResponse(settings: Settings, opts: OllamaChatO
   if (settings.provider === 'deepseek') {
     return chatDeepSeek(opts, settings.deepseekApiKey, settings.deepseekModel);
   }
+  if (settings.provider === 'openai-compatible') {
+    return chatOpenAICompatibleProvider(
+      opts,
+      settings.openAiCompatibleBaseUrl,
+      settings.openAiCompatibleApiKey,
+      settings.openAiCompatibleModel
+    );
+  }
   return chat(opts);
 }
 
@@ -2546,6 +2556,7 @@ function providerModel(settings: Settings, ollamaModel: string): string {
   if (settings.provider === 'siliconflow') return settings.siliconFlowModel;
   if (settings.provider === 'mlx') return settings.mlxModel;
   if (settings.provider === 'deepseek') return settings.deepseekModel;
+  if (settings.provider === 'openai-compatible') return settings.openAiCompatibleModel;
   return ollamaModel;
 }
 

@@ -104,7 +104,8 @@ The `debugger` permission is why Chrome shows a yellow "WebOperator started debu
 
 | Option | Default | What it does |
 |---|---|---|
-| Provider | `ollama` | Selects Ollama, Anthropic, DeepSeek, Gemini, MLX, OpenAI, OpenRouter, SiliconFlow, or xAI |
+| Provider | `ollama` | Selects Ollama, Anthropic, DeepSeek, Gemini, MLX, OpenAI, an OpenAI-compatible endpoint of your own, OpenRouter, SiliconFlow, or xAI |
+| Base URL (OpenAI-compatible) | `http://127.0.0.1:8080/v1` | Points the OpenAI-compatible provider at llama.cpp, LM Studio, vLLM, LiteLLM, or any gateway |
 | Ollama URL | `http://127.0.0.1:11434` | Sets the local Ollama endpoint |
 | Screenshot policy | `auto` | Controls automatic, always-on, or disabled vision |
 | Action timeout | `10000` ms | Limits a single browser action attempt |

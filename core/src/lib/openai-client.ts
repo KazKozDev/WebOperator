@@ -35,14 +35,17 @@ export async function chatOpenAICompatible({
   model,
   label,
   url,
+  requireApiKey = true,
 }: {
   opts: OllamaChatOptions;
   apiKey: string;
   model: string;
   label: string;
   url: string;
+  /** Self-hosted servers (LM Studio, vLLM, llama.cpp) usually accept an unauthenticated request. */
+  requireApiKey?: boolean;
 }): Promise<OllamaChatResult> {
-  if (!apiKey.trim()) throw new Error(`${label} API key is empty`);
+  if (requireApiKey && !apiKey.trim()) throw new Error(`${label} API key is empty`);
   if (!model.trim()) throw new Error(`${label} model is empty`);
 
   const startedAt = Date.now();
@@ -152,7 +155,8 @@ function requestChatCompletions(url: string, apiKey: string, body: unknown, sign
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      authorization: `Bearer ${apiKey}`,
+      // A keyless local server rejects `Bearer ` outright on some stacks, so send nothing.
+      ...(apiKey.trim() ? { authorization: `Bearer ${apiKey}` } : {}),
     },
     body: JSON.stringify(body),
   }, signal);

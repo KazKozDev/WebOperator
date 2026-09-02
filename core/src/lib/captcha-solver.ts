@@ -13,6 +13,7 @@ import { chatGemini } from './gemini-client';
 import { chatXai } from './xai-client';
 import { chatOpenRouter } from './openrouter-client';
 import { chatSiliconFlow } from './siliconflow-client';
+import { chatOpenAICompatibleProvider } from './openai-compatible-client';
 import { chatMlx } from './mlx-client';
 import { chatDeepSeek } from './deepseek-client';
 import { chat, type OllamaChatOptions } from './ollama-client';
@@ -152,6 +153,15 @@ export async function callCaptchaLLM(
         chatOpts,
         settings.deepseekApiKey,
         settings.deepseekModel || 'deepseek-chat'
+      );
+      return res.content || '';
+    }
+    if (settings.provider === 'openai-compatible' && settings.openAiCompatibleModel) {
+      const res = await chatOpenAICompatibleProvider(
+        chatOpts,
+        settings.openAiCompatibleBaseUrl,
+        settings.openAiCompatibleApiKey,
+        settings.openAiCompatibleModel
       );
       return res.content || '';
     }

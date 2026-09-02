@@ -40,6 +40,11 @@ policy calls for it.
 - **Remote:** Anthropic, DeepSeek, Gemini, OpenAI, OpenRouter, SiliconFlow or
   xAI, each with its own API key. A remote provider receives page observations,
   including page text and screenshots.
+- **Anything else that speaks OpenAI:** the `openai-compatible` provider takes a
+  base URL, an optional API key, and a model name, which covers LM Studio, vLLM,
+  llama.cpp, LiteLLM, Together, Groq, Fireworks, and corporate gateways. The key
+  is optional so a local keyless server works; whether the traffic leaves the
+  machine is decided by the URL you point it at.
 
 ## MCP bridge
 

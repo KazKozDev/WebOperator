@@ -546,6 +546,7 @@ function parseArgs(argv) {
     else if (arg === '--provider') parsed.provider = argv[++i];
     else if (arg === '--model') parsed.model = argv[++i];
     else if (arg === '--api-key') parsed.apiKey = argv[++i];
+    else if (arg === '--base-url') parsed.baseUrl = argv[++i];
     else if (arg === '--vision') parsed.vision = argv[++i];
     else if (arg === '--tasks') parsed.tasks = argv[++i];
     else if (arg === '--strict') parsed.strict = true;
@@ -639,6 +640,18 @@ function providerPatchFromArgs(args, ollamaProxy) {
       provider: 'deepseek',
       deepseekApiKey: apiKey,
       deepseekModel: model ?? 'deepseek-v4-flash',
+    };
+  }
+
+  if (provider === 'openai-compatible') {
+    const baseUrl = args.baseUrl ?? process.env.WEBOPERATOR_BASE_URL;
+    if (!baseUrl) throw new Error('OpenAI-compatible evals require WEBOPERATOR_BASE_URL or --base-url');
+    if (!model) throw new Error('OpenAI-compatible evals require WEBOPERATOR_MODEL or --model');
+    return {
+      provider: 'openai-compatible',
+      openAiCompatibleBaseUrl: baseUrl,
+      openAiCompatibleApiKey: apiKey ?? '',
+      openAiCompatibleModel: model,
     };
   }
 

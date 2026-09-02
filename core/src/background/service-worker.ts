@@ -448,6 +448,7 @@ function modelUsedFromSettings(settings: Awaited<ReturnType<typeof getSettings>>
   if (settings.provider === 'siliconflow') return settings.siliconFlowModel;
   if (settings.provider === 'mlx') return settings.mlxModel;
   if (settings.provider === 'deepseek') return settings.deepseekModel;
+  if (settings.provider === 'openai-compatible') return settings.openAiCompatibleModel;
   return undefined;
 }
 

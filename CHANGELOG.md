@@ -13,6 +13,11 @@ evals.
 
 ### Added
 
+- An `openai-compatible` provider: a base URL, an optional API key, and a model
+  name, for any server speaking the OpenAI chat-completions dialect — LM Studio,
+  vLLM, llama.cpp, LiteLLM, Together, Groq, Fireworks, or a corporate gateway.
+  The key is optional, so a keyless local server works, and the base URL is
+  accepted as a bare host, a `/v1` root, or a full endpoint.
 - Two built-in skills. `site-search` drives a site's own search box, filters and
   pagination, for answers that live inside one site rather than on a results
   page. `fact-checker` verifies a single claim against its primary source and

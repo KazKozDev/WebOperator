@@ -128,6 +128,14 @@ export async function getSettings(): Promise<Settings> {
     next.followActiveTab = typeof storedSettings.followActiveTab === 'boolean' ? storedSettings.followActiveTab : DEFAULT_SETTINGS.followActiveTab;
     migrated = true;
   }
+  if (version < 18) {
+    next.openAiCompatibleBaseUrl = typeof storedSettings.openAiCompatibleBaseUrl === 'string' && storedSettings.openAiCompatibleBaseUrl
+      ? storedSettings.openAiCompatibleBaseUrl
+      : DEFAULT_SETTINGS.openAiCompatibleBaseUrl;
+    next.openAiCompatibleApiKey = typeof storedSettings.openAiCompatibleApiKey === 'string' ? storedSettings.openAiCompatibleApiKey : '';
+    next.openAiCompatibleModel = typeof storedSettings.openAiCompatibleModel === 'string' ? storedSettings.openAiCompatibleModel : DEFAULT_SETTINGS.openAiCompatibleModel;
+    migrated = true;
+  }
   if (migrated) {
     await chrome.storage.local.set({ settings: next, settingsVersion: SETTINGS_VERSION });
   }

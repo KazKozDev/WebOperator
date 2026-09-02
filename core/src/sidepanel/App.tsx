@@ -1035,6 +1035,7 @@ function SettingsPanel({ settings, updateSetting }: {
           { value: 'mlx', label: 'Provider: MLX (Local)' },
           { value: 'ollama', label: 'Provider: Ollama (Local)' },
           { value: 'openai', label: 'Provider: OpenAI' },
+          { value: 'openai-compatible', label: 'Provider: OpenAI-compatible (custom URL)' },
           { value: 'openrouter', label: 'Provider: OpenRouter' },
           { value: 'siliconflow', label: 'Provider: SiliconFlow' },
           { value: 'xai', label: 'Provider: xAI' },
@@ -1066,6 +1067,42 @@ function SettingsPanel({ settings, updateSetting }: {
         <>
           <input type="password" value={settings.openaiApiKey} onChange={(e) => updateSetting('openaiApiKey', e.target.value)} placeholder="OpenAI API Key" />
           <input value={settings.openaiModel} onChange={(e) => updateSetting('openaiModel', e.target.value)} placeholder="OpenAI Model (e.g. gpt-5-mini)" />
+        </>
+      )}
+
+      {settings.provider === 'openai-compatible' && (
+        <>
+          <label>
+            Base URL
+            <input
+              value={settings.openAiCompatibleBaseUrl}
+              onChange={(e) => updateSetting('openAiCompatibleBaseUrl', e.target.value)}
+              placeholder="e.g. http://127.0.0.1:8080/v1"
+            />
+          </label>
+          <label>
+            API Key (optional)
+            <input
+              type="password"
+              value={settings.openAiCompatibleApiKey}
+              onChange={(e) => updateSetting('openAiCompatibleApiKey', e.target.value)}
+              placeholder="leave empty for a local server"
+            />
+          </label>
+          <label>
+            Model
+            <input
+              value={settings.openAiCompatibleModel}
+              onChange={(e) => updateSetting('openAiCompatibleModel', e.target.value)}
+              placeholder="e.g. qwen2.5-vl-7b-instruct"
+            />
+          </label>
+          <div className="settings-note">
+            Any server speaking the OpenAI chat-completions dialect — LM Studio, vLLM, llama.cpp,
+            LiteLLM, Together, Groq, or a corporate gateway. Paste the host, the <code>/v1</code>{' '}
+            root, or the full endpoint. Model must support function calling, plus vision if you
+            leave screenshots on.
+          </div>
         </>
       )}
 
@@ -1334,6 +1371,7 @@ function currentModelLabel(settings: Settings): string {
   if (settings.provider === 'siliconflow') return settings.siliconFlowModel;
   if (settings.provider === 'mlx') return settings.mlxModel;
   if (settings.provider === 'deepseek') return settings.deepseekModel;
+  if (settings.provider === 'openai-compatible') return settings.openAiCompatibleModel;
   return ollamaModelName(settings);
 }
 

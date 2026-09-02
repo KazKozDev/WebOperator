@@ -38,7 +38,7 @@ export interface Settings {
   resetPageOnStart: boolean;
   /** Automatically activate new tabs opened by the agent so the user follows along. */
   followActiveTab: boolean;
-  provider: 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'xai' | 'openrouter' | 'siliconflow' | 'mlx' | 'deepseek';
+  provider: 'ollama' | 'openai' | 'openai-compatible' | 'anthropic' | 'gemini' | 'xai' | 'openrouter' | 'siliconflow' | 'mlx' | 'deepseek';
   openaiApiKey: string;
   openaiModel: string;
   anthropicApiKey: string;
@@ -55,6 +55,10 @@ export interface Settings {
   mlxModel: string;
   deepseekApiKey: string;
   deepseekModel: string;
+  /** Any server speaking the OpenAI chat-completions dialect: LM Studio, vLLM, LiteLLM, a gateway. */
+  openAiCompatibleBaseUrl: string;
+  openAiCompatibleApiKey: string;
+  openAiCompatibleModel: string;
   /** Smart context compression for long tasks. 'off' = deterministic only; 'same' = compress folded history with the active model; 'cloud' = use DeepSeek/Gemini if a key is set. */
   contextCompressor: 'off' | 'same' | 'cloud';
   enabledSkills: SkillId[];
@@ -127,6 +131,9 @@ export const DEFAULT_SETTINGS: Settings = {
   mlxModel: '',
   deepseekApiKey: '',
   deepseekModel: 'deepseek-v4-flash',
+  openAiCompatibleBaseUrl: 'http://127.0.0.1:8080/v1',
+  openAiCompatibleApiKey: '',
+  openAiCompatibleModel: '',
   contextCompressor: 'off',
   enabledSkills: [],
   autoSkills: true,
@@ -136,7 +143,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 
-export const SETTINGS_VERSION = 17;
+export const SETTINGS_VERSION = 18;
 
 
 export type A11yRole =
