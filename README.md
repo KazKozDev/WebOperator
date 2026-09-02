@@ -54,6 +54,11 @@ The side panel streams the plan, every action, and the final answer, and keeps t
   <img src="docs/assets/competencies-v7.gif" width="100%" alt="Four competencies: agent engineering — a plan, act and verify loop with 29 tools and 6 loop guards; LLM security — the prompt-injection attack rate reduced from 44.4% to 0.0% across 9 adversarial fixtures; LLM evaluation — AssistantBench and 24 fixtures in a deterministic harness; MCP — the browser exposed as an MCP server with 10 tools for any agent client">
 </p>
 
+- **Agent engineering** — a plan, act and verify loop, 29 browser tools, 6 loop guards
+- **LLM security** — the prompt-injection attack rate down from 44.4% to 0.0% across 9 adversarial fixtures
+- **LLM evaluation** — AssistantBench and 24 fixtures in a deterministic harness, see [docs/evals.md](docs/evals.md)
+- **MCP** — the browser exposed as an MCP server with 10 tools for any agent client
+
 <br>
 
 ## Schedule recurring browser automation in Chrome
@@ -127,6 +132,14 @@ paths — is documented in [docs/api.md](docs/api.md).
 - Long tasks drift. Checkpoints and context compression hold it back, but do not cure it.
 - Point it at a remote provider and that provider sees your page observations — text and screenshots included.
 - Chrome and Brave are the browsers we test. Other Chromium builds and Windows are untested, and the bridge installer flatly refuses to run outside macOS and Linux.
+
+## Troubleshooting
+
+- **`Ollama 403`** — Ollama is refusing the extension's origin. Restart it with `OLLAMA_ORIGINS="chrome-extension://*,http://localhost:*" ollama serve`.
+- **"Model stopped issuing tool calls"** — the model cannot call tools, or is too small to do it reliably. Swap it; tool calling is the one hard requirement.
+- **Chrome rejects the folder on Load unpacked** — point it at `core/dist` or at the unzipped release folder, not at the repository root.
+- **The bridge answers `401`** — you set `WEBOPERATOR_API_TOKEN` on the bridge but the client is not sending it. Add `Authorization: Bearer $WEBOPERATOR_API_TOKEN` to the request.
+- **A task fails on a page that looks fine** — check the step trace in the side panel first; a stale element ref or a bot-detection wall shows up there as the failing action.
 
 ## Contributing
 
