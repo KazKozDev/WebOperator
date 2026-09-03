@@ -348,8 +348,8 @@ textarea:disabled {
 .answer-panel {
   position: relative;
   padding: 14px 0 16px;
+  /* No rule above the label: the tab bar already draws one, and two stacked lines read as a seam. */
   border: none;
-  border-top: 1px solid rgba(223, 206, 179, 0.12);
   border-radius: 0;
   background: transparent;
   box-shadow: none;

@@ -11,7 +11,15 @@ export function renderMarkdown(text: string): string {
     codeBlocks.push(`<pre><code>${body}</code></pre>`);
     return token;
   });
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Inline code is tokenized like a fenced block: the emphasis passes below would otherwise
+  // eat the asterisks inside a code span — `OLLAMA_ORIGINS="...localhost:*,...127.0.0.1:*"`
+  // renders as italics and hands the user a command that no longer works.
+  const codeSpans: string[] = [];
+  html = html.replace(/`([^`]+)`/g, (_match, body: string) => {
+    const token = `@@WEBOPERATOR_CODE_SPAN_${codeSpans.length}@@`;
+    codeSpans.push(`<code>${body}</code>`);
+    return token;
+  });
   html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<em><strong>$1</strong></em>');
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
@@ -30,6 +38,7 @@ export function renderMarkdown(text: string): string {
   html = html.replace(/ data-list="ol"/g, '');
   html = html.replace(/>\n</g, '><');
   html = html.replace(/\n/g, '<br>');
+  html = codeSpans.reduce((rendered, span, index) => rendered.replace(`@@WEBOPERATOR_CODE_SPAN_${index}@@`, span), html);
   html = codeBlocks.reduce((rendered, block, index) => rendered.replace(`@@WEBOPERATOR_CODE_BLOCK_${index}@@`, block), html);
   return html;
 }

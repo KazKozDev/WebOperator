@@ -53,6 +53,15 @@ describe('renderMarkdown', () => {
     expect(html).not.toContain('<script>');
   });
 
+  it('keeps asterisks inside inline code out of the emphasis passes', async () => {
+    const { renderMarkdown } = await loadRenderer();
+
+    const html = renderMarkdown('restart it with `OLLAMA_ORIGINS="http://localhost:*,http://127.0.0.1:*"`.');
+
+    expect(html).toContain('<code>OLLAMA_ORIGINS="http://localhost:*,http://127.0.0.1:*"</code>');
+    expect(html).not.toContain('<em>');
+  });
+
   it('keeps ordered list content in a single grid cell', async () => {
     const { renderMarkdown } = await loadRenderer();
 
