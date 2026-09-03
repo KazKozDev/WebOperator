@@ -548,6 +548,7 @@ function parseArgs(argv) {
     else if (arg === '--api-key') parsed.apiKey = argv[++i];
     else if (arg === '--base-url') parsed.baseUrl = argv[++i];
     else if (arg === '--vision') parsed.vision = argv[++i];
+    else if (arg === '--thinking') parsed.thinking = argv[++i];
     else if (arg === '--tasks') parsed.tasks = argv[++i];
     else if (arg === '--strict') parsed.strict = true;
     else if (arg === '--chrome-stable') parsed.chromeStable = true;
@@ -559,6 +560,7 @@ function parseArgs(argv) {
 function settingsPatchFromArgs(args, ollamaProxy) {
   const base = providerPatchFromArgs(args, ollamaProxy);
   if (args.vision) base.screenshotPolicy = args.vision; // auto | always | never
+  if (args.thinking) base.thinkingPolicy = args.thinking; // auto | always | never
   // The harness enforces a per-task timeout either way; telling the agent about it is what lets
   // it land a partial answer instead of being cut off mid-exploration with everything discarded.
   base.taskDeadlineMs = taskTimeoutMs;
