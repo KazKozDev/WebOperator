@@ -20,25 +20,39 @@ function log(line) {
   try { fs.appendFileSync(LOG, `${new Date().toISOString()} ${line}\n`); } catch {}
 }
 
-function ensureSingleInstance() {
+let ownsEndpointLease = false;
+
+function tryAcquireEndpointLease() {
   try {
     if (fs.existsSync(PID_FILE)) {
       const oldPid = Number(fs.readFileSync(PID_FILE, 'utf8').trim());
-      if (oldPid && oldPid !== process.pid) {
-        try { process.kill(oldPid, 'SIGTERM'); } catch {}
+      if (oldPid === process.pid) return true;
+      if (oldPid) {
+        try { process.kill(oldPid, 0); return false; } catch {}
       }
+      fs.unlinkSync(PID_FILE);
     }
   } catch {}
-  try { fs.writeFileSync(PID_FILE, String(process.pid)); } catch {}
+  try {
+    const fd = fs.openSync(PID_FILE, 'wx', 0o600);
+    fs.writeFileSync(fd, String(process.pid));
+    fs.closeSync(fd);
+    ownsEndpointLease = true;
+    return true;
+  } catch { return false; }
 }
 
-ensureSingleInstance();
+tryAcquireEndpointLease();
 
 log(`process start pid=${process.pid} ppid=${process.ppid} argv=${JSON.stringify(redactArgv(process.argv))} cwd=${process.cwd()}`);
 process.on('beforeExit', (code) => log(`beforeExit code=${code}`));
 process.on('exit', (code) => {
   log(`exit code=${code}`);
-  try { if (fs.existsSync(PID_FILE)) fs.unlinkSync(PID_FILE); } catch {}
+  if (ownsEndpointLease) {
+    try {
+      if (fs.existsSync(PID_FILE) && Number(fs.readFileSync(PID_FILE, 'utf8').trim()) === process.pid) fs.unlinkSync(PID_FILE);
+    } catch {}
+  }
 });
 
 process.on('uncaughtException', (err) => log(`uncaughtException ${err && err.stack ? err.stack : err}`));
@@ -200,12 +214,15 @@ server.on('error', (err) => {
     }, 1000);
   }
 });
-server.listen(PORT, HOST, () => {
-  log(`http listening on http://${HOST}:${PORT}`);
-});
+function startEndpointServers() {
+  server.listen(PORT, HOST, () => log(`http listening on http://${HOST}:${PORT}`));
+  startAgentSocket();
+}
 
-
-startAgentSocket();
+if (ownsEndpointLease) startEndpointServers();
+setInterval(() => {
+  if (!ownsEndpointLease && tryAcquireEndpointLease()) startEndpointServers();
+}, 1000).unref();
 
 function writeCors(_req, res) {
   res.setHeader('access-control-allow-origin', 'http://127.0.0.1');
@@ -395,6 +412,7 @@ function writeSse(res, event, data) {
 }
 
 function startAgentSocket() {
+  let socketInode = null;
   try {
     if (fs.existsSync(AGENT_SOCKET)) fs.unlinkSync(AGENT_SOCKET);
   } catch (err) {
@@ -419,11 +437,14 @@ function startAgentSocket() {
   socketServer.on('error', (err) => log(`agent socket server error: ${err.message}`));
   socketServer.listen(AGENT_SOCKET, () => {
     try { fs.chmodSync(AGENT_SOCKET, 0o600); } catch {}
+    try { socketInode = fs.statSync(AGENT_SOCKET).ino; } catch {}
     log(`agent socket listening on ${AGENT_SOCKET}`);
   });
 
   process.on('exit', () => {
-    try { if (fs.existsSync(AGENT_SOCKET)) fs.unlinkSync(AGENT_SOCKET); } catch {}
+    try {
+      if (socketInode !== null && fs.existsSync(AGENT_SOCKET) && fs.statSync(AGENT_SOCKET).ino === socketInode) fs.unlinkSync(AGENT_SOCKET);
+    } catch {}
   });
 }
 
@@ -713,4 +734,3 @@ async function handleMcpHttp(msg) {
   }
   return { jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } };
 }
-
