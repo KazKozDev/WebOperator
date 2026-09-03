@@ -96,11 +96,14 @@ A goal arrives from the side panel or from an external MCP agent. From there the
 goal → page snapshot → model tool call → verified action → trace
 ```
 
-## Permissions
+<details>
+<summary>Permissions</summary>
 
 To read and act on the page you point it at, the extension asks for `<all_urls>` plus `activeTab`/`tabs`/`scripting`, and for `debugger` to reach the DevTools Protocol actions the plain DOM API cannot do. The rest are housekeeping: `sidePanel` for the UI, `storage` for settings and history, `alarms` for scheduled runs, `downloads` for the file-downloader skill, and `nativeMessaging` for the MCP bridge. `bookmarks` and `tabGroups` are optional and only requested when something actually needs them.
 
 The `debugger` permission is why Chrome shows a yellow "WebOperator started debugging this browser" bar while an action runs. That bar belongs to Chrome, not to the extension, and it goes away as soon as the agent detaches.
+
+</details>
 
 <details>
 <summary>Configuration and requirements</summary>
@@ -133,7 +136,8 @@ paths — is documented in [docs/api.md](docs/api.md).
 
 </details>
 
-## Limitations
+<details>
+<summary>Limitations</summary>
 
 - Dynamic, canvas-heavy, or infinite-scroll pages can invalidate element refs between the moment the agent looks and the moment it acts.
 - Sites with bot detection or unusual focus handling can fail outright.
@@ -141,7 +145,10 @@ paths — is documented in [docs/api.md](docs/api.md).
 - Point it at a remote provider and that provider sees your page observations — text and screenshots included.
 - Chrome and Brave are the browsers we test. Other Chromium builds and Windows are untested, and the bridge installer flatly refuses to run outside macOS and Linux.
 
-## Troubleshooting
+</details>
+
+<details>
+<summary>Troubleshooting</summary>
 
 - **`Ollama 403`** — Ollama is refusing the extension's origin. Restart it with
   `OLLAMA_ORIGINS="chrome-extension://phbohkmfojcjbmgfnaikenmgemgckdpg,http://localhost:*" ollama serve`. The origin has to be
@@ -151,6 +158,8 @@ paths — is documented in [docs/api.md](docs/api.md).
 - **Chrome rejects the folder on Load unpacked** — point it at `core/dist` or at the unzipped release folder, not at the repository root.
 - **The bridge answers `401`** — you set `WEBOPERATOR_API_TOKEN` on the bridge but the client is not sending it. Add `Authorization: Bearer $WEBOPERATOR_API_TOKEN` to the request.
 - **A task fails on a page that looks fine** — check the step trace in the side panel first; a stale element ref or a bot-detection wall shows up there as the failing action.
+
+</details>
 
 ## Contributing
 
