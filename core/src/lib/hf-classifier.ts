@@ -3,7 +3,7 @@
  * Runs real Transformer embeddings (all-MiniLM-L6-v2) directly inside the browser.
  */
 
-import { env, pipeline } from '@xenova/transformers';
+import { env, pipeline } from '@huggingface/transformers';
 import type { SkillId } from './types';
 import { BUILT_IN_SKILLS, type ClassifiedSkill } from './skills';
 
@@ -49,7 +49,9 @@ export async function getHFPipeline(): Promise<unknown> {
   isInitializing = true;
   try {
     embeddingPipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
-      quantized: true,
+      // v3 replaced the `quantized` boolean with an explicit dtype; q8 is what `quantized: true`
+      // used to select, so the downloaded weights stay the same file.
+      dtype: 'q8',
     });
     return embeddingPipeline;
   } finally {
