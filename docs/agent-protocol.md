@@ -184,9 +184,18 @@ Tasks:
   "startUrl": "https://example.com",
   "tabId": 123,
   "autoConfirm": true,
+  "attachments": [
+    { "id": "cv", "name": "cv.pdf", "path": "/absolute/path/cv.pdf", "mimeType": "application/pdf" }
+  ],
   "timeoutMs": 60000
 }
 ```
+
+Attachments are scoped to that task and are exposed to the browser agent only by ID. The internal
+`upload_attachment` action resolves the path inside the extension and uploads it to a visible file input.
+The side panel's paperclip button produces the same records: a picked file is copied into
+`Downloads/weboperator-attachments/` first, because CDP can only fill a file input from an on-disk path.
+Keep `autoConfirm` false for application flows; final Apply/Submit/Send controls always require confirmation.
 
 `tasks.get`, `tasks.stop`, `tasks.pause`, `tasks.resume`, `tasks.wait`:
 

@@ -193,6 +193,7 @@ export type AgentActionName =
   | 'define_sheet_contract' | 'read_cells'
   | 'fill_login_credentials'
   | 'solve_captcha'
+  | 'upload_attachment'
   | 'read_downloaded_file'
   | 'start_subtask' | 'finish_subtask' | 'fail_subtask' | 'update_task_memory';
 
@@ -202,6 +203,13 @@ export interface ToolCall {
   name: AgentActionName;
   arguments: Record<string, unknown>;
   id?: string;
+}
+
+export interface TaskAttachment {
+  id: string;
+  name: string;
+  path: string;
+  mimeType?: string;
 }
 
 export interface ActionResult {
@@ -339,7 +347,7 @@ export interface ScheduledTask {
 }
 
 export type SWMessage =
-  | { kind: 'task:start'; goal: string; tabId: number }
+  | { kind: 'task:start'; goal: string; tabId: number; attachments?: TaskAttachment[] }
   | { kind: 'task:pause'; id: string }
   | { kind: 'task:resume'; id: string }
   | { kind: 'task:stop'; id: string }

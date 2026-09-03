@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { AgentStep, AgentTask, CredentialSummary, CustomSkillDefinition, ScheduledTask, ScheduleRepeat, Settings, SWEvent } from '@/lib/types';
+import type { AgentStep, AgentTask, CredentialSummary, CustomSkillDefinition, ScheduledTask, ScheduleRepeat, Settings, SWEvent, TaskAttachment } from '@/lib/types';
 
 import { DEFAULT_SETTINGS, PROFILE_TO_MODEL, resolveOllamaModel } from '@/lib/types';
 import { sendToSW } from '@/lib/messaging';
+import { stageAttachment } from '@/lib/attachment-staging';
 import { ping } from '@/lib/ollama-client';
 import { formatTimings, latencyTarget } from '@/lib/benchmark';
 import { downloadPdf } from '@/lib/export';
@@ -43,6 +44,9 @@ export function App() {
   const [startError, setStartError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [detectedSkills, setDetectedSkills] = useState<ClassifiedSkill[]>([]);
+  const [attachments, setAttachments] = useState<TaskAttachment[]>([]);
+  const [isAttaching, setIsAttaching] = useState(false);
+  const [attachError, setAttachError] = useState<string | null>(null);
 
 
   useEffect(() => {
@@ -106,13 +110,38 @@ export function App() {
         throw new Error('Chrome does not allow the agent to run on system pages. Open a regular site and try again.');
       }
       await requestTabAccess(tab.url);
-      const started = await sendToSW<AgentTask>({ kind: 'task:start', goal: goalToRun, tabId: tab.id });
+      const started = await sendToSW<AgentTask>({
+        kind: 'task:start',
+        goal: goalToRun,
+        tabId: tab.id,
+        ...(attachments.length ? { attachments } : {}),
+      });
       setTask(started);
+      setAttachments([]);
       setView('task');
     } catch (err) {
       setStartError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsStarting(false);
+    }
+  }
+
+  /** Copies picked files to disk so the agent can hand their paths to a page's file input. */
+  async function addAttachments(files: FileList | null) {
+    if (!files?.length) return;
+    setAttachError(null);
+    setIsAttaching(true);
+    try {
+      let staged = attachments;
+      for (const file of Array.from(files)) {
+        const item = await stageAttachment(file, new Set(staged.map((a) => a.id)));
+        staged = [...staged, item];
+        setAttachments(staged);
+      }
+    } catch (err) {
+      setAttachError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsAttaching(false);
     }
   }
 
@@ -202,7 +231,7 @@ export function App() {
       )}
 
       {view === 'task' ? (
-        <TaskView goal={goal} setGoal={setGoal} task={task} start={start} isStarting={isStarting} detectedSkills={detectedSkills} onResumeCheckpoint={resumeCheckpoint} onAsk={askAboutTask} />
+        <TaskView goal={goal} setGoal={setGoal} task={task} start={start} isStarting={isStarting} detectedSkills={detectedSkills} onResumeCheckpoint={resumeCheckpoint} onAsk={askAboutTask} attachments={attachments} isAttaching={isAttaching} attachError={attachError} onAttach={addAttachments} onRemoveAttachment={(id) => setAttachments((list) => list.filter((a) => a.id !== id))} />
       ) : view === 'history' ? (
         <HistoryView onReplay={(goal) => { setGoal(goal); start(goal); }} onOpen={(t) => { setTask(t); setView('task'); }} onResumeCheckpoint={resumeCheckpoint} />
       ) : view === 'schedule' ? (
@@ -388,7 +417,7 @@ async function requestTabAccess(url?: string): Promise<void> {
   }
 }
 
-function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onResumeCheckpoint, onAsk }: {
+function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onResumeCheckpoint, onAsk, attachments, isAttaching, attachError, onAttach, onRemoveAttachment }: {
   goal: string;
   setGoal: (g: string) => void;
   task: AgentTask | null;
@@ -397,7 +426,13 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
   detectedSkills: ClassifiedSkill[];
   onResumeCheckpoint?: (id: string) => void;
   onAsk?: (taskId: string, question: string) => Promise<string>;
+  attachments: TaskAttachment[];
+  isAttaching: boolean;
+  attachError: string | null;
+  onAttach: (files: FileList | null) => void;
+  onRemoveAttachment: (id: string) => void;
 }) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [traceOpen, setTraceOpen] = useState(true);
   const [planOpen, setPlanOpen] = useState(true);
@@ -529,6 +564,30 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
             {voiceError}
           </div>
         )}
+        {attachError && (
+          <div style={{ color: 'var(--error, #ef4444)', fontSize: '11px', paddingBottom: '4px' }}>
+            {attachError}
+          </div>
+        )}
+        {attachments.length > 0 && (
+          <div className="attachment-chips">
+            {attachments.map((item) => (
+              <span key={item.id} className="attachment-chip" title={`${item.name} (${item.id})`}>
+                <Icon name="paperclip" />
+                <span className="attachment-chip-name">{item.name}</span>
+                <button
+                  type="button"
+                  className="attachment-chip-remove"
+                  aria-label={`Remove ${item.name}`}
+                  onClick={() => onRemoveAttachment(item.id)}
+                  disabled={running}
+                >
+                  <Icon name="x" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <div className="input-row">
           <div className="input-main">
             <textarea
@@ -549,6 +608,23 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
             </div>
           </div>
           <div className="composer-btns">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              hidden
+              onChange={(e) => { onAttach(e.target.files); e.target.value = ''; }}
+            />
+            <button
+              type="button"
+              className="voice-btn attach-btn"
+              title="Attach a file for the agent to upload"
+              aria-label="Attach file"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={running || isAttaching}
+            >
+              <Icon name="paperclip" />
+            </button>
             <button
               type="button"
               className={`voice-btn ${isListening ? 'recording' : ''}`}

@@ -30,7 +30,7 @@ import { broadcastEvent, ensureContentScript, onLocalSWEvent, registerPortHost }
 
 import { AgentPortHost } from '@/lib/port-channel';
 import { resolveOllamaModel } from '@/lib/types';
-import type { ActionResult, AgentStep, AgentTask, CSResponse, ScheduledTask, SWEvent, SWMessage, ToolCall } from '@/lib/types';
+import type { ActionResult, AgentStep, AgentTask, CSResponse, ScheduledTask, SWEvent, SWMessage, TaskAttachment, ToolCall } from '@/lib/types';
 import { frameIdFromRef, takeFrameSnapshot } from '@/lib/frames';
 import { solveCaptcha, type CaptchaDetection } from '@/lib/captcha-solver';
 
@@ -43,6 +43,7 @@ const state = {
   paused: new Set<string>(),
   pendingConfirms: new Map<string, Pending>(),
   runningSchedules: new Set<string>(),
+  attachments: new Map<string, Map<string, TaskAttachment>>(),
 };
 
 // Initialize Port Host for resilient Side Panel connection
@@ -116,7 +117,7 @@ async function handle(msg: SWMessage): Promise<unknown> {
     case 'eval:getTask': return getEvalTask(msg.id);
     case 'eval:waitTask': return waitForEvalTask(msg.id, msg.timeoutMs);
     case 'eval:clear': return clearEvalTasks();
-    case 'task:start': return startTask(msg.goal, msg.tabId);
+    case 'task:start': return startTask(msg.goal, msg.tabId, { attachments: msg.attachments });
     case 'task:resume_checkpoint': return resumeTaskFromCheckpoint(msg.id);
     case 'task:pause': state.paused.add(msg.id); return { ok: true };
 
@@ -179,9 +180,14 @@ async function handle(msg: SWMessage): Promise<unknown> {
   }
 }
 
-async function startTask(goal: string, tabId: number, options: { autoConfirm?: boolean } = {}): Promise<AgentTask> {
+async function startTask(goal: string, tabId: number, options: { autoConfirm?: boolean; attachments?: TaskAttachment[] } = {}): Promise<AgentTask> {
   const settings = await getSettings();
-  const task = createAgentTask(goal, tabId, settings);
+  const attachments = options.attachments ?? [];
+  const attachmentNote = attachments.length
+    ? `\n\nTASK ATTACHMENTS (use upload_attachment; never type or reveal local paths):\n${attachments.map((item) => `- ${item.id}: ${item.name}`).join('\n')}`
+    : '';
+  const task = createAgentTask(`${goal}${attachmentNote}`, tabId, settings);
+  if (attachments.length) state.attachments.set(task.id, new Map(attachments.map((item) => [item.id, item])));
   await saveTask(task);
   await ensureContentScript(tabId);
 
@@ -196,7 +202,9 @@ async function startTask(goal: string, tabId: number, options: { autoConfirm?: b
     isPaused: (id) => state.paused.has(id),
     requestPause: (id) => state.paused.add(id),
     requestResume: (id) => state.paused.delete(id),
-  }).catch((err) => console.error('[agent] run failed', err));
+    getAttachment: (taskId, attachmentId) => state.attachments.get(taskId)?.get(attachmentId),
+  }).catch((err) => console.error('[agent] run failed', err))
+    .finally(() => state.attachments.delete(task.id));
 
   return task;
 }
@@ -720,7 +728,10 @@ async function executeBridgeRequest(type: string, payload: Record<string, unknow
         await waitForTabComplete(tabId);
       }
       if (!tabId) tabId = await activeTabIdFromPayload(payload);
-      return startTask(goal, tabId, { autoConfirm: payload.autoConfirm === true });
+      const attachments = Array.isArray(payload.attachments)
+        ? payload.attachments.map((raw) => normalizeTaskAttachment(raw)).filter((item): item is TaskAttachment => Boolean(item))
+        : [];
+      return startTask(goal, tabId, { autoConfirm: payload.autoConfirm === true, attachments });
     }
     case 'tasks.stop': {
       const id = String(payload.id ?? '');
@@ -755,6 +766,16 @@ async function executeBridgeRequest(type: string, payload: Record<string, unknow
     default:
       throw new Error(`Unknown bridge request: ${type}`);
   }
+}
+
+function normalizeTaskAttachment(raw: unknown): TaskAttachment | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const item = raw as Record<string, unknown>;
+  const id = String(item.id ?? '').trim();
+  const name = String(item.name ?? '').trim();
+  const filePath = String(item.path ?? '').trim();
+  if (!id || !name || !filePath || !filePath.startsWith('/')) return null;
+  return { id, name, path: filePath, mimeType: item.mimeType ? String(item.mimeType) : undefined };
 }
 
 async function activeTabFromPayload(payload: Record<string, unknown>): Promise<chrome.tabs.Tab> {

@@ -77,6 +77,7 @@ async function dispatch(call: ToolCall): Promise<unknown> {
     case 'fill_login_credentials':
     case 'solve_captcha':
     case 'read_downloaded_file':
+    case 'upload_attachment':
     case 'start_subtask':
     case 'finish_subtask':
     case 'fail_subtask':

@@ -50,6 +50,13 @@ export async function runCdpAction(tabId: number, snapshot: A11ySnapshot, call: 
     } else if (call.name === 'press') {
       if (call.arguments.ref) await cdpClick(target, snapshot, String(call.arguments.ref));
       await cdpPress(target, String(call.arguments.key ?? ''), String(call.arguments.modifiers ?? ''));
+    } else if (call.name === 'upload_attachment') {
+      await cdpUploadAttachment(
+        target,
+        snapshot,
+        String(call.arguments.ref ?? ''),
+        String(call.arguments.path ?? ''),
+      );
     } else if (call.name === 'paste_table') {
       await cdpPasteTable(
         target,
@@ -93,6 +100,37 @@ export async function runCdpAction(tabId: number, snapshot: A11ySnapshot, call: 
   } finally {
     if (attached) await chrome.debugger.detach(target).catch(() => {});
   }
+}
+
+async function cdpUploadAttachment(target: Debuggee, snapshot: A11ySnapshot, ref: string, filePath: string): Promise<void> {
+  if (!filePath) throw new Error('Attachment path is unavailable');
+  const node = snapshot.nodes.find((candidate) => candidate.ref === ref);
+  if (!node) throw new Error(`Element ${ref} not found in current snapshot`);
+  const selector = `[data-agent-ref="${ref.replace(/["\\]/g, '\\$&')}"]`;
+  const evaluated = await send<{ result?: { objectId?: string } }>(target, 'Runtime.evaluate', {
+    expression: `(() => {
+      const anchor = document.querySelector(${JSON.stringify(selector)});
+      if (!anchor) return null;
+      if (anchor instanceof HTMLInputElement && anchor.type === 'file') return anchor;
+      if (anchor instanceof HTMLLabelElement && anchor.htmlFor) {
+        const labelled = document.getElementById(anchor.htmlFor);
+        if (labelled instanceof HTMLInputElement && labelled.type === 'file') return labelled;
+      }
+      const nearby = anchor.parentElement?.querySelector('input[type="file"]');
+      if (nearby) return nearby;
+      const inputs = document.querySelectorAll('input[type="file"]');
+      return inputs.length === 1 ? inputs[0] : null;
+    })()`,
+    objectGroup: 'weboperator-upload',
+  });
+  const objectId = evaluated?.result?.objectId;
+  if (!objectId) throw new Error(`File input ${ref} is not available in the page DOM`);
+  const described = await send<{ node?: { backendNodeId?: number } }>(target, 'DOM.describeNode', { objectId });
+  const backendNodeId = described?.node?.backendNodeId;
+  if (!backendNodeId) throw new Error(`Could not resolve file input ${ref}`);
+  await send(target, 'DOM.setFileInputFiles', { files: [filePath], backendNodeId });
+  await send(target, 'Runtime.releaseObjectGroup', { objectGroup: 'weboperator-upload' }).catch(() => {});
+  await sleep(100);
 }
 
 async function cdpClick(target: Debuggee, snapshot: A11ySnapshot, ref: string): Promise<void> {

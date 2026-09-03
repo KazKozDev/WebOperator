@@ -39,6 +39,7 @@ import {
   type Settings,
   type StepTimings,
   type ToolCall,
+  type TaskAttachment,
 } from '@/lib/types';
 import { actionMayOpenTab, addOpenedTabsToResult, findOpenedTabs, shouldFollowOpenedTab, type BrowserTabSummary } from '@/lib/tab-sync';
 import { findCredentialForUrl, getCustomSkills, saveStep as saveStepRaw, saveTask } from '@/lib/storage';
@@ -146,6 +147,7 @@ export interface AgentDeps {
   isPaused: (taskId: string) => boolean;
   requestPause?: (taskId: string) => void;
   requestResume?: (taskId: string) => void;
+  getAttachment?: (taskId: string, attachmentId: string) => TaskAttachment | undefined;
 }
 
 interface LoopState {
@@ -1456,7 +1458,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         });
         break;
       } else {
-        step.result = await runBrowserAction(activeTabId, snapshot, toolCall);
+        step.result = await runBrowserAction(activeTabId, snapshot, toolCall, task.id, deps);
         if (step.result.ok) executedCalls.push(toolCall);
         if (toolCall.name === 'batch_actions' && step.result.extracted && typeof step.result.extracted === 'object') {
           const batchResult = step.result.extracted as { completed?: number; outcomes?: unknown[]; stoppedAt?: number };
@@ -2191,7 +2193,16 @@ export async function requestModelResponse(settings: Settings, opts: OllamaChatO
   return chat({ ...opts, numCtx: opts.numCtx ?? settings.ollamaNumCtx });
 }
 
-async function runBrowserAction(tabId: number, snapshot: A11ySnapshot, call: ToolCall) {
+async function runBrowserAction(tabId: number, snapshot: A11ySnapshot, call: ToolCall, taskId: string, deps: AgentDeps) {
+  if (call.name === 'upload_attachment') {
+    const attachmentId = String(call.arguments.attachmentId ?? '');
+    const attachment = deps.getAttachment?.(taskId, attachmentId);
+    if (!attachment) return { ok: false, durationMs: 0, error: `Unknown task attachment: ${attachmentId}` };
+    return runCdpAction(tabId, snapshot, {
+      ...call,
+      arguments: { ...call.arguments, path: attachment.path },
+    });
+  }
   if (
     call.name === 'paste_table' ||
     call.name === 'fill_cells' ||
@@ -2303,7 +2314,8 @@ function requiresConfirm(call: ToolCall, snapshot: A11ySnapshot, settings: Setti
   const node = snapshot.nodes.find((n) => n.ref === ref);
   if (!node) return false;
   const haystack = `${node.name} ${node.value ?? ''}`.toLowerCase();
-  return settings.confirmKeywords.some((k) => haystack.includes(k.toLowerCase()));
+  const mandatory = ['submit', 'send application', 'apply now', 'apply', 'отправить', 'откликнуться'];
+  return [...mandatory, ...settings.confirmKeywords].some((k) => haystack.includes(k.toLowerCase()));
 }
 
 function isOrchestratorControlTool(name: ToolCall['name']): boolean {

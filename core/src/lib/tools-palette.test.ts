@@ -7,6 +7,9 @@ function names(goal: string, url = 'https://example.com', firstStep = false): st
 }
 
 describe('selectAgentTools', () => {
+  it('offers task attachment upload for application documents', () => {
+    expect(names('Upload the CV PDF attachment to this application')).toContain('upload_attachment');
+  });
   it('keeps direct web tasks focused on the core palette', () => {
     const selected = names('Click the account button');
 

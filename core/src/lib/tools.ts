@@ -26,6 +26,21 @@ export const AGENT_TOOLS: OllamaToolDef[] = [
   {
     type: 'function',
     function: {
+      name: 'upload_attachment',
+      description: 'Attach one task-scoped local file to a visible file input. Use only an attachmentId listed in the task goal.',
+      parameters: {
+        type: 'object',
+        properties: {
+          ref: { type: 'string', description: 'file input ref from the current snapshot, like @eN' },
+          attachmentId: { type: 'string', description: 'task-scoped attachment id, such as cv or cover-letter' },
+        },
+        required: ['ref', 'attachmentId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'set_task_plan',
       description: 'Set a compact visible task plan before browser actions. Use 2-5 concise action steps (3-8 words each).',
       parameters: {
@@ -548,6 +563,7 @@ export function selectAgentTools(context: AgentToolContext): OllamaToolDef[] {
 
   if (/\b(download|downloaded|file|attachment|pdf|document)\b|скача|файл|вложен|документ/.test(goal)) {
     names.add('read_downloaded_file');
+    names.add('upload_attachment');
   }
 
   if (/\b(captcha|recaptcha|hcaptcha)\b|капч/.test(`${goal} ${nodeText}`)) {
