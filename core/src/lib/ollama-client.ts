@@ -1,4 +1,5 @@
 import { AGENT_TOOLS, TOOL_NAMES, type OllamaToolDef } from './tools';
+import { extractToolCallFromContent, safeJsonAny } from './tool-call-parse';
 import type { ToolCall } from './types';
 
 export interface OllamaMessage {
@@ -270,25 +271,6 @@ async function readStreamingResponse(res: Response, opts: OllamaChatOptions, sta
   };
 }
 
-function extractToolCallFromContent(content: string): ToolCall | undefined {
-  const trimmed = stripCodeFence(content.trim());
-  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return undefined;
-  const parsed = safeJsonAny(trimmed);
-  if (!parsed || typeof parsed !== 'object') return undefined;
-
-  const raw = parsed as { name?: unknown; arguments?: unknown };
-  if (typeof raw.name !== 'string' || !TOOL_NAMES.includes(raw.name)) return undefined;
-  const args = raw.arguments && typeof raw.arguments === 'object'
-    ? raw.arguments as Record<string, unknown>
-    : {};
-  return { name: raw.name as ToolCall['name'], arguments: args };
-}
-
-function stripCodeFence(content: string): string {
-  const match = content.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-  return match ? match[1].trim() : content;
-}
-
 function extractToolCall(rawCalls: unknown): ToolCall | undefined {
   if (!Array.isArray(rawCalls) || rawCalls.length === 0) return undefined;
   const first = rawCalls[0];
@@ -310,14 +292,6 @@ function extractToolCall(rawCalls: unknown): ToolCall | undefined {
     name: fn.name as ToolCall['name'],
     arguments: args,
   };
-}
-
-function safeJsonAny(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
 }
 
 export async function ping(url: string, signal?: AbortSignal): Promise<{ ok: boolean; models: string[]; error?: string }> {
