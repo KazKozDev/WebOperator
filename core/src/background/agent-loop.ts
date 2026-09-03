@@ -281,10 +281,27 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       await sendToContent(glowTabId, { kind: 'agent-glow:set', active: false }).catch(() => {});
     }
     glowTabId = tabId;
-    if (tabId !== null) {
-      await sendToContent(tabId, { kind: 'agent-glow:set', active: true }).catch(() => {});
+    if (tabId === null) {
+      chrome.tabs.onUpdated.removeListener(reapplyGlowOnNavigation);
+      return;
     }
+    await sendToContent(tabId, { kind: 'agent-glow:set', active: true }).catch(() => {});
   };
+  /**
+   * The glow lives in the page's own document, so every navigation the agent performs throws it
+   * away — it used to vanish on the first click-through and stay gone for the rest of the run,
+   * long before the answer was on screen. Re-applying it on each document load keeps it up for
+   * the whole task; `setActiveAgentGlow(null)` at the end is then the only thing that clears it.
+   */
+  function reapplyGlowOnNavigation(tabId: number, changeInfo: { status?: string }): void {
+    if (glowTabId === null) {
+      chrome.tabs.onUpdated.removeListener(reapplyGlowOnNavigation);
+      return;
+    }
+    if (tabId !== glowTabId || !changeInfo.status) return;
+    void sendToContent(tabId, { kind: 'agent-glow:set', active: true }).catch(() => {});
+  }
+  chrome.tabs.onUpdated.addListener(reapplyGlowOnNavigation);
   await setActiveAgentGlow(activeTabId);
 
   const tabMgr = new TabManager();

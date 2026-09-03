@@ -165,26 +165,31 @@ function ensureAgentGlowStyle(): void {
       inset: 0;
       z-index: 2147483646;
       pointer-events: none;
-      border: 1.5px solid rgba(212, 162, 78, 0.8);
-      box-shadow:
-        inset 0 0 0 1px rgba(255, 238, 180, 0.35),
-        inset 0 0 6px rgba(212, 162, 78, 0.25),
-        0 0 4px rgba(212, 162, 78, 0.35);
-      animation: weboperator-agent-edge-pulse 2.2s ease-in-out infinite;
+      /*
+       * Neither a border nor a flat ramp reads as light: both keep a visible edge to the
+       * band. What the eye reads as a glow is a fast, non-linear falloff — bright at the
+       * frame, most of it gone within ~40px, trailing off to nothing by ~96px — so the
+       * edge is where the light is brightest rather than where a line is drawn.
+       */
+      background:
+        linear-gradient(to bottom, rgba(255, 206, 120, 0.34) 0, rgba(233, 176, 80, 0.13) 14px, rgba(212, 162, 78, 0.05) 42px, rgba(212, 162, 78, 0) 96px),
+        linear-gradient(to top, rgba(255, 206, 120, 0.34) 0, rgba(233, 176, 80, 0.13) 14px, rgba(212, 162, 78, 0.05) 42px, rgba(212, 162, 78, 0) 96px),
+        linear-gradient(to right, rgba(255, 206, 120, 0.34) 0, rgba(233, 176, 80, 0.13) 14px, rgba(212, 162, 78, 0.05) 42px, rgba(212, 162, 78, 0) 96px),
+        linear-gradient(to left, rgba(255, 206, 120, 0.34) 0, rgba(233, 176, 80, 0.13) 14px, rgba(212, 162, 78, 0.05) 42px, rgba(212, 162, 78, 0) 96px);
+      /* Opacity pulses instead of the shadows: it is composited, so it stays smooth on a busy page. */
+      animation: weboperator-agent-edge-pulse 3s ease-in-out infinite;
+      will-change: opacity;
     }
 
     @keyframes weboperator-agent-edge-pulse {
-      0%, 100% {
-        box-shadow:
-          inset 0 0 0 1px rgba(255, 238, 180, 0.28),
-          inset 0 0 5px rgba(212, 162, 78, 0.20),
-          0 0 3px rgba(212, 162, 78, 0.25);
-      }
-      50% {
-        box-shadow:
-          inset 0 0 0 1px rgba(255, 248, 210, 0.50),
-          inset 0 0 8px rgba(212, 162, 78, 0.35),
-          0 0 6px rgba(212, 162, 78, 0.45);
+      0%, 100% { opacity: 0.55; }
+      50% { opacity: 1; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #${AGENT_GLOW_ID} {
+        animation: none;
+        opacity: 0.8;
       }
     }
   `;
