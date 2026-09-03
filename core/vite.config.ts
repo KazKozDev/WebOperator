@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import { crx } from '@crxjs/vite-plugin';
 import path from 'node:path';
 import fs from 'node:fs';
-import manifest from './manifest.config';
+import manifest from './manifest.config.ts';
 
 /**
  * Ships ONNX Runtime's WebAssembly build with the extension.
@@ -21,9 +21,20 @@ function ortRuntime() {
   return {
     name: 'ort-runtime',
     apply: 'build' as const,
+    /**
+     * ONNX Runtime references its wasm through `new URL(..., import.meta.url)`, so the bundler
+     * emits a second copy — 23 MB of the asyncify build the classifier never loads, since
+     * hf-classifier sets wasmPaths to the files below before the first call. Dropping it keeps
+     * the packaged extension at one runtime instead of two.
+     */
+    generateBundle(_options: unknown, bundle: Record<string, unknown>) {
+      for (const fileName of Object.keys(bundle)) {
+        if (/ort-wasm.*\.wasm$/.test(fileName)) delete bundle[fileName];
+      }
+    },
     closeBundle() {
-      const from = path.resolve(__dirname, 'node_modules/onnxruntime-web/dist');
-      const to = path.resolve(__dirname, 'dist/ort');
+      const from = path.resolve(import.meta.dirname, 'node_modules/onnxruntime-web/dist');
+      const to = path.resolve(import.meta.dirname, 'dist/ort');
       fs.mkdirSync(to, { recursive: true });
       for (const file of files) fs.copyFileSync(path.join(from, file), path.join(to, file));
     },
@@ -33,7 +44,7 @@ function ortRuntime() {
 export default defineConfig({
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, 'src'),
+      '@': path.resolve(import.meta.dirname, 'src'),
     },
   },
   css: {
