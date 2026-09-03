@@ -136,7 +136,10 @@ paths — is documented in [docs/api.md](docs/api.md).
 
 ## Troubleshooting
 
-- **`Ollama 403`** — Ollama is refusing the extension's origin. Restart it with `OLLAMA_ORIGINS="chrome-extension://*,http://localhost:*" ollama serve`.
+- **`Ollama 403`** — Ollama is refusing the extension's origin. Restart it with
+  `OLLAMA_ORIGINS="chrome-extension://phbohkmfojcjbmgfnaikenmgemgckdpg,http://localhost:*" ollama serve`. The origin has to be
+  spelled out: Ollama accepts `chrome-extension://*` into the list and then still answers 403. The id
+  above is fixed by the manifest key, and the side panel's own error message repeats it.
 - **"Model stopped issuing tool calls"** — the model cannot call tools, or is too small to do it reliably. Swap it; tool calling is the one hard requirement.
 - **Chrome rejects the folder on Load unpacked** — point it at `core/dist` or at the unzipped release folder, not at the repository root.
 - **The bridge answers `401`** — you set `WEBOPERATOR_API_TOKEN` on the bridge but the client is not sending it. Add `Authorization: Bearer $WEBOPERATOR_API_TOKEN` to the request.

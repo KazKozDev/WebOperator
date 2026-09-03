@@ -20,6 +20,12 @@ export interface Settings {
   ollamaUrl: string;
   /** Free-text override. When non-empty, used as the Ollama model instead of the profile mapping (supports any pulled model, e.g. MLX models served by Ollama). */
   ollamaModel: string;
+  /**
+   * Context window requested from Ollama, in tokens. 0 means the client default. One agent step
+   * carrying a snapshot routinely runs past 10k, so the floor matters; the ceiling is the user's
+   * memory, which only they know. Values under 4096 are ignored as unusable.
+   */
+  ollamaNumCtx: number;
   profile: ModelProfile;
   planningProfile: ModelProfile | 'same';
   thinkingPolicy: 'auto' | 'always' | 'never';
@@ -96,6 +102,7 @@ export type SkillId = string;
 export const DEFAULT_SETTINGS: Settings = {
   ollamaUrl: 'http://127.0.0.1:11434',
   ollamaModel: '',
+  ollamaNumCtx: 0,
   profile: 'fast',
   planningProfile: 'same',
   thinkingPolicy: 'auto',
@@ -143,7 +150,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 
-export const SETTINGS_VERSION = 18;
+export const SETTINGS_VERSION = 19;
 
 
 export type A11yRole =

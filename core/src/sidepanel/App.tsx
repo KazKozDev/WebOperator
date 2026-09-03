@@ -1059,6 +1059,14 @@ function SettingsPanel({ settings, updateSetting }: {
             onChange={(e) => updateSetting('ollamaModel', e.target.value)}
             placeholder="Ollama Model (e.g. qwen2.5-vl:7b)"
           />
+          <input
+            type="number"
+            min={0}
+            step={1024}
+            value={settings.ollamaNumCtx || ''}
+            onChange={(e) => updateSetting('ollamaNumCtx', Number(e.target.value) || 0)}
+            placeholder="Context window, tokens (blank = 16384)"
+          />
         </>
       )}
 

@@ -60,13 +60,23 @@ const modelsWithoutVision = new Set<string>();
 const UNSUPPORTED_THINKING = /does not support thinking/i;
 const UNSUPPORTED_VISION = /does not support (?:multimodal|image|vision)/i;
 
-export function resolveNumCtx(model: string, requestedCtx?: number): number {
+/**
+ * Ollama compares OLLAMA_ORIGINS by exact string for the `chrome-extension` scheme: a wildcard
+ * entry is accepted into the list and then never matches, so `chrome-extension://*` — and a bare
+ * `*` — still answers 403. Advice to use one walks the user into the same error a second time.
+ * The extension knows its own origin, so name it. Verified against Ollama 0.33.2.
+ */
+export function ollamaOriginsValue(): string {
+  const id = typeof chrome !== 'undefined' ? chrome.runtime?.id : undefined;
+  return `${id ? `chrome-extension://${id}` : 'chrome-extension://<this extension\'s id>'},http://localhost:*,http://127.0.0.1:*`;
+}
+
+export function resolveNumCtx(requestedCtx?: number): number {
   if (requestedCtx && requestedCtx >= 4096) return requestedCtx;
-  const lower = (model || '').toLowerCase();
-  if (lower.includes('qwen') || lower.includes('llama3') || lower.includes('deepseek') || lower.includes('mistral')) {
-    return 16384;
-  }
-  return 8192;
+  // One screenshot-bearing agent step routinely runs past 10k tokens, so 8k is not a usable
+  // floor for any model: an 8k window fails the task on the first busy page rather than
+  // degrading. Every model the agent can drive advertises at least 32k natively.
+  return 16384;
 }
 
 export async function chat(opts: OllamaChatOptions): Promise<OllamaChatResult> {
@@ -83,7 +93,7 @@ export async function chat(opts: OllamaChatOptions): Promise<OllamaChatResult> {
     return m;
   });
 
-  const numCtx = resolveNumCtx(opts.model, opts.numCtx);
+  const numCtx = resolveNumCtx(opts.numCtx);
 
   const activeTools = opts.tools ?? AGENT_TOOLS;
   const buildBody = (thinking: boolean, withImages: boolean) => ({
@@ -143,7 +153,7 @@ export async function chat(opts: OllamaChatOptions): Promise<OllamaChatResult> {
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       const hint = res.status === 403
-        ? ' Allow the extension origin in Ollama: restart Ollama with OLLAMA_ORIGINS="chrome-extension://*,http://localhost:*".'
+        ? ` Allow this extension's origin in Ollama: restart it with \`OLLAMA_ORIGINS="${ollamaOriginsValue()}"\`.`
         : '';
       throw new OllamaError(`Ollama ${res.status}: ${text || res.statusText}${hint}`, res.status);
     }
@@ -302,7 +312,7 @@ export async function ping(url: string, signal?: AbortSignal): Promise<{ ok: boo
     const res = await fetch(`${targetUrl}/api/tags`, { method: 'GET', signal });
     if (!res.ok) {
       const hint = res.status === 403
-        ? ' (Ollama origin block: set OLLAMA_ORIGINS="chrome-extension://*,http://localhost:*")'
+        ? ` (Ollama origin block: restart it with \`OLLAMA_ORIGINS="${ollamaOriginsValue()}"\`)`
         : '';
       return { ok: false, models: [], error: `HTTP ${res.status}: ${res.statusText}${hint}` };
     }

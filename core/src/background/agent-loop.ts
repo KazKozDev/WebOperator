@@ -2186,7 +2186,9 @@ export async function requestModelResponse(settings: Settings, opts: OllamaChatO
       settings.openAiCompatibleModel
     );
   }
-  return chat(opts);
+  // The single funnel to Ollama: setting the window here covers the step loop, the compressor
+  // and the partial-summary call without each of them having to remember to pass it.
+  return chat({ ...opts, numCtx: opts.numCtx ?? settings.ollamaNumCtx });
 }
 
 async function runBrowserAction(tabId: number, snapshot: A11ySnapshot, call: ToolCall) {

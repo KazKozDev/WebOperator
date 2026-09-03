@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { normalizeOllamaUrl, ping, resolveNumCtx, chat } from './ollama-client';
+import { normalizeOllamaUrl, ollamaOriginsValue, ping, resolveNumCtx, chat } from './ollama-client';
 
 describe('ollama-client', () => {
   afterEach(() => {
@@ -13,12 +13,26 @@ describe('ollama-client', () => {
     expect(normalizeOllamaUrl('')).toBe('');
   });
 
-  it('resolves num_ctx appropriately based on model and settings', () => {
-    expect(resolveNumCtx('qwen2.5-coder:7b')).toBe(16384);
-    expect(resolveNumCtx('llama3.3:70b')).toBe(16384);
-    expect(resolveNumCtx('deepseek-r1:14b')).toBe(16384);
-    expect(resolveNumCtx('custom-small')).toBe(8192);
-    expect(resolveNumCtx('custom-small', 32768)).toBe(32768);
+  it('resolves num_ctx to a floor that fits a screenshot step, and honours an explicit request', () => {
+    expect(resolveNumCtx()).toBe(16384);
+    expect(resolveNumCtx(32768)).toBe(32768);
+    // 0 is the "unset" setting value, and anything below the floor is unusable for one
+    // screenshot-bearing step, so both fall back rather than being sent as asked.
+    expect(resolveNumCtx(0)).toBe(16384);
+    expect(resolveNumCtx(2048)).toBe(16384);
+  });
+
+  it('names the concrete extension origin in the 403 hint, never a wildcard', () => {
+    // A wildcard is the one value that cannot work: Ollama accepts `chrome-extension://*` into
+    // OLLAMA_ORIGINS and then still answers 403, so suggesting it repeats the error.
+    vi.stubGlobal('chrome', { runtime: { id: 'phbohkmfojcjbmgfnaikenmgemgckdpg' } });
+    expect(ollamaOriginsValue()).toContain('chrome-extension://phbohkmfojcjbmgfnaikenmgemgckdpg');
+    expect(ollamaOriginsValue()).not.toContain('chrome-extension://*');
+
+    vi.unstubAllGlobals();
+    // Off a page — the eval harness, a unit test — there is no id to name, so the value stays a
+    // placeholder the user can fill rather than a wildcard they would paste verbatim.
+    expect(ollamaOriginsValue()).not.toContain('chrome-extension://*');
   });
 
   it('returns ok: false without throwing when ping is given an unsupported scheme/model string', async () => {

@@ -23,8 +23,13 @@ ollama pull gemma4:26b
 Chrome extensions need to be allowed as an origin. If the UI shows `403 Forbidden`, restart Ollama with:
 
 ```bash
-OLLAMA_ORIGINS="chrome-extension://*,http://localhost:*" ollama serve
+OLLAMA_ORIGINS="chrome-extension://phbohkmfojcjbmgfnaikenmgemgckdpg,http://localhost:*" ollama serve
 ```
+
+The extension origin must be written out in full. Ollama globs only the http/https schemes, so
+`chrome-extension://*` — and a bare `*` — are accepted into `OLLAMA_ORIGINS` and then match
+nothing, leaving the same 403 (checked against 0.33.2). The id is stable because `manifest.config.ts`
+pins a `key`; the 403 message in the side panel prints the same value from `chrome.runtime.id`.
 
 On macOS, quit the Ollama menu bar app first if it is already running.
 

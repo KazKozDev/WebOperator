@@ -136,6 +136,10 @@ export async function getSettings(): Promise<Settings> {
     next.openAiCompatibleModel = typeof storedSettings.openAiCompatibleModel === 'string' ? storedSettings.openAiCompatibleModel : DEFAULT_SETTINGS.openAiCompatibleModel;
     migrated = true;
   }
+  if (version < 19) {
+    next.ollamaNumCtx = typeof storedSettings.ollamaNumCtx === 'number' ? storedSettings.ollamaNumCtx : DEFAULT_SETTINGS.ollamaNumCtx;
+    migrated = true;
+  }
   if (migrated) {
     await chrome.storage.local.set({ settings: next, settingsVersion: SETTINGS_VERSION });
   }
