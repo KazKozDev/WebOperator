@@ -39,6 +39,13 @@ export default defineManifest({
     '<all_urls>',
   ],
   optional_host_permissions: [] as string[],
+  // The skill classifier runs a small Transformer through ONNX Runtime's WebAssembly build, and
+  // MV3's default policy forbids compiling WebAssembly at all. Without this the classifier throws
+  // on every call and silently falls back to the keyword router. The runtime itself is bundled
+  // (see the ort-runtime plugin in vite.config.ts), so no remote code is fetched or executed.
+  content_security_policy: {
+    extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
+  },
   commands: {
     _execute_action: {
       suggested_key: {

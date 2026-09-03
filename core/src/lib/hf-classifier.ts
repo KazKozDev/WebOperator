@@ -12,6 +12,24 @@ import { BUILT_IN_SKILLS, type ClassifiedSkill } from './skills';
 env.allowLocalModels = false;
 env.useBrowserCache = true;
 
+/**
+ * Point ONNX Runtime at the WebAssembly build packaged with the extension.
+ *
+ * Left alone, transformers.js fetches the runtime from jsdelivr at first use — remote code, which
+ * the Chrome Web Store forbids and which fails on any machine that cannot reach the CDN. The files
+ * are copied into `dist/ort/` at build time. Threads need SharedArrayBuffer, which an extension
+ * page does not have without cross-origin isolation, so ask for one up front instead of letting
+ * the runtime discover it.
+ */
+if (typeof chrome !== 'undefined' && chrome.runtime?.getURL) {
+  const wasm = env.backends.onnx.wasm as { wasmPaths?: unknown; numThreads?: number };
+  wasm.wasmPaths = {
+    mjs: chrome.runtime.getURL('ort/ort-wasm-simd-threaded.mjs'),
+    wasm: chrome.runtime.getURL('ort/ort-wasm-simd-threaded.wasm'),
+  };
+  wasm.numThreads = 1;
+}
+
 let embeddingPipeline: unknown = null;
 let isInitializing = false;
 const skillEmbeddingCache = new Map<SkillId, number[]>();

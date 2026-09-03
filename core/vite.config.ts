@@ -2,7 +2,33 @@ import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { crx } from '@crxjs/vite-plugin';
 import path from 'node:path';
+import fs from 'node:fs';
 import manifest from './manifest.config';
+
+/**
+ * Ships ONNX Runtime's WebAssembly build with the extension.
+ *
+ * transformers.js otherwise points ONNX Runtime at jsdelivr and fetches the runtime at first use.
+ * That is remote code — which the Chrome Web Store forbids outright, and which fails anyway on a
+ * machine that cannot reach the CDN. Copying it into the package makes the classifier's one
+ * dependency local; only the model weights are still fetched, and those are data.
+ *
+ * The plain build is the pair transformers.js itself selects on Safari. The asyncify pair it
+ * prefers elsewhere is nearly twice the size and buys nothing for a model this small.
+ */
+function ortRuntime() {
+  const files = ['ort-wasm-simd-threaded.mjs', 'ort-wasm-simd-threaded.wasm'];
+  return {
+    name: 'ort-runtime',
+    apply: 'build' as const,
+    closeBundle() {
+      const from = path.resolve(__dirname, 'node_modules/onnxruntime-web/dist');
+      const to = path.resolve(__dirname, 'dist/ort');
+      fs.mkdirSync(to, { recursive: true });
+      for (const file of files) fs.copyFileSync(path.join(from, file), path.join(to, file));
+    },
+  };
+}
 
 export default defineConfig({
   resolve: {
@@ -15,7 +41,7 @@ export default defineConfig({
       plugins: [],
     },
   },
-  plugins: [react(), crx({ manifest })],
+  plugins: [react(), crx({ manifest }), ortRuntime()],
   build: {
     target: 'esnext',
     sourcemap: true,
