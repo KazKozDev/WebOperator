@@ -2,6 +2,8 @@
 
 Tell Chrome what you want done, in plain English, and let the agent do it.
 
+Most browser agents bring their own browser. WebOperator works the one you are already in: the tab in front of you, with your sessions and logins intact — no separate profile, no re-login, no copying cookies around. The model behind it can be local, served by Ollama or MLX, so the pages you look at never have to leave the machine. And it works in both directions: the local bridge exposes that same live tab over MCP, so Hermes, OpenClaw, or any other agent client can borrow your browser as a tool.
+
 ```bash
 git clone https://github.com/KazKozDev/WebOperator.git
 npm --prefix WebOperator/core ci
