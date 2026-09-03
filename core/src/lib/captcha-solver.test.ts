@@ -3,11 +3,14 @@ import {
   callCaptchaLLM,
   detectPageCaptcha,
   isBotChallengePage,
+  solveAudioCaptcha,
   solveCaptcha,
   solveCloudflareChallenge,
   solveGenericChallenge,
   solveHcaptchaChallenge,
   solveHcaptchaImageChallenge,
+  solvePowCaptcha,
+  solvePressAndHold,
   solveRecaptchaChallenge,
   solveRecaptchaImageChallenge,
   solveSliderCaptcha,
@@ -306,7 +309,8 @@ describe('captcha-solver', () => {
 
   it.each([
     ['audio', 'Audio CAPTCHA'],
-  ] as const)('prepares a manual %s handoff without invoking checkbox solvers', async (type, label) => {
+    ['press_and_hold', 'Press & Hold'],
+  ] as const)('prepares a manual %s handoff when automatic solver cannot resolve it', async (type, label) => {
     const mockExecuteScript = vi.fn().mockResolvedValue([
       { result: { prepared: true, switchedToAudio: type === 'audio' } },
     ]);
@@ -317,10 +321,96 @@ describe('captcha-solver', () => {
     expect(result).toMatchObject({ success: false, type });
     expect(result.message).toContain(label);
     expect(result.message).toContain('Human verification is required');
-    expect(mockExecuteScript).toHaveBeenCalledTimes(1);
     expect(mockExecuteScript).toHaveBeenCalledWith(expect.objectContaining({
       target: { tabId: 123, allFrames: true },
       args: [type],
     }));
+  });
+
+  it('solves audio CAPTCHA when audio data is available and transcribed', async () => {
+    const mockExecuteScript = vi
+      .fn()
+      // 1. Preparation: audio found and extracted
+      .mockResolvedValueOnce([
+        {
+          result: {
+            audioBase64: 'UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=',
+            mimeType: 'audio/wav',
+          },
+        },
+      ])
+      // 2. Submission: code entered and submitted
+      .mockResolvedValueOnce([
+        { result: { submitted: true } },
+      ]);
+
+    vi.stubGlobal('chrome', {
+      scripting: {
+        executeScript: mockExecuteScript,
+      },
+    });
+
+    const mockLLM = vi.fn().mockResolvedValue('5 8 2 1 9 4');
+    const res = await solveAudioCaptcha(123, { llmCaller: mockLLM });
+
+    expect(res.success).toBe(true);
+    expect(res.message).toContain('Audio CAPTCHA transcribed and submitted successfully');
+    expect(mockLLM).toHaveBeenCalledWith(
+      expect.stringContaining('Transcribe this audio CAPTCHA clip'),
+      [expect.any(String)],
+    );
+  });
+
+  it('solves Press and Hold challenge via simulated pointer actions or CDP', async () => {
+    const mockExecuteScript = vi
+      .fn()
+      // 1. Target located
+      .mockResolvedValueOnce([
+        { result: { found: true, x: 150, y: 300 } },
+      ])
+      // 2. Fallback pointerdown hold dispatched
+      .mockResolvedValueOnce([{ result: undefined }]);
+
+    vi.stubGlobal('chrome', {
+      scripting: {
+        executeScript: mockExecuteScript,
+      },
+    });
+
+    const res = await solvePressAndHold(123);
+    expect(res.success).toBe(true);
+    expect(res.message).toContain('Press and Hold');
+  });
+
+  it('solves Proof-of-Work (ALTCHA/Friendly Captcha) challenge via WebCrypto', async () => {
+    const mockExecuteScript = vi.fn().mockResolvedValue([
+      { result: { solved: true, type: 'altcha', number: 42 } },
+    ]);
+
+    vi.stubGlobal('chrome', {
+      scripting: {
+        executeScript: mockExecuteScript,
+      },
+    });
+
+    const res = await solvePowCaptcha(123);
+    expect(res.success).toBe(true);
+    expect(res.message).toContain('Proof-of-Work challenge (altcha) successfully computed');
+  });
+
+  it('detects press_and_hold and pow in detectPageCaptcha', async () => {
+    const mockExecuteScript = vi.fn().mockResolvedValue([
+      { result: { detected: true, type: 'press_and_hold', details: 'Press and Hold detected' } },
+    ]);
+
+    vi.stubGlobal('chrome', {
+      scripting: {
+        executeScript: mockExecuteScript,
+      },
+    });
+
+    const detection = await detectPageCaptcha(123);
+    expect(detection.detected).toBe(true);
+    expect(detection.type).toBe('press_and_hold');
   });
 });

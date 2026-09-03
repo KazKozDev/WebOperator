@@ -34,6 +34,7 @@ export async function runCdpAction(tabId: number, snapshot: A11ySnapshot, call: 
 
     await chrome.debugger.attach(target, '1.3');
     attached = true;
+    await applyStealthPatches(target);
     await send(target, 'Runtime.evaluate', { expression: 'document.activeElement && document.activeElement.blur()' });
 
 
@@ -773,4 +774,76 @@ function send<T = unknown>(target: Debuggee, method: string, params?: Record<str
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Applies stealth evasions to prevent automated browser detection (navigator.webdriver, plugins, permissions).
+ */
+export async function applyStealthPatches(target: Debuggee): Promise<void> {
+  const stealthScript = `
+    try {
+      Object.defineProperty(navigator, 'webdriver', {
+        get: () => undefined,
+        configurable: true,
+      });
+      if (!navigator.plugins || navigator.plugins.length === 0) {
+        Object.defineProperty(navigator, 'plugins', {
+          get: () => [
+            { name: 'PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+            { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+            { name: 'Chromium PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+          ],
+          configurable: true,
+        });
+      }
+      const origPerm = window.navigator.permissions?.query;
+      if (origPerm) {
+        window.navigator.permissions.query = (parameters) =>
+          parameters.name === 'notifications'
+            ? Promise.resolve({ state: Notification.permission } as PermissionStatus)
+            : origPerm(parameters);
+      }
+    } catch {}
+  `;
+  try {
+    await send(target, 'Page.enable');
+    await send(target, 'Page.addScriptToEvaluateOnNewDocument', { source: stealthScript });
+    await send(target, 'Runtime.evaluate', { expression: stealthScript });
+  } catch {}
+}
+
+/**
+ * Dispatches a trusted CDP Press and Hold sequence with humanized micro-tremor.
+ */
+export async function cdpPressAndHold(target: Debuggee, x: number, y: number, durationMs = 6500): Promise<void> {
+  await send(target, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+  await send(target, 'Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x,
+    y,
+    button: 'left',
+    clickCount: 1,
+  });
+
+  const startTime = Date.now();
+  while (Date.now() - startTime < durationMs) {
+    await sleep(75);
+    const jitterX = x + (Math.random() - 0.5) * 2;
+    const jitterY = y + (Math.random() - 0.5) * 2;
+    await send(target, 'Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: jitterX,
+      y: jitterY,
+      button: 'left',
+    }).catch(() => {});
+  }
+
+  await send(target, 'Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x,
+    y,
+    button: 'left',
+    clickCount: 1,
+  });
+  await sleep(100);
 }

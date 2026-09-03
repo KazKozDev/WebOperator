@@ -573,8 +573,8 @@ const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'browser_solve_captcha',
-      description: 'Attempt to detect and automatically solve or click Cloudflare Turnstile, reCAPTCHA, or hCaptcha verification challenges in the active tab.',
-      parameters: { type: 'object', properties: { type: { type: 'string', enum: ['cloudflare', 'recaptcha', 'hcaptcha', 'auto'] } } },
+      description: 'Attempt to detect and automatically solve or click Cloudflare Turnstile, reCAPTCHA, hCaptcha, slider puzzle, or visual text challenges in the active tab.',
+      parameters: { type: 'object', properties: { type: { type: 'string', enum: ['cloudflare', 'recaptcha', 'hcaptcha', 'slider', 'image', 'audio', 'press_and_hold', 'pow', 'auto'] } } },
     },
   },
   {

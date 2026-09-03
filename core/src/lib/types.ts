@@ -300,7 +300,7 @@ export type TaskStatus = 'idle' | 'planning' | 'running' | 'paused' | 'done' | '
  */
 export interface TaskPauseReason {
   kind: 'bot_challenge';
-  challengeType?: 'cloudflare' | 'recaptcha' | 'hcaptcha' | 'image' | 'slider' | 'audio' | 'unknown';
+  challengeType?: 'cloudflare' | 'recaptcha' | 'hcaptcha' | 'image' | 'slider' | 'audio' | 'press_and_hold' | 'pow' | 'unknown';
   url: string;
   title: string;
   tabId?: number;

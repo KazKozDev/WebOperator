@@ -32,6 +32,8 @@ const CAPTCHA_TITLES: Record<NonNullable<AgentTask['pauseReason']>['challengeTyp
   image: 'Image CAPTCHA',
   slider: 'Slider puzzle',
   audio: 'Audio CAPTCHA',
+  press_and_hold: 'Press & Hold verification',
+  pow: 'Proof-of-Work challenge',
   unknown: 'Human verification / CAPTCHA',
 };
 

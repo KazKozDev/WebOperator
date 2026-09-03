@@ -502,6 +502,25 @@ export const AGENT_TOOLS: OllamaToolDef[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'solve_captcha',
+      description: 'Attempt to detect and automatically solve Cloudflare Turnstile, reCAPTCHA (grid/audio), hCaptcha, slider puzzle, visual text, press-and-hold, or proof-of-work challenges on the page.',
+      parameters: {
+        type: 'object',
+        properties: {
+          type: {
+            type: 'string',
+            description: 'optional challenge type to target',
+            enum: ['cloudflare', 'recaptcha', 'hcaptcha', 'slider', 'image', 'audio', 'press_and_hold', 'pow', 'unknown'],
+          },
+          reason: { type: 'string', description: 'short reason for solving the captcha' },
+        },
+        required: [],
+      },
+    },
+  },
 ];
 
 export const TOOL_NAMES = AGENT_TOOLS.map((t) => t.function.name);

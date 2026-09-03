@@ -102,7 +102,10 @@ To read and act on the page you point it at, the extension asks for `<all_urls>`
 
 The `debugger` permission is why Chrome shows a yellow "WebOperator started debugging this browser" bar while an action runs. That bar belongs to Chrome, not to the extension, and it goes away as soon as the agent detaches.
 
-## Configuration
+<details>
+<summary>Configuration and requirements</summary>
+
+### Configuration
 
 | Option | Default | What it does |
 |---|---|---|
@@ -119,7 +122,7 @@ The bridge listens on `127.0.0.1:8765` and will accept unauthenticated calls unt
 `WEBOPERATOR_API_TOKEN`. Set it. Every bridge variable — bind host, port, socket and log
 paths — is documented in [docs/api.md](docs/api.md).
 
-## Requirements
+### Requirements
 
 - Chrome 120 or newer, or a Chromium browser of the same generation
 - Node.js and npm, if you build the extension yourself
@@ -127,6 +130,8 @@ paths — is documented in [docs/api.md](docs/api.md).
 - The extension is not on the Chrome Web Store, so you load it unpacked
 - macOS or Linux, for the MCP bridge installer
 - `shellcheck`, only if you run the full local check gate
+
+</details>
 
 ## Limitations
 

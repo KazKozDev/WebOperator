@@ -51,4 +51,10 @@ describe('selectAgentTools', () => {
     expect(selected.map((tool) => tool.function.name)).toContain('batch_actions');
     expect(names('Fill one field')).not.toContain('batch_actions');
   });
+
+  it('offers solve_captcha when captcha is mentioned or detected', () => {
+    expect(names('Solve the captcha and submit')).toContain('solve_captcha');
+    expect(names('Реши капчу на странице')).toContain('solve_captcha');
+    expect(names('Click the account button')).not.toContain('solve_captcha');
+  });
 });
