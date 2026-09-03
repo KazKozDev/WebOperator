@@ -1,7 +1,5 @@
 import type { AgentTask, AgentStep, AgentPlan } from './types';
 import { maskTaskForLog } from './masking';
-import pdfMake from 'pdfmake/build/pdfmake';
-import pdfFonts from 'pdfmake/build/vfs_fonts';
 import type { Content, TableCell, TDocumentDefinitions } from 'pdfmake/interfaces';
 
 export interface TraceFile {
@@ -459,6 +457,13 @@ function buildPdfDefinition(task: AgentTask): TDocumentDefinitions {
 }
 
 export async function downloadPdf(task: AgentTask): Promise<void> {
+  // pdfmake carries its fonts as ~1.5 MB of base64 in vfs_fonts. Imported statically it lands in
+  // the side panel's startup bundle — parsed on every open, for a button most sessions never
+  // press. Loaded here it costs nothing until someone actually exports a PDF.
+  const [{ default: pdfMake }, { default: pdfFonts }] = await Promise.all([
+    import('pdfmake/build/pdfmake'),
+    import('pdfmake/build/vfs_fonts'),
+  ]);
   pdfMake.addVirtualFileSystem(pdfFonts);
   await pdfMake.createPdf(buildPdfDefinition(task)).download(`report-${task.id.slice(0, 8)}.pdf`);
 }
