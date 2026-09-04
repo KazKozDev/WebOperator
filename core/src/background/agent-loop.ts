@@ -9,6 +9,8 @@ import { chatMlx } from '@/lib/mlx-client';
 import { chatDeepSeek } from '@/lib/deepseek-client';
 import { chatAnthropic } from '@/lib/anthropic-client';
 import { buildPartialSummaryPrompt, collectWork, describeSufficiencyCheck, fallbackPartialSummary } from '@/lib/partial-work';
+import { collectFindings, ledgerCharBudget, renderFindingsBlock } from '@/lib/findings-ledger';
+import { stepBudgetFor } from '@/lib/step-budget';
 
 import {
   collapseOldObservations,
@@ -110,6 +112,7 @@ import {
 } from '@/lib/orchestrator';
 import type { OrchestrationPlan } from '@/lib/orchestrator-types';
 
+// Default step budget. A task whose goal reads as a sweep gets a wider one — see stepBudgetFor.
 const MAX_STEPS = 60;
 const MAX_STEP_RETRIES = 3;
 // Steps in a row where the model answered with prose instead of a tool call before the task
@@ -248,6 +251,12 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
   const hasOrchestrator = true;
 
   const executedCalls: ToolCall[] = [];
+  // A sweep ("check five days of mail", "collect every result") pays per item, so the goal —
+  // not a constant — decides how many steps it gets.
+  const stepBudget = stepBudgetFor(task.goal);
+  const maxSteps = stepBudget.maxSteps;
+  // How much of the context the collected-findings ledger may occupy on each observation.
+  const ledgerBudget = ledgerCharBudget(contextTokenBudget(settings));
   let startSnapshotHash: string | null = null;
   let stepIndex = 0;
   let stepSerial = 0;
@@ -343,12 +352,12 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
   };
 
   while (resumeCount <= MAX_RESUMES) {
-    if (stepIndex >= MAX_STEPS) {
+    if (stepIndex >= maxSteps) {
       if (resumeCount >= MAX_RESUMES) {
         // Every other failure path states a reason; this one used to end silently, leaving the
         // panel with a stopped task and nothing to show for it.
         task.status = 'failed';
-        task.error = `Step budget exhausted: ${MAX_STEPS} steps across ${MAX_RESUMES} resumes without reaching a verified answer. Last page: ${task.steps[task.steps.length - 1]?.snapshot?.url ?? 'unknown'}.`;
+        task.error = `Step budget exhausted: ${maxSteps} steps (${stepBudget.reason}) across ${MAX_RESUMES} resumes without reaching a verified answer. Last page: ${task.steps[task.steps.length - 1]?.snapshot?.url ?? 'unknown'}.`;
         task.updatedAt = Date.now();
         await saveTask(task);
         broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
@@ -361,7 +370,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       if (hasOrchestrator && orchPlan) {
         await checkpointMgr.save(task.id, orchPlan, []);
       }
-      const compactedHistory = compactHistoryForResume(history, task, plan, orchPlan, resumeCount, MAX_RESUMES);
+      const compactedHistory = compactHistoryForResume(history, task, plan, orchPlan, resumeCount, MAX_RESUMES, maxSteps, ledgerBudget);
       history.splice(0, history.length, ...compactedHistory);
       observationRefs.length = 0;
       task.updatedAt = Date.now();
@@ -462,10 +471,14 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       const memoryHints: string[] = [];
       const transitionHint = describePageTransition(snapshot, recoveryPage);
       if (transitionHint) memoryHints.push(transitionHint);
-      const budgetHint = describeBudgetPressure(stepIndex, resumeCount, task.createdAt, settings.taskDeadlineMs);
+      const budgetHint = describeBudgetPressure(stepIndex, resumeCount, task.createdAt, settings.taskDeadlineMs, Date.now(), maxSteps);
       if (budgetHint) memoryHints.push(budgetHint);
       const sufficiencyHint = describeSufficiencyCheck(collectWork(task));
       if (sufficiencyHint) memoryHints.push(sufficiencyHint);
+      // Extraction payloads never enter the conversation, and the snapshots that showed them
+      // collapse two steps later — so what the run has found is replayed from the trace here.
+      const findingsHint = renderFindingsBlock(collectFindings(task), ledgerBudget);
+      if (findingsHint) memoryHints.push(findingsHint);
       if (cookieHint) memoryHints.push(cookieHint);
       if (searchHint) memoryHints.push(searchHint);
       const availableCredential = await findCredentialForUrl(snapshot.url).catch(() => null);
@@ -1907,8 +1920,9 @@ export function describeBudgetPressure(
   startedAt: number,
   deadlineMs: number,
   now: number = Date.now(),
+  maxSteps: number = MAX_STEPS,
 ): string | null {
-  const stepsLeft = MAX_STEPS - stepIndex;
+  const stepsLeft = maxSteps - stepIndex;
   const onFinalPass = resumeCount >= MAX_RESUMES;
   const stepPressure = onFinalPass && stepsLeft <= WRAP_UP_STEPS;
 
@@ -1984,22 +1998,33 @@ function applyModelTaskPlan(
   return { ok: true, plan: parsedPlan };
 }
 
-function compactHistoryForResume(
+/**
+ * Everything that survives an auto-resume. Exported so the guarantee that collected findings
+ * cross that reset is testable — losing them there is what turned long sweeps into re-reads.
+ */
+export function compactHistoryForResume(
   history: OllamaMessage[],
   task: AgentTask,
   plan: AgentPlan | null,
   orchPlan: OrchestrationPlan | null,
   resumeCount: number,
   maxResumes: number,
+  maxSteps: number = MAX_STEPS,
+  ledgerBudget: number = 0,
 ): OllamaMessage[] {
   const system = history.find((msg) => msg.role === 'system') ?? history[0];
   const recentSteps = task.steps.slice(-12).map(formatStepLine);
+  // A resume throws the whole conversation away. Without this the run also throws away
+  // everything it collected — the step lines below are truncated to 180 characters each — and
+  // starts the sweep over, which is how a long task burns every resume re-reading page one.
+  const findings = renderFindingsBlock(collectFindings(task), ledgerBudget);
 
   const parts = [
-    `[AUTO-RESUME ${resumeCount}/${maxResumes}] Reached ${MAX_STEPS} steps. Continue the long task from this compact state.`,
+    `[AUTO-RESUME ${resumeCount}/${maxResumes}] Reached ${maxSteps} steps. Continue the long task from this compact state.`,
     `GOAL: ${task.goal}`,
     plan ? planContext(plan) : '',
     orchPlan ? `${orchContext(orchPlan, plan)}\nStay on the running subtask until it is finished. Before moving to another subtask, call finish_subtask or fail_subtask.` : '',
+    findings ?? '',
     recentSteps.length > 0 ? `[RECENT STEPS]\n${recentSteps.join('\n')}` : '',
     'Use the next fresh page snapshot. Do not repeat completed plan items. Keep working unless the goal is fully verified, then call done.',
   ].filter(Boolean);

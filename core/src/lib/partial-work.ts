@@ -30,7 +30,7 @@ const MAX_EVIDENCE_ITEMS = 40;
 const MAX_ITEM_CHARS = 1200;
 
 /** Tools whose results are observations rather than side effects. */
-const EVIDENCE_TOOLS = new Set([
+export const EVIDENCE_TOOLS = new Set([
   'extract', 'read_cells', 'list_tabs', 'finish_subtask', 'update_task_memory', 'done',
 ]);
 
@@ -200,8 +200,9 @@ const SUFFICIENCY_MIN_EVIDENCE = 2;
  * `extract` at step 5 had already returned 27 of the 36 rows needed — including four of the five
  * gold answers — and the other 77 steps were spent not noticing. Every guard added so far is a
  * prohibition ("stop re-reading", "stop scrolling"); this is the one positive prompt, and it
- * deliberately does not repeat the evidence itself, which is already in the history. Re-listing
- * it would cost tokens to say what the model can already see; what is missing is the question.
+ * deliberately does not repeat the evidence itself — `findings-ledger` already replays it into
+ * the same observation. Re-listing it here would say twice what the model can read once; what
+ * is missing is the question.
  */
 export function describeSufficiencyCheck(work: CollectedWork): string | null {
   if (work.evidence.length < SUFFICIENCY_MIN_EVIDENCE) return null;
