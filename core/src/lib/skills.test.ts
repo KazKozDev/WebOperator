@@ -39,8 +39,31 @@ describe('skills', () => {
   });
 
   it('never auto-classifies high risk skills', () => {
-    const socialResults = classifyTask('publish a tweet on twitter');
-    expect(socialResults.some((s) => s.id === 'social-poster')).toBe(false);
+    // No built-in skill carries this risk any more — social-poster used to, which meant a
+    // goal about posting matched nothing and the model worked without a playbook. The rule
+    // itself still holds for anything a user marks high.
+    const custom = [
+      {
+        id: 'wire-transfer',
+        name: 'Wire Transfer',
+        summary: 'Move money between accounts',
+        risk: 'high' as const,
+        domains: ['*'],
+        keywords: ['wire transfer', 'переведи деньги'],
+        prompt: '[SKILL: wire-transfer] Never.',
+        isCustom: true,
+        enabled: true,
+        createdAt: Date.now(),
+      },
+    ];
+
+    const results = classifyTask('make a wire transfer to the supplier', custom);
+    expect(results.some((s) => s.id === 'wire-transfer')).toBe(false);
+  });
+
+  it('routes a posting goal to the social poster', () => {
+    expect(classifyTask('publish a post on linkedin').map((s) => s.id)).toContain('social-poster');
+    expect(classifyTask('опубликуй пост в linkedin').map((s) => s.id)).toContain('social-poster');
   });
 
   it('generates combined prompts for enabled skills', () => {
