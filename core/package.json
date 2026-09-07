@@ -36,7 +36,7 @@
     "@types/chrome": "^0.2.7",
     "@types/pdfmake": "^0.3.3",
     "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.5",
+    "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
     "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^10.9.1",
