@@ -18,11 +18,17 @@ updates:
           - "eslint*"
           - "@eslint/*"
           - "typescript*"
-          - "vitest"
           - "knip"
         update-types:
           - minor
           - patch
+      # Majors included on purpose: @vitest/coverage-v8 pins an exact vitest
+      # peer, so a vitest bump on its own fails npm ci with ERESOLVE (the
+      # 4.x to 5.0 PR did).
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
       # Kept out of dev-tooling: a typings bump can demand real code changes
       # (@types/chrome 0.0.x to 0.2.x did), and grouping it would hold three
       # working updates hostage to one that needs a migration.
