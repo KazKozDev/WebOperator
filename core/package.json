@@ -24,7 +24,7 @@
     "eval:assistantbench": "node ../scripts/fetch-assistantbench.mjs && node ../scripts/eval-extension.mjs --tasks evals/assistantbench.json"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.2.0",
+    "@huggingface/transformers": "^4.3.0",
     "dexie": "^4.4.5",
     "pdfmake": "^0.3.11",
     "react": "^19.3.0",
