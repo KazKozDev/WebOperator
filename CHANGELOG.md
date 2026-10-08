@@ -29,6 +29,13 @@ evals.
 
 ### Fixed
 
+- The MCP server's HTTP fallback, which never worked: it sent the extension's
+  request types (`browser.snapshot`) to an API that takes tool names
+  (`browser_snapshot`), so with the socket unavailable every tool came back
+  "Unknown tool". It now uses the routes the bridge has. The fallback is also
+  taken only when the socket cannot be opened; an error the bridge returned is
+  reported as it is, where it used to be replaced by the failed retry's, and a
+  socket timeout no longer sends the same click or keystroke a second time.
 - Page content could break out of the block that marks it as untrusted. The
   observation fence used fixed, public markers, so a page that printed the
   closing marker in its own text had everything after it read as instruction

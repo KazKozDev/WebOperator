@@ -196,16 +196,42 @@ async function callBridge(type, payload = {}, timeoutMs = 60_000) {
   // Try Unix Domain Socket first
   try {
     return await callSocket(type, payload, timeoutMs);
-  } catch {
-    // Fallback to HTTP API
+  } catch (err) {
+    // Once the bridge has taken the request, its answer is the answer. A
+    // retry over HTTP would hide the real error behind whatever the second
+    // attempt says, and after a timeout it would run the action again — a
+    // second click, a second form submission.
+    if (err && err.reachedBridge) throw err;
+    // The socket could not be opened at all: fall back to the HTTP API.
     return await callHttp(type, payload, timeoutMs);
   }
+}
+
+// The socket takes the extension's own request types; the HTTP API has its
+// own routes and tool names. This is the translation between the two.
+function httpRequestFor(type, payload, timeoutMs) {
+  if (type === 'tasks.start') {
+    return { path: '/v1/tasks', body: payload };
+  }
+  if (type === 'tasks.wait') {
+    return {
+      path: `/v1/tasks/${encodeURIComponent(payload.id)}/wait`,
+      body: { timeoutMs: payload.timeoutMs },
+    };
+  }
+  // browser.snapshot -> browser_snapshot, and so on for every browser tool.
+  return {
+    path: '/v1/tools/call',
+    body: { tool: type.replace('.', '_'), arguments: payload, timeoutMs },
+  };
 }
 
 
 function callSocket(type, payload, timeoutMs) {
   return new Promise((resolve, reject) => {
     let resolved = false;
+    let connected = false;
+    const fail = (err) => reject(Object.assign(err, { reachedBridge: connected }));
     const socket = net.createConnection(SOCKET_PATH);
     const id = randomUUID();
     const message = { id, type, payload, timeoutMs, ...(API_TOKEN ? { token: API_TOKEN } : {}) };
@@ -214,7 +240,7 @@ function callSocket(type, payload, timeoutMs) {
       if (!resolved) {
         resolved = true;
         socket.destroy();
-        reject(new Error(`Bridge socket timeout for ${type}`));
+        fail(new Error(`Bridge socket timeout for ${type}`));
       }
     }, timeoutMs);
 
@@ -222,6 +248,7 @@ function callSocket(type, payload, timeoutMs) {
     let nextLength = null;
 
     socket.on('connect', () => {
+      connected = true;
       const body = Buffer.from(JSON.stringify(message), 'utf8');
       const header = Buffer.alloc(4);
       header.writeUInt32LE(body.length, 0);
@@ -248,7 +275,7 @@ function callSocket(type, payload, timeoutMs) {
             resolved = true;
             clearTimeout(timer);
             socket.end();
-            if (msg.error) reject(new Error(msg.error));
+            if (msg.error) fail(new Error(msg.error));
             else resolve(msg.result);
           }
         } catch (parseErr) {
@@ -256,7 +283,7 @@ function callSocket(type, payload, timeoutMs) {
             resolved = true;
             clearTimeout(timer);
             socket.destroy();
-            reject(parseErr);
+            fail(parseErr);
           }
         }
       }
@@ -266,7 +293,7 @@ function callSocket(type, payload, timeoutMs) {
       if (!resolved) {
         resolved = true;
         clearTimeout(timer);
-        reject(err);
+        fail(err);
       }
     });
   });
@@ -274,9 +301,8 @@ function callSocket(type, payload, timeoutMs) {
 
 function callHttp(type, payload, timeoutMs) {
   return new Promise((resolve, reject) => {
-    let path = '/v1/tools/call';
+    const { path, body: bodyObj } = httpRequestFor(type, payload, timeoutMs);
     const method = 'POST';
-    const bodyObj = { tool: type, arguments: payload, timeoutMs };
 
     const headers = {
       'content-type': 'application/json',
