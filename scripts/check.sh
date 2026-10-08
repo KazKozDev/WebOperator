@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 node "$ROOT/scripts/eval-fixtures.mjs"
 node "$ROOT/scripts/bridge-smoke.mjs"
+node "$ROOT/scripts/mcp-smoke.mjs"
 
 cd "$ROOT/core"
 npm run typecheck
