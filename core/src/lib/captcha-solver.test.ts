@@ -22,6 +22,15 @@ describe('captcha-solver', () => {
     vi.restoreAllMocks();
   });
 
+  it('ignores provider names outside the hostname', () => {
+    for (const domain of ['challenges.cloudflare.com', 'waf.datadome.co', 'geo.captcha-delivery.com', 'px-cdn.net', 'px-cloud.net', 'arkoselabs.com']) {
+      expect(isBotChallengePage('Ordinary page', `https://${domain}.evil.test/`)).toBe(false);
+      expect(isBotChallengePage('Ordinary page', `https://example.com/?next=https://${domain}`)).toBe(false);
+      expect(isBotChallengePage('Ordinary page', `https://${domain}@example.com/`)).toBe(false);
+      expect(isBotChallengePage('Ordinary page', `https://${domain}/`)).toBe(true);
+    }
+  });
+
   it('detects Cloudflare and interstitial bot challenge titles and URLs', () => {
     expect(isBotChallengePage('Just a moment...', 'https://example.com/login')).toBe(true);
     expect(isBotChallengePage('Attention Required! | Cloudflare', 'https://example.com')).toBe(true);

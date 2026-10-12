@@ -423,9 +423,9 @@ async function startFixtureServer() {
       // would hide that, so honour the extension.
       res.writeHead(200, { 'content-type': contentTypeFor(filePath) });
       res.end(body);
-    } catch (err) {
+    } catch {
       res.writeHead(500, { 'content-type': 'text/plain' });
-      res.end(err instanceof Error ? err.message : String(err));
+      res.end('Internal server error');
     }
   });
 
@@ -456,7 +456,21 @@ async function startOllamaProxy() {
       const chunks = [];
       for await (const chunk of req) chunks.push(chunk);
       const body = Buffer.concat(chunks);
-      const upstream = await fetch(new URL(req.url ?? '/', target), {
+      // Keep the destination fixed; request URLs must never replace the configured origin.
+      const requestUrl = new URL(req.url ?? '/', 'http://localhost');
+      const allowedPaths = new Set(['/api/chat', '/api/generate', '/api/tags', '/api/show', '/api/version']);
+      if (!allowedPaths.has(requestUrl.pathname)) {
+        writeCorsHeaders(res);
+        res.writeHead(404);
+        res.end('Unknown Ollama endpoint');
+        return;
+      }
+      const upstreamUrl = new URL(target);
+      upstreamUrl.pathname = requestUrl.pathname;
+      upstreamUrl.search = '';
+      upstreamUrl.hash = '';
+      const upstream = await fetch(upstreamUrl, {
+        redirect: 'error',
         method: req.method,
         headers: {
           'content-type': req.headers['content-type'] ?? 'application/json',
@@ -474,10 +488,10 @@ async function startOllamaProxy() {
       } else {
         res.end();
       }
-    } catch (err) {
+    } catch {
       writeCorsHeaders(res);
       res.writeHead(502, { 'content-type': 'text/plain' });
-      res.end(err instanceof Error ? err.message : String(err));
+      res.end('Ollama upstream request failed');
     }
   });
 

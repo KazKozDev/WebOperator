@@ -21,7 +21,15 @@ if (!res.ok) throw new Error(`Download failed: ${res.status} ${res.statusText}`)
 const rows = (await res.text())
   .split('\n')
   .filter((line) => line.trim())
-  .map((line) => JSON.parse(line));
+  .map((line) => {
+    const row = JSON.parse(line);
+    if (!row || typeof row.id !== 'string' || typeof row.task !== 'string' ||
+        (row.gold_url != null && typeof row.gold_url !== 'string') ||
+        (row.difficulty != null && typeof row.difficulty !== 'string')) {
+      throw new Error('Invalid AssistantBench row');
+    }
+    return { id: row.id, task: row.task, answer: row.answer, gold_url: row.gold_url, difficulty: row.difficulty };
+  });
 
 let tasks = rows
   .filter((row) => row.answer)

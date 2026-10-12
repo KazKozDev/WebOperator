@@ -180,7 +180,10 @@ export async function callCaptchaLLM(
  */
 export function isBotChallengePage(title: string, url: string, bodySnippet = ''): boolean {
   const lowerTitle = title.toLowerCase();
-  const lowerUrl = url.toLowerCase();
+  let parsedUrl: URL | undefined;
+  try { parsedUrl = new URL(url); } catch {}
+  const hostname = parsedUrl?.hostname ?? '';
+  const matchesHost = (domain: string) => hostname === domain || hostname.endsWith(`.${domain}`);
   const lowerSnippet = bodySnippet.toLowerCase();
 
   const isChallengeTitle =
@@ -197,14 +200,15 @@ export function isBotChallengePage(title: string, url: string, bodySnippet = '')
     lowerTitle.includes('cloudflare bot challenge');
 
   const isChallengeUrl =
-    lowerUrl.includes('challenges.cloudflare.com') ||
-    lowerUrl.includes('/cdn-cgi/challenge') ||
-    lowerUrl.includes('waf.datadome.co') ||
-    lowerUrl.includes('geo.captcha-delivery.com') ||
-    lowerUrl.includes('perimeterx.') ||
-    lowerUrl.includes('px-cdn.net') ||
-    lowerUrl.includes('px-cloud.net') ||
-    lowerUrl.includes('arkoselabs.com');
+    matchesHost('challenges.cloudflare.com') ||
+    (parsedUrl?.pathname.startsWith('/cdn-cgi/challenge') ?? false) ||
+    matchesHost('waf.datadome.co') ||
+    matchesHost('geo.captcha-delivery.com') ||
+    matchesHost('perimeterx.com') ||
+    matchesHost('perimeterx.net') ||
+    matchesHost('px-cdn.net') ||
+    matchesHost('px-cloud.net') ||
+    matchesHost('arkoselabs.com');
 
   const isChallengeSnippet =
     lowerSnippet.includes('cf-challenge') ||
@@ -272,8 +276,9 @@ export async function solveCloudflareChallenge(tabId: number): Promise<{ success
           // 2. Search for Cloudflare Turnstile iframe
           const iframes = queryDeep('iframe') as HTMLIFrameElement[];
           for (const iframe of iframes) {
-            const src = iframe.src || '';
-            if (src.includes('challenges.cloudflare.com') || src.includes('turnstile') || src.includes('cf-chl')) {
+            let providerUrl: URL;
+            try { providerUrl = new URL(iframe.src); } catch { continue; }
+            if (providerUrl.hostname === 'challenges.cloudflare.com') {
               const rect = iframe.getBoundingClientRect();
               if (rect.width > 0 && rect.height > 0) {
                 return { foundIframe: true, rect: { x: rect.x, y: rect.y, w: rect.width, h: rect.height } };
@@ -751,8 +756,9 @@ export async function solveHcaptchaChallenge(
           // Look for hCaptcha iframe
           const iframes = queryDeep('iframe') as HTMLIFrameElement[];
           for (const iframe of iframes) {
-            const src = iframe.src || '';
-            if (src.includes('hcaptcha.com') || src.includes('newassets.hcaptcha.com')) {
+            let providerUrl: URL;
+            try { providerUrl = new URL(iframe.src); } catch { continue; }
+            if (providerUrl.hostname === 'hcaptcha.com' || providerUrl.hostname.endsWith('.hcaptcha.com')) {
               const rect = iframe.getBoundingClientRect();
               if (rect.width > 0 && rect.height > 0) {
                 return { foundIframe: true, rect: { x: rect.x, y: rect.y, w: rect.width, h: rect.height } };
@@ -1083,14 +1089,16 @@ export async function detectPageCaptcha(tabId: number): Promise<CaptchaDetection
 
         const title = document.title.toLowerCase();
         const frameUrl = window.location.href;
-        const lowerFrameUrl = frameUrl.toLowerCase();
+        const providerUrl = new URL(frameUrl);
+        const matchesHost = (domain: string) =>
+          providerUrl.hostname === domain || providerUrl.hostname.endsWith(`.${domain}`);
         const isCaptchaProviderFrame =
-          lowerFrameUrl.includes('recaptcha') ||
-          lowerFrameUrl.includes('hcaptcha.com') ||
-          lowerFrameUrl.includes('challenges.cloudflare.com') ||
-          lowerFrameUrl.includes('captcha-delivery.com') ||
-          lowerFrameUrl.includes('geetest.com') ||
-          lowerFrameUrl.includes('arkoselabs.com');
+          ((matchesHost('google.com') || matchesHost('recaptcha.net')) && providerUrl.pathname.startsWith('/recaptcha/')) ||
+          matchesHost('hcaptcha.com') ||
+          matchesHost('challenges.cloudflare.com') ||
+          matchesHost('captcha-delivery.com') ||
+          matchesHost('geetest.com') ||
+          matchesHost('arkoselabs.com');
 
         // Interactive challenges get precedence over the provider wrapper so the
         // handoff can tell the person what is actually waiting inside the iframe.

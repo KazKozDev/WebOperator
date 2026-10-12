@@ -201,7 +201,8 @@ const server = http.createServer(async (req, res) => {
     const result = await route(req.method || 'GET', url, body);
     sendJson(res, 200, result);
   } catch (err) {
-    sendJson(res, statusForError(err), { error: err instanceof Error ? err.message : String(err) });
+    log(`http request failed: ${err instanceof Error ? err.stack : String(err)}`);
+    sendJson(res, statusForError(err), { error: publicErrorMessage(err) });
   }
 });
 
@@ -245,9 +246,14 @@ function sendJson(res, status, value) {
   res.end(body);
 }
 
+function publicErrorMessage(err) {
+  return err && err.publicMessage ? err.publicMessage : 'Internal server error';
+}
+
 function httpError(status, message) {
   const err = new Error(message);
   err.status = status;
+  err.publicMessage = message;
   return err;
 }
 
