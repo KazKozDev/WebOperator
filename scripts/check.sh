@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 node "$ROOT/scripts/eval-fixtures.mjs"
+node --test "$ROOT/scripts/security.test.mjs"
 node "$ROOT/scripts/bridge-smoke.mjs"
 node "$ROOT/scripts/mcp-smoke.mjs"
 

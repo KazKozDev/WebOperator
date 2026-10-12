@@ -171,7 +171,7 @@ function rejectAll(err) {
 }
 
 function requestExtension(type, payload = {}, timeoutMs = 60_000) {
-  if (!extensionOnline) throw new Error('WebOperator extension is not connected to the bridge');
+  if (!extensionOnline) throw httpError(500, 'WebOperator extension is not connected to the bridge');
   const id = randomUUID();
   const promise = new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
