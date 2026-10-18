@@ -1,6 +1,7 @@
 import { buildSnapshot } from '@/lib/a11y';
 import { runAction } from '@/lib/actions';
 import { clearSetOfMark, renderSetOfMark } from '@/lib/som';
+import { readImage } from '@/lib/image-read';
 import type { CSMessage, CSResponse } from '@/lib/types';
 
 declare global {
@@ -37,6 +38,9 @@ async function handle(msg: CSMessage): Promise<CSResponse> {
     case 'action:run': {
       const result = await runAction(msg.action, 10_000);
       return { kind: 'action:result', result };
+    }
+    case 'image:read': {
+      return { kind: 'image', result: await readImage(msg.ref) };
     }
     case 'som:render': {
       renderSetOfMark(msg.snapshot);

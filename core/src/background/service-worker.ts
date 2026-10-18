@@ -32,6 +32,7 @@ import { AgentPortHost } from '@/lib/port-channel';
 import { resolveOllamaModel } from '@/lib/types';
 import type { ActionResult, AgentStep, AgentTask, CSResponse, ScheduledTask, SWEvent, SWMessage, TaskAttachment, ToolCall } from '@/lib/types';
 import { frameIdFromRef, takeFrameSnapshot } from '@/lib/frames';
+import { blobToBase64 } from '@/lib/image-read';
 import { solveCaptcha, type CaptchaDetection } from '@/lib/captcha-solver';
 
 
@@ -695,6 +696,24 @@ async function executeBridgeRequest(type: string, payload: Record<string, unknow
           : await chrome.tabs.sendMessage(tabId, { kind: 'action:run', action }, { frameId });
         return resp;
       });
+    }
+    case 'browser.image': {
+      // Read-only: the image a ref points at, as base64. The page fetches it with its own session; when CORS
+      // stops the page, this worker fetches the same address under the extension's host permission.
+      const tabId = await activeTabIdFromPayload(payload);
+      await ensureContentScript(tabId);
+      const ref = String(payload.ref ?? '');
+      if (!ref) throw new Error('Missing ref');
+      const resp = await chrome.tabs.sendMessage(tabId, { kind: 'image:read', ref }, { frameId: frameIdFromRef(ref) }) as CSResponse;
+      if (resp.kind === 'error') throw new Error(resp.error);
+      if (resp.kind !== 'image') throw new Error('Unexpected reply from the page');
+      const read = resp.result;
+      if (read.ok) return { kind: 'image', ...read.image };
+      if (!('src' in read)) throw new Error(read.error);
+      const res = await fetch(read.src, { credentials: 'include' });
+      if (!res.ok) throw new Error(`Image fetch failed: HTTP ${res.status} (${read.error} in the page)`);
+      const blob = await res.blob();
+      return { kind: 'image', src: read.src, mimeType: blob.type || 'image/png', base64: await blobToBase64(blob), width: read.width, height: read.height, bytes: blob.size };
     }
     case 'browser.solve_captcha': {
       const tabId = await activeTabIdFromPayload(payload);

@@ -393,12 +393,14 @@ export type CSMessage =
   | { kind: 'overlay:hide' }
   | { kind: 'agent-glow:set'; active: boolean }
   | { kind: 'som:render'; snapshot: A11ySnapshot }
-  | { kind: 'som:clear' };
+  | { kind: 'som:clear' }
+  | { kind: 'image:read'; ref: string };
 
 
 export type CSResponse =
   | { kind: 'snapshot'; snapshot: A11ySnapshot }
   | { kind: 'action:result'; result: ActionResult }
+  | { kind: 'image'; result: import('./image-read').ImageReadResult }
   | { kind: 'ok' }
   | { kind: 'error'; error: string };
 
