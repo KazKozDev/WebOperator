@@ -29,6 +29,8 @@
   },
   "files": [
     "mcp-server.js",
+    "tools.js",
+    "local-files.js",
     "bridge.js",
     "agent-client.js",
     "native-host.sh",

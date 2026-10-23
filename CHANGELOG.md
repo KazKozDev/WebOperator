@@ -13,6 +13,9 @@ evals.
 
 ### Added
 
+- A shared 45-tool MCP catalogue for stdio and HTTP, including image content,
+  native select options, explicit JavaScript dialog handling, task pause/resume/wait,
+  tabs, network/console observation, storage and file transfers.
 - An `openai-compatible` provider: a base URL, an optional API key, and a model
   name, for any server speaking the OpenAI chat-completions dialect — LM Studio,
   vLLM, llama.cpp, LiteLLM, Together, Groq, Fireworks, or a corporate gateway.

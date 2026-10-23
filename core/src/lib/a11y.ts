@@ -1,4 +1,4 @@
-import type { A11yNode, A11ySnapshot, A11yRole } from './types';
+import type { A11yNode, A11ySnapshot, A11yRole, SnapshotRequestOptions } from './types';
 import { fastHash } from './hash';
 
 const INTERACTIVE_TAGS = new Set(['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'SUMMARY']);
@@ -7,82 +7,64 @@ const INTERACTIVE_ROLES = new Set([
   'radio', 'switch', 'slider', 'tab', 'menuitem', 'option', 'listbox',
 ]);
 
-export interface SnapshotOptions {
-  includeOutsideViewport?: boolean;
-  maxNodes?: number;
-  /** Namespaces refs so snapshots merged from several frames cannot collide (`@f3e1`). */
-  refPrefix?: string;
+export interface SnapshotOptions extends SnapshotRequestOptions { includeOutsideViewport?: boolean }
+const refsByPrefix = new Map<string, { refs: WeakMap<Element, string>; next: number }>();
+const SELECTORS = 'a,button,input,select,textarea,summary,[role],[contenteditable="true"],[tabindex]';
+
+/** Query reachable open roots; refs remain actionable in the same roots. */
+export function queryOpenRoots<T extends HTMLElement = HTMLElement>(selector: string, root: Document | ShadowRoot | HTMLElement = document): T[] {
+  const result = [...root.querySelectorAll<T>(selector)];
+  for (const host of root.querySelectorAll<HTMLElement>('*')) if (host.shadowRoot) result.push(...queryOpenRoots<T>(selector, host.shadowRoot));
+  return result;
 }
 
 export function buildSnapshot(opts: SnapshotOptions = {}): A11ySnapshot {
   const { includeOutsideViewport = false, maxNodes = 400, refPrefix = '' } = opts;
   const viewportW = window.innerWidth;
   const viewportH = window.innerHeight;
-  const nodes: A11yNode[] = [];
-  const refMap = new WeakMap<Element, string>();
-  let counter = 1;
-
-  const all = document.querySelectorAll<HTMLElement>(
-    'a,button,input,select,textarea,summary,[role],[contenteditable="true"],[tabindex]'
-  );
-
-  // Phase 1: collect viewport-visible elements first
+  let registry = refsByPrefix.get(refPrefix);
+  if (!registry) { registry = { refs: new WeakMap(), next: 1 }; refsByPrefix.set(refPrefix, registry); }
+  const selector = `${SELECTORS}${opts.includeImages ? ',img[src]' : ''}`;
+  const all = opts.shadow ? queryOpenRoots(selector) : [...document.querySelectorAll<HTMLElement>(selector)];
+  const candidates: { el: HTMLElement; role: A11yRole; name: string; rect: DOMRect; inViewport: boolean }[] = [];
   for (const el of all) {
-    if (nodes.length >= maxNodes) break;
     if (!isVisible(el)) continue;
-    const role = computeRole(el);
+    const role = el.tagName === 'IMG' && opts.includeImages ? 'image' : computeRole(el);
     if (!role) continue;
     const name = accessibleName(el);
     if (role === 'generic' && !name && !el.getAttribute('aria-label') && !el.getAttribute('title')) continue;
+    if (opts.roles?.length && !opts.roles.includes(role) && !(role === 'image' && opts.roles.includes('img'))) continue;
+    if (opts.query && !`${name} ${readValue(el) ?? ''} ${el.innerText ?? ''}`.toLowerCase().includes(opts.query.toLowerCase())) continue;
     const rect = el.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) continue;
+    if (!rect.width || !rect.height) continue;
+    if (el.tagName === 'IMG' && rect.width * rect.height < (opts.minImageArea ?? 0)) continue;
     const inViewport = rect.bottom > 0 && rect.right > 0 && rect.top < viewportH && rect.left < viewportW;
-    if (!inViewport) continue;
-
-    const ref = `@${refPrefix}e${counter++}`;
-    refMap.set(el, ref);
-    nodes.push(buildNode(el, ref, role, name, rect, true));
-    (el as HTMLElement).dataset.agentRef = ref;
+    if (!inViewport && !includeOutsideViewport) continue;
+    candidates.push({ el, role, name, rect, inViewport });
   }
-
-  // Phase 2: fill remaining slots with off-screen elements (only if requested)
-  if (includeOutsideViewport && nodes.length < maxNodes) {
-    for (const el of all) {
-      if (nodes.length >= maxNodes) break;
-      if (!isVisible(el)) continue;
-      if (refMap.has(el)) continue;
-      const role = computeRole(el);
-      if (!role) continue;
-      const name = accessibleName(el);
-      if (role === 'generic' && !name && !el.getAttribute('aria-label') && !el.getAttribute('title')) continue;
-      const rect = el.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) continue;
-
-      const ref = `@${refPrefix}e${counter++}`;
-      refMap.set(el, ref);
-      nodes.push(buildNode(el, ref, role, name, rect, false));
-      (el as HTMLElement).dataset.agentRef = ref;
+  candidates.sort((a, b) => Number(b.inViewport) - Number(a.inViewport));
+  const nodes = candidates.slice(0, maxNodes).map(({ el, role, name, rect, inViewport }) => {
+    let ref = registry.refs.get(el);
+    if (!ref) { ref = `@${refPrefix}e${registry.next++}`; registry.refs.set(el, ref); }
+    el.dataset.agentRef = ref;
+    const node = buildNode(el, ref, role, name, rect, inViewport);
+    if (opts.text) node.text = (el.innerText ?? el.textContent ?? '').trim().slice(0, 200);
+    if (el.tagName === 'IMG') {
+      const img = el as HTMLImageElement;
+      Object.assign(node, { src: img.currentSrc || img.src, naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight });
     }
-  }
-
-  const structure = nodes.map((n) => `${n.role}:${n.name.slice(0, 40)}`).join('|');
+    const frame = /^f(\d+)/.exec(refPrefix);
+    node.frameId = frame ? Number(frame[1]) : 0;
+    return node;
+  });
   const textSnippets = visibleTextSnippets();
-  const textStructure = textSnippets.map((t) => t.slice(0, 40)).join('|');
-  const domHash = fastHash(`${location.pathname}::${structure}::${textStructure}`);
-
-  return {
-    url: location.href,
-    title: document.title,
-    viewport: { w: viewportW, h: viewportH, scrollX: window.scrollX, scrollY: window.scrollY },
-    nodes,
-    textSnippets,
-    domHash,
-    takenAt: Date.now(),
-  };
+  const domHash = fastHash(`${location.pathname}::${nodes.map((node) => JSON.stringify(node)).join('|')}::${textSnippets.join('|')}`);
+  return { url: location.href, title: document.title, viewport: { w: viewportW, h: viewportH, scrollX: window.scrollX, scrollY: window.scrollY }, nodes, textSnippets, domHash, takenAt: Date.now(), total: candidates.length, truncated: candidates.length > nodes.length, frameCount: 1 };
 }
 
 export function findElementByRef(ref: string): HTMLElement | null {
-  return document.querySelector<HTMLElement>(`[data-agent-ref="${CSS.escape(ref)}"]`);
+  const selector = `[data-agent-ref="${CSS.escape(ref)}"]`;
+  return document.querySelector<HTMLElement>(selector) ?? queryOpenRoots(selector)[0] ?? null;
 }
 
 export function formatSnapshot(s: A11ySnapshot): string {

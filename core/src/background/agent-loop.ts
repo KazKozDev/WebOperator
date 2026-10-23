@@ -900,6 +900,8 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       // ── Critical action confirmation ──
       if (requiresConfirm(toolCall, snapshot, settings)) {
         task.status = 'awaiting_confirm';
+        task.updatedAt = Date.now();
+        await saveTask(task);
         broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
         const ok = await deps.shouldConfirm(task, toolCall);
         if (!ok) {
@@ -913,6 +915,8 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
           break;
         }
         task.status = 'running';
+        task.updatedAt = Date.now();
+        await saveTask(task);
         broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
       }
 

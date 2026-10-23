@@ -1,6 +1,8 @@
+import { pageRequest } from '@/lib/bridge-page';
 import { buildSnapshot } from '@/lib/a11y';
 import { runAction } from '@/lib/actions';
 import { clearSetOfMark, renderSetOfMark } from '@/lib/som';
+import { readImage } from '@/lib/image-read';
 import type { CSMessage, CSResponse } from '@/lib/types';
 
 declare global {
@@ -22,21 +24,26 @@ if (!window.__gemma4AgentContentScriptLoaded) {
 
 async function handle(msg: CSMessage): Promise<CSResponse> {
   switch (msg.kind) {
+    case 'bridge:page': return { kind: 'bridge:page', result: pageRequest(msg.type, msg.payload) };
     case 'ping': {
       return { kind: 'ok' };
     }
     case 'snapshot:take': {
 
       const snapshot = buildSnapshot({
+        ...msg.options,
         includeOutsideViewport: msg.options?.allElements,
         refPrefix: msg.options?.refPrefix,
-        ...(msg.options?.maxNodes ? { maxNodes: msg.options.maxNodes } : {}),
+        ...(msg.options?.maxNodes !== undefined ? { maxNodes: msg.options.maxNodes } : {}),
       });
       return { kind: 'snapshot', snapshot };
     }
     case 'action:run': {
-      const result = await runAction(msg.action, 10_000);
+      const result = await runAction(msg.action, msg.action.name === 'wait' ? Math.min(Number(msg.action.arguments.ms ?? 1000), 120_000) + 1000 : 10_000);
       return { kind: 'action:result', result };
+    }
+    case 'image:read': {
+      return { kind: 'image', result: await readImage(msg.ref) };
     }
     case 'som:render': {
       renderSetOfMark(msg.snapshot);

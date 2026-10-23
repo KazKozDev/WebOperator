@@ -1,4 +1,4 @@
-import type { A11ySnapshot, CSMessage, CSResponse } from './types';
+import type { A11ySnapshot, CSMessage, CSResponse, SnapshotRequestOptions } from './types';
 
 /**
  * Cross-frame snapshots.
@@ -16,14 +16,14 @@ import type { A11ySnapshot, CSMessage, CSResponse } from './types';
  * regardless; only coordinate consumers (set-of-mark boxes) skip the nodes marked with a frame.
  */
 
-const FRAME_REF = /^@f(\d+)e/;
+const FRAME_REF = /^@f(\d+)(?:e|__)/;
 
 export function frameIdFromRef(ref: string): number {
   const match = FRAME_REF.exec(ref);
   return match ? Number(match[1]) : 0;
 }
 
-export interface FrameSnapshotOptions {
+export interface FrameSnapshotOptions extends SnapshotRequestOptions {
   allElements?: boolean;
   /** Nodes to request per child frame. The top document always gets the full budget. */
   frameMaxNodes?: number;
@@ -39,13 +39,15 @@ export async function takeFrameSnapshot(
   send: (msg: CSMessage) => Promise<CSResponse>,
   options: FrameSnapshotOptions = {},
 ): Promise<A11ySnapshot> {
-  const top = await send({ kind: 'snapshot:take', options: { allElements: options.allElements } });
+  const top = await send({ kind: 'snapshot:take', options });
   if (top.kind !== 'snapshot') throw new Error('Snapshot failed');
 
   const childFrames = await listChildFrames(tabId);
   if (childFrames.length === 0) return top.snapshot;
 
   const merged = top.snapshot;
+  merged.nodes = merged.nodes.map((node) => ({ ...node, frameId: 0 }));
+  merged.frameCount = 1;
   for (const frameId of childFrames) {
     try {
       const res = await chrome.tabs.sendMessage(
@@ -53,15 +55,18 @@ export async function takeFrameSnapshot(
         {
           kind: 'snapshot:take',
           options: {
-            allElements: options.allElements,
-            refPrefix: `f${frameId}`,
-            maxNodes: options.frameMaxNodes ?? 60,
+            ...options,
+            refPrefix: `f${frameId}${options.refPrefix ? `__${options.refPrefix}` : ''}`,
+            maxNodes: Math.max(0, Math.min(options.frameMaxNodes ?? options.maxNodes ?? 60, (options.maxNodes ?? 10000) - merged.nodes.length)),
           },
         } satisfies CSMessage,
         { frameId },
       ) as CSResponse;
       if (res?.kind !== 'snapshot') continue;
 
+      merged.frameCount!++;
+      merged.total = (merged.total ?? merged.nodes.length) + (res.snapshot.total ?? res.snapshot.nodes.length);
+      merged.truncated ||= res.snapshot.truncated;
       for (const node of res.snapshot.nodes) merged.nodes.push({ ...node, frameId });
       for (const snippet of res.snapshot.textSnippets ?? []) {
         merged.textSnippets = merged.textSnippets ?? [];
