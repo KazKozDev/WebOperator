@@ -1,3 +1,4 @@
+import { acquireCdp } from './cdp-session';
 import type { A11ySnapshot, ActionResult, ToolCall } from '@/lib/types';
 
 type Debuggee = { tabId: number };
@@ -27,13 +28,12 @@ export async function runCdpAction(tabId: number, snapshot: A11ySnapshot, call: 
   }
 
   const target: Debuggee = { tabId };
-  let attached = false;
+  let release: (() => Promise<void>) | undefined;
   let extracted: unknown;
 
   try {
 
-    await chrome.debugger.attach(target, '1.3');
-    attached = true;
+    release = await acquireCdp(tabId);
     await applyStealthPatches(target);
     await send(target, 'Runtime.evaluate', { expression: 'document.activeElement && document.activeElement.blur()' });
 
@@ -99,7 +99,7 @@ export async function runCdpAction(tabId: number, snapshot: A11ySnapshot, call: 
       durationMs: performance.now() - started,
     };
   } finally {
-    if (attached) await chrome.debugger.detach(target).catch(() => {});
+    if (release) await release();
   }
 }
 
@@ -324,7 +324,7 @@ async function cdpReadCells(target: Debuggee, snapshot: A11ySnapshot, range: str
   return { range, cells: rows };
 }
 
-async function writeClipboardInPage(target: Debuggee, url: string, text: string): Promise<void> {
+export async function writeClipboardInPage(target: Debuggee, url: string, text: string): Promise<void> {
   const origin = new URL(url).origin;
   await send(target, 'Browser.grantPermissions', {
     origin,
@@ -339,7 +339,7 @@ async function writeClipboardInPage(target: Debuggee, url: string, text: string)
   if (result.exceptionDetails) throw new Error('Could not write TSV to clipboard from page context');
 }
 
-async function readClipboardInPage(target: Debuggee, url: string): Promise<string> {
+export async function readClipboardInPage(target: Debuggee, url: string): Promise<string> {
   const origin = new URL(url).origin;
   await send(target, 'Browser.grantPermissions', {
     origin,

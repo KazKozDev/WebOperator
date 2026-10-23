@@ -4,6 +4,7 @@ const http = require('http');
 const net = require('net');
 const { randomUUID } = require('crypto');
 const fs = require('fs');
+const { prepareLocalRequest, completeLocalRequest, clipboardRequest } = require('./local-files');
 
 const HOST = process.env.WEBOPERATOR_BRIDGE_HOST || '127.0.0.1';
 const PORT = Number(process.env.WEBOPERATOR_BRIDGE_PORT || 8765);
@@ -170,7 +171,14 @@ function rejectAll(err) {
   }
 }
 
-function requestExtension(type, payload = {}, timeoutMs = 60_000) {
+async function requestExtension(type, payload = {}, timeoutMs = 60_000) {
+  if (extensionOnline && process.platform === 'darwin' && ['clipboard.read', 'clipboard.write'].includes(type)) return clipboardRequest(type, payload);
+  const prepared = await prepareLocalRequest(type, payload);
+  const result = await rawRequestExtension(type, prepared, timeoutMs);
+  return completeLocalRequest(type, prepared, result);
+}
+
+function rawRequestExtension(type, payload = {}, timeoutMs = 60_000) {
   if (!extensionOnline) throw httpError(500, 'WebOperator extension is not connected to the bridge');
   const id = randomUUID();
   const promise = new Promise((resolve, reject) => {
@@ -337,7 +345,7 @@ async function route(method, url, body) {
     if (method === 'POST' && action === 'stop') return requestExtension('tasks.stop', { id }, 30_000);
     if (method === 'POST' && action === 'pause') return requestExtension('tasks.pause', { id }, 30_000);
     if (method === 'POST' && action === 'resume') return requestExtension('tasks.resume', { id }, 30_000);
-    if (method === 'POST' && action === 'confirm') return requestExtension('tasks.confirm', { id, allow: body.allow }, 30_000);
+    if (method === 'POST' && action === 'confirm') return requestExtension('tasks.confirm', { id, ...(body.approve === undefined ? { allow: body.allow } : { approve: body.approve }) }, 30_000);
     if (method === 'POST' && action === 'wait') {
       return requestExtension('tasks.wait', { id, timeoutMs: body.timeoutMs }, Number(body.timeoutMs || 120_000) + 5_000);
     }
@@ -510,113 +518,24 @@ function sendAgentFrame(socket, obj) {
   socket.write(Buffer.concat([header, body]));
 }
 
-const AGENT_TOOLS = [
-  {
-    type: 'function',
-    function: {
-      name: 'browser_snapshot',
-      description: 'Capture the structured accessibility tree and numbered interactive elements from the active tab.',
-      parameters: { type: 'object', properties: {} },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_navigate',
-      description: 'Navigate the active browser tab to a specified URL.',
-      parameters: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_click',
-      description: 'Click an element on the active webpage by numeric index or selector.',
-      parameters: { type: 'object', properties: { index: { type: 'number' }, selector: { type: 'string' } } },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_type',
-      description: 'Type text into an input field by element index or selector.',
-      parameters: { type: 'object', properties: { index: { type: 'number' }, selector: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' } }, required: ['text'] },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_press',
-      description: 'Press a keyboard key on the active webpage (e.g. Enter, Tab, Escape).',
-      parameters: { type: 'object', properties: { key: { type: 'string' } }, required: ['key'] },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_scroll',
-      description: 'Scroll the active webpage.',
-      parameters: { type: 'object', properties: { direction: { type: 'string', enum: ['down', 'up'] }, amount: { type: 'number' } } },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_screenshot',
-      description: 'Capture a visual PNG screenshot of the current tab.',
-      parameters: { type: 'object', properties: {} },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_extract',
-      description: 'Extract targeted text or structured content from the page.',
-      parameters: { type: 'object', properties: { instruction: { type: 'string' }, selector: { type: 'string' } } },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_solve_captcha',
-      description: 'Attempt to detect and automatically solve or click Cloudflare Turnstile, reCAPTCHA, hCaptcha, slider puzzle, or visual text challenges in the active tab.',
-      parameters: { type: 'object', properties: { type: { type: 'string', enum: ['cloudflare', 'recaptcha', 'hcaptcha', 'slider', 'image', 'audio', 'press_and_hold', 'pow', 'auto'] } } },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'weboperator_execute_goal',
-      description: 'Execute an autonomous browser goal end-to-end.',
-      parameters: { type: 'object', properties: { goal: { type: 'string' }, timeoutMs: { type: 'number' } }, required: ['goal'] },
-    },
-  },
-];
+const { TOOLS, TOOL_TYPES, imageContent } = require('./tools');
+const AGENT_TOOLS = TOOLS.map(({ name, description, inputSchema }) => ({ type: 'function', function: { name, description, parameters: inputSchema } }));
 
 async function executeToolByName(name, args = {}, timeoutMs = 30_000) {
+  if (name !== 'weboperator_execute_goal' && TOOL_TYPES[name]) {
+    const response = await requestExtension(TOOL_TYPES[name], { ...args, ...(args.type === 'auto' ? { type: undefined } : {}) }, Math.max(timeoutMs, Number(args.timeoutMs ?? 0) + 10_000));
+    const result = response?.kind === 'action:result' ? response.result : response;
+    if (['browser_click', 'browser_type', 'browser_scroll', 'browser_select_option'].includes(name) && (response?.kind === 'error' || result?.ok === false)) {
+      throw httpError(400, result?.error || response.error || 'Browser action failed');
+    }
+    return response;
+  }
   switch (name) {
-    case 'browser_snapshot':
-      return requestExtension('browser.snapshot', {}, timeoutMs);
-    case 'browser_navigate':
-      return requestExtension('browser.navigate', { url: args.url }, timeoutMs);
-    case 'browser_click':
-      return requestExtension('browser.click', { index: args.index, selector: args.selector }, timeoutMs);
-    case 'browser_type':
-      return requestExtension('browser.type', { index: args.index, selector: args.selector, text: args.text, clear: args.clear }, timeoutMs);
-    case 'browser_press':
-      return requestExtension('browser.press', { key: args.key }, timeoutMs);
-    case 'browser_scroll':
-      return requestExtension('browser.scroll', { direction: args.direction || 'down', amount: args.amount || 500 }, timeoutMs);
-    case 'browser_screenshot':
-      return requestExtension('browser.screenshot', {}, timeoutMs);
-    case 'browser_extract':
-      return requestExtension('browser.extract', { instruction: args.instruction, selector: args.selector }, timeoutMs);
-    case 'browser_solve_captcha':
-      return requestExtension('browser.solve_captcha', { type: args.type === 'auto' ? undefined : args.type }, timeoutMs);
     case 'weboperator_execute_goal': {
       const taskTimeout = Number(args.timeoutMs || timeoutMs || 120_000);
-      const startRes = await requestExtension('tasks.start', { goal: args.goal, timeoutMs: taskTimeout }, 30_000);
-      const taskId = startRes && startRes.id;
+      const startRes = await requestExtension('tasks.start', { ...args, goal: args.goal, timeoutMs: taskTimeout, wait: false }, 30_000);
+      const taskId = startRes && (startRes.taskId || startRes.id);
+      if (args.wait === false) return { ...startRes, taskId };
       if (!taskId) return startRes;
       const finalTask = await requestExtension('tasks.wait', { id: taskId, timeoutMs: taskTimeout }, taskTimeout + 10_000);
       return formatTaskResultForAgent(finalTask || startRes);
@@ -676,6 +595,7 @@ function formatTaskResultForAgent(task) {
 
   return {
     ok: task.status === 'done',
+    taskId: task.taskId || task.id,
     status: task.status,
     goal: task.goal,
     answer,
@@ -696,7 +616,7 @@ async function handleMcpHttp(msg) {
       result: {
         protocolVersion: '2024-11-05',
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: 'weboperator-bridge', version: '1.4.0' },
+        serverInfo: { name: 'weboperator-bridge', version: require('./package.json').version },
       },
     };
   }
@@ -721,7 +641,7 @@ async function handleMcpHttp(msg) {
         jsonrpc: '2.0',
         id,
         result: {
-          content: [{ type: 'text', text: typeof res === 'string' ? res : JSON.stringify(res, null, 2) }],
+          content: name === 'browser_image' ? imageContent(res) : [{ type: 'text', text: typeof res === 'string' ? res : JSON.stringify(res, null, 2) }],
         },
       };
     } catch (err) {

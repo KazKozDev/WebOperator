@@ -164,6 +164,10 @@ export interface A11yNode {
   role: A11yRole;
   name: string;
   value?: string;
+  text?: string;
+  src?: string;
+  naturalWidth?: number;
+  naturalHeight?: number;
   href?: string;
   state?: string[];
   bbox: { x: number; y: number; w: number; h: number };
@@ -173,7 +177,24 @@ export interface A11yNode {
   frameId?: number;
 }
 
+export interface SnapshotRequestOptions {
+  allElements?: boolean;
+  maxNodes?: number;
+  refPrefix?: string;
+  roles?: string[];
+  query?: string;
+  text?: boolean;
+  diff?: boolean;
+  includeImages?: boolean;
+  minImageArea?: number;
+  shadow?: boolean;
+}
+
 export interface A11ySnapshot {
+  truncated?: boolean;
+  total?: number;
+  frameCount?: number;
+  diff?: { added: A11yNode[]; removed: string[]; changed: A11yNode[] };
   url: string;
   title: string;
   viewport: { w: number; h: number; scrollX: number; scrollY: number };
@@ -387,18 +408,22 @@ export type SWEvent =
 
 export type CSMessage =
   | { kind: 'ping' }
-  | { kind: 'snapshot:take'; options?: { allElements?: boolean; refPrefix?: string; maxNodes?: number } }
+  | { kind: 'bridge:page'; type: string; payload: Record<string, unknown> }
+  | { kind: 'snapshot:take'; options?: SnapshotRequestOptions }
   | { kind: 'action:run'; action: ToolCall }
   | { kind: 'overlay:show'; refs: string[] }
   | { kind: 'overlay:hide' }
   | { kind: 'agent-glow:set'; active: boolean }
   | { kind: 'som:render'; snapshot: A11ySnapshot }
-  | { kind: 'som:clear' };
+  | { kind: 'som:clear' }
+  | { kind: 'image:read'; ref: string };
 
 
 export type CSResponse =
+  | { kind: 'bridge:page'; result: unknown }
   | { kind: 'snapshot'; snapshot: A11ySnapshot }
   | { kind: 'action:result'; result: ActionResult }
+  | { kind: 'image'; result: import('./image-read').ImageReadResult }
   | { kind: 'ok' }
   | { kind: 'error'; error: string };
 
