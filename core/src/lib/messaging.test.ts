@@ -1,8 +1,38 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { sendToContent } from './messaging';
+import { ensureContentScript, sendToContent } from './messaging';
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe('ensureContentScript', () => {
+  it('injects the standalone bundle when the receiver is missing', async () => {
+    const sendMessage = vi.fn()
+      .mockRejectedValueOnce(new Error('Receiving end does not exist'))
+      .mockResolvedValue({ kind: 'ok' });
+    const executeScript = vi.fn().mockResolvedValue([]);
+    vi.stubGlobal('chrome', { tabs: { sendMessage }, scripting: { executeScript } });
+
+    await ensureContentScript(42);
+
+    expect(executeScript).toHaveBeenCalledWith({
+      target: { tabId: 42 },
+      files: ['src/content/content-script.js'],
+    });
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps an already responding receiver', async () => {
+    const executeScript = vi.fn();
+    vi.stubGlobal('chrome', {
+      tabs: { sendMessage: vi.fn().mockResolvedValue({ kind: 'ok' }) },
+      scripting: { executeScript },
+    });
+
+    await ensureContentScript(42);
+
+    expect(executeScript).not.toHaveBeenCalled();
+  });
 });
 
 describe('sendToContent', () => {

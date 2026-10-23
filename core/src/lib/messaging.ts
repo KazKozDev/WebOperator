@@ -91,7 +91,7 @@ export async function ensureContentScript(tabId: number): Promise<void> {
 
   await chrome.scripting.executeScript({
     target: { tabId },
-    files: ['assets/content-script.ts-loader.js'],
+    files: ['src/content/content-script.js'],
   });
 
   const started = Date.now();
