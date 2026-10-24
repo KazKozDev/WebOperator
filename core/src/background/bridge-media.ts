@@ -20,9 +20,14 @@ function targetElement(ref: string): HTMLElement {
   return el;
 }
 
+// JSON.stringify output can still close a script or line in embedded code; escape those characters too.
+function codeLiteral(value: string): string {
+  return JSON.stringify(value).replace(/[<>/\u2028\u2029]/g, (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`);
+}
+
 async function remoteElement(tabId: number, ref: string, frameId: number, fileInput = false): Promise<string> {
   if (!ref) throw new Error('Missing element ref');
-  const expression = `(() => {const el=(${targetElement.toString()})(${JSON.stringify(ref)}); ${fileInput ? `if(el.matches('input[type="file"]')) return el; if(el.tagName==='LABEL' && el.control?.type==='file') return el.control; const child=el.querySelector('input[type="file"]') ?? el.parentElement?.querySelector('input[type="file"]'); if(!child) throw new Error('No file input at ref'); return child;` : `el.scrollIntoView({block:'center',inline:'center',behavior:'instant'}); if(!el.checkVisibility({checkOpacity:true,checkVisibilityCSS:true})) throw new Error('Element not visible after scroll'); return el;`} })()`;
+  const expression = `(() => {const el=(${targetElement.toString()})(${codeLiteral(ref)}); ${fileInput ? `if(el.matches('input[type="file"]')) return el; if(el.tagName==='LABEL' && el.control?.type==='file') return el.control; const child=el.querySelector('input[type="file"]') ?? el.parentElement?.querySelector('input[type="file"]'); if(!child) throw new Error('No file input at ref'); return child;` : `el.scrollIntoView({block:'center',inline:'center',behavior:'instant'}); if(!el.checkVisibility({checkOpacity:true,checkVisibilityCSS:true})) throw new Error('Element not visible after scroll'); return el;`} })()`;
   const result = await evaluateInTab(tabId, { expression, returnByValue: false, frameId });
   if (!result.ok || !('objectId' in result) || !result.objectId) throw new Error('exception' in result ? result.exception?.text ?? 'Evaluation failed' : 'error' in result ? result.error : 'Element not found');
   return result.objectId;
