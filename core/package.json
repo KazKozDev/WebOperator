@@ -31,7 +31,7 @@
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
-    "@crxjs/vite-plugin": "^2.7.1",
+    "@crxjs/vite-plugin": "^3.0.0",
     "@eslint/js": "^10.0.1",
     "@types/chrome": "^0.3.6",
     "@types/pdfmake": "^0.3.3",
