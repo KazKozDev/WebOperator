@@ -69,6 +69,10 @@ evals.
 - A shared 45-tool MCP catalogue for stdio and HTTP, including images, select options,
   JavaScript dialogs, task pause/resume/wait, tabs, network/console, storage and files.
 - Complete OpenClaw tool configuration with the same 45 tools.
+- Long collections check themselves: a request for 200 records stops at the total the
+  page's pager claims, a scroll that adds nothing is rechecked once before the run reports
+  the actual count, and long text is read in paragraph-sized chunks that record the last
+  section reached.
 
 ### Fixed
 

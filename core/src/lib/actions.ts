@@ -386,7 +386,8 @@ async function doScroll(
       default: throw new Error(`Unknown direction: ${direction}`);
     }
   }
-  await tick();
+  // A lazy list fetches its next rows after the scroll lands; give it time before the next capture.
+  await (collectionList ? waitForSettledDom(2500, 400) : tick());
 
   const afterY = isContainer && container ? container.scrollTop : window.scrollY;
   const delta = Math.abs(afterY - beforeY);

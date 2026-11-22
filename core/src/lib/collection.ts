@@ -7,6 +7,8 @@ export interface PageRows {
   source: string;
   rows: CollectedRow[];
   range?: [number, number];
+  /** The total the page's own pager claims ("1–50 of 180" → 180). */
+  claimed?: number;
   nextRef?: string;
   scrollBy?: number;
 }
@@ -17,12 +19,64 @@ export interface TextChunk {
   offset: number;
   total: number;
   text: string;
+  /** The last section heading that starts before the end of this chunk. */
+  heading?: string;
 }
 export interface Collection {
   rows: CollectedRow[];
   target?: number;
+  /** The total the page claims; caps the target when the site has fewer records. */
+  claimed?: number;
+  /** Set when a capture after a scroll or Next added nothing, even after one recheck. */
+  stalled?: boolean;
+  rechecked?: boolean;
   pages: { source: string; start: number; end: number; keys: string[] }[];
-  documents: { source: string; revision: string; text: string; total: number }[];
+  documents: { source: string; revision: string; text: string; total: number; position?: string }[];
+}
+
+const CHUNK_CHARS = 6000;
+const STALL_RECHECK_MS = 2500;
+
+/**
+ * How many records the collection should end with: the request, capped by what the page claims.
+ * A claimed total alone never becomes the goal, so "1–50 of 2,345" does not start a 2,345-row crawl.
+ */
+export function goal(c: Collection): number | undefined {
+  return c.target && c.claimed ? Math.min(c.target, c.claimed) : c.target;
+}
+
+/** Parses a pager label such as "1–50 of 1,234" into the shown range and the claimed total. */
+export function parseRange(label: string): { range: [number, number]; claimed: number } | undefined {
+  const match = label.match(/(?:^|\s)(\d+)\s*[-–—]\s*(\d+)\s+(?:of|из|de|sur|von)\s+(\d{1,3}(?:[,.\u00a0 ]\d{3})+|\d+)/i);
+  if (!match) return undefined;
+  const start = +match[1], end = +match[2], claimed = +match[3].replace(/\D/g, '');
+  if (!(start > 0 && end >= start && claimed >= end)) return undefined;
+  return { range: [start, end], claimed };
+}
+
+/** End of the chunk that starts at offset: snapped back to a paragraph or line break, never empty. */
+export function chunkEnd(full: string, offset: number, max = CHUNK_CHARS): number {
+  if (offset + max >= full.length) return full.length;
+  const window = full.slice(offset, offset + max);
+  for (const sep of ['\n\n', '\n', '. ']) {
+    const at = window.lastIndexOf(sep);
+    if (at >= max / 2) return offset + at + sep.length;
+  }
+  return offset + max;
+}
+
+/** The last heading whose text starts before end, located in order through the full text. */
+export function lastHeadingBefore(full: string, headings: string[], end: number): string | undefined {
+  let cursor = 0;
+  let last: string | undefined;
+  for (const heading of headings) {
+    const at = full.indexOf(heading, cursor);
+    if (at < 0) continue;
+    if (at >= end) break;
+    last = heading;
+    cursor = at + heading.length;
+  }
+  return last;
 }
 
 let listScroller: HTMLElement | undefined;
@@ -43,7 +97,11 @@ export function readCollection(mode: 'rows' | 'chunk', args: Record<string, unkn
     const revision = fastHash(full);
     const offset = args.revision === revision ? Number(args.offset ?? 0) : 0;
     if (!Number.isSafeInteger(offset) || offset < 0 || offset > full.length) throw new Error('Invalid text offset');
-    return { kind: 'chunk', source, revision, offset, total: full.length, text: full.slice(offset, offset + 6000) };
+    const end = chunkEnd(full, offset);
+    const headings = [...article.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6,[role="heading"]')]
+      .map(h => h.innerText.trim()).filter(Boolean);
+    const heading = lastHeadingBefore(full, headings, end);
+    return { kind: 'chunk', source, revision, offset, total: full.length, text: full.slice(offset, end), ...(heading ? { heading } : {}) };
   }
 
   // Prefer one homogeneous group of siblings over unrelated lists and navigation links.
@@ -91,8 +149,8 @@ export function readCollection(mode: 'rows' | 'chunk', args: Record<string, unkn
   const labels = [...document.querySelectorAll<HTMLElement>('[role="navigation"],[role="toolbar"],nav,[aria-live],.Dj')];
   for (const el of labels) {
     if (!el.getClientRects().length) continue;
-    const match = el.innerText.match(/(?:^|\s)(\d+)\s*[-–—]\s*(\d+)\s+(?:of|из|de|sur|von)\s+[\d, .\u00a0]+/i);
-    if (match && +match[1] > 0 && +match[2] >= +match[1]) { page.range = [+match[1], +match[2]]; break; }
+    const parsed = parseRange(el.innerText);
+    if (parsed) { page.range = parsed.range; page.claimed = parsed.claimed; break; }
   }
   return page;
 }
@@ -102,20 +160,25 @@ export function mergeCollection(c: Collection, batch: PageRows | TextChunk): voi
     const doc = c.documents.find(d => d.source === batch.source);
     if (!doc || doc.revision !== batch.revision) {
       if (batch.offset !== 0) throw new Error('Document changed; restart at offset zero');
-      const next = { source: batch.source, revision: batch.revision, total: batch.total, text: batch.text };
+      const next = { source: batch.source, revision: batch.revision, total: batch.total, text: batch.text, position: batch.heading };
       if (doc) Object.assign(doc, next);
       else c.documents.push(next);
-    } else if (batch.offset === doc.text.length) doc.text += batch.text;
+    } else if (batch.offset === doc.text.length) {
+      doc.text += batch.text;
+      if (batch.heading) doc.position = batch.heading;
+    }
     else if (doc.text.slice(batch.offset, batch.offset + batch.text.length) !== batch.text || batch.offset > doc.text.length) throw new Error('Non-contiguous text chunk');
     return;
   }
-  if (batch.range && c.target) {
+  if (batch.claimed && c.target) c.claimed = batch.claimed;
+  const want = goal(c);
+  if (batch.range && want) {
     const missing = firstUnverified(c);
     if (batch.range[0] > missing) throw new Error(`Return to the range containing row ${missing} before collecting ${batch.range[0]}–${batch.range[1]}.`);
   }
   const seen = new Set(c.rows.map(r => r.key));
   for (const row of batch.rows) {
-    if (seen.has(row.key) || (c.target && c.rows.length >= c.target)) continue;
+    if (seen.has(row.key) || (want && c.rows.length >= want)) continue;
     c.rows.push(row);
     seen.add(row.key);
   }
@@ -128,15 +191,20 @@ export function mergeCollection(c: Collection, batch: PageRows | TextChunk): voi
 }
 
 export function progress(c: Collection): string {
-  const lines = [`${c.rows.length}${c.target ? '/' + c.target : ''} unique rows saved`];
+  const want = goal(c);
+  const count = `${c.rows.length}${want ? '/' + want : ''}`;
+  const capped = c.target && c.claimed && c.claimed < c.target ? ` (requested ${c.target}; the page claims only ${c.claimed})` : '';
+  const lines = [`${count} unique rows saved${capped}`];
+  if (c.stalled) lines.push(`loading stopped at ${count}: a recheck after the last scroll or page change added nothing`);
   for (const p of c.pages) lines.push(`range ${p.start}–${p.end}: ${p.keys.length} distinct rows observed`);
-  for (const d of c.documents) lines.push(`${d.source}: ${d.text.length}/${d.total} characters saved`);
+  for (const d of c.documents) lines.push(`${d.source}: ${d.text.length}/${d.total} characters saved${d.position ? `, reached "${d.position}"` : ''}`);
   return lines.join('\n');
 }
 
 export function incomplete(c: Collection): boolean {
-  return Boolean(c.target && c.rows.length < c.target) || c.documents.some(d => d.text.length < d.total) ||
-    c.pages.some(p => p.keys.length < Math.min(p.end, c.target ?? p.end) - p.start + 1);
+  const want = goal(c);
+  return Boolean(want && c.rows.length < want) || c.documents.some(d => d.text.length < d.total) ||
+    c.pages.some(p => p.keys.length < Math.min(p.end, want ?? p.end) - p.start + 1);
 }
 
 function firstUnverified(c: Collection): number {
@@ -149,9 +217,17 @@ function firstUnverified(c: Collection): number {
 }
 
 export function collectionFollowUp(c: Collection, batch: PageRows | TextChunk, read: ToolCall, advanced: boolean): ToolCall[] {
-  if (!advanced) return [];
-  if (batch.kind === 'chunk') return batch.offset + batch.text.length < batch.total ? [read] : [];
-  if (!c.target || c.rows.length >= c.target) return [];
+  if (batch.kind === 'chunk') return advanced && batch.offset + batch.text.length < batch.total ? [read] : [];
+  const want = goal(c);
+  if (!want || c.rows.length >= want) return [];
+  if (!advanced) {
+    // Lazy lists often answer a scroll a moment late: look once more before calling it a stall.
+    if (c.rechecked) { c.stalled = true; return []; }
+    c.rechecked = true;
+    return [{ name: 'wait', arguments: { ms: STALL_RECHECK_MS, until: 'none', reason: 'Recheck a load that added no records' } }, read];
+  }
+  c.rechecked = false;
+  c.stalled = false;
   const fullPage = !batch.range || firstUnverified(c) > batch.range[1];
   if (fullPage && batch.nextRef) {
     return [{ name: 'click', arguments: { ref: batch.nextRef, reason: 'Next page of requested records' } }, read];
