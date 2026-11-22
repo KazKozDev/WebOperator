@@ -167,12 +167,12 @@ describe('target and model view', () => {
   it('raises a target that was set to the page size', () => {
     const c = fresh();
     const page = { kind:'rows' as const, source:'search', range:[1,25] as [number,number], claimed: 5981, rows: rows(1, 25), nextRef: '@e4' };
-    expect(applyBatch(c, page, {name:'extract',arguments:{refs:'rows',target:25}}).queue).toEqual([]);
+    expect(applyBatch(c, page, {name:'extract',arguments:{refs:'rows',target:25}})).toEqual([]);
     expect(c.target).toBe(25);
-    const next = applyBatch(c, page, {name:'extract',arguments:{refs:'rows',target:50}}, false).queue;
+    const next = applyBatch(c, page, {name:'extract',arguments:{refs:'rows',target:50}}, false);
     expect(c.target).toBe(50);
     expect(next.map(x => x.name)).toEqual(['click', 'extract']);
-    expect(applyBatch(c, page, {name:'extract',arguments:{refs:'rows',target:10}}, false).queue.length).toBe(2);
+    expect(applyBatch(c, page, {name:'extract',arguments:{refs:'rows',target:10}}, false).length).toBe(2);
     expect(c.target).toBe(50);
   });
   it('gives the model one short line per new row', () => {
