@@ -24,7 +24,7 @@ export function renderMarkdown(text: string): string {
   const links: string[] = [];
   const linkToken = (label: string, href: string) => {
     const token = `@@WEBOPERATOR_LINK_${links.length}@@`;
-    links.push(renderSafeLink(label, href.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')));
+    links.push(renderSafeLink(label, unescapeHtml(href)));
     return token;
   };
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label: string, href: string) => linkToken(label, href));
@@ -142,6 +142,11 @@ export function normalizeSafeLinkHref(rawHref: string): string | null {
   }
 
   return null;
+}
+
+/** Undoes escapeHtml in one pass, so "&amp;lt;" comes back as "&lt;" and not as "<". */
+export function unescapeHtml(value: string): string {
+  return value.replace(/&(amp|lt|gt);/g, (_match, name: string) => (name === 'amp' ? '&' : name === 'lt' ? '<' : '>'));
 }
 
 export function escapeHtml(value: string): string {

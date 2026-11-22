@@ -61,6 +61,16 @@ describe('renderMarkdown', () => {
     expect(html).toContain('rel="noopener noreferrer"');
   });
 
+  it('decodes a link once, so an escaped entity in the URL stays an entity', async () => {
+    const { renderMarkdown } = await loadRenderer();
+    const { unescapeHtml } = await import('./utils/markdown');
+
+    expect(unescapeHtml('&amp;lt;b&amp;gt; &lt;i&gt; a&amp;b')).toBe('&lt;b&gt; <i> a&b');
+    const html = renderMarkdown('[q](https://example.com/?a=1&b=&lt;x&gt;)');
+    expect(html).toContain('href="https://example.com/?a=1&amp;b=&amp;lt;x&amp;gt;"');
+    expect(html).not.toContain('<x>');
+  });
+
   it('escapes markdown link labels before rendering safe links', async () => {
     const { renderMarkdown } = await loadRenderer();
 
