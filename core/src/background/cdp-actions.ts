@@ -810,39 +810,3 @@ export async function applyStealthPatches(target: Debuggee): Promise<void> {
     await send(target, 'Runtime.evaluate', { expression: stealthScript });
   } catch {}
 }
-
-/**
- * Dispatches a trusted CDP Press and Hold sequence with humanized micro-tremor.
- */
-export async function cdpPressAndHold(target: Debuggee, x: number, y: number, durationMs = 6500): Promise<void> {
-  await send(target, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
-  await send(target, 'Input.dispatchMouseEvent', {
-    type: 'mousePressed',
-    x,
-    y,
-    button: 'left',
-    clickCount: 1,
-  });
-
-  const startTime = Date.now();
-  while (Date.now() - startTime < durationMs) {
-    await sleep(75);
-    const jitterX = x + (Math.random() - 0.5) * 2;
-    const jitterY = y + (Math.random() - 0.5) * 2;
-    await send(target, 'Input.dispatchMouseEvent', {
-      type: 'mouseMoved',
-      x: jitterX,
-      y: jitterY,
-      button: 'left',
-    }).catch(() => {});
-  }
-
-  await send(target, 'Input.dispatchMouseEvent', {
-    type: 'mouseReleased',
-    x,
-    y,
-    button: 'left',
-    clickCount: 1,
-  });
-  await sleep(100);
-}

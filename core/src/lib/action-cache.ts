@@ -1,6 +1,6 @@
 import { db } from './storage';
 import { fastHash } from './hash';
-import type { A11ySnapshot, ToolCall } from './types';
+import type { ToolCall } from './types';
 
 export interface CachedAction {
   key: string;
@@ -65,20 +65,4 @@ export async function clearCache(): Promise<number> {
 
 export async function invalidate(key: string): Promise<void> {
   await db.actionCache.delete(key);
-}
-
-export function summarizeCall(call: ToolCall): string {
-  const parts: string[] = [call.name];
-  const a = call.arguments;
-  if (a.ref) parts.push(`ref=${a.ref}`);
-  if (a.text) parts.push(`text="${String(a.text).slice(0, 24)}"`);
-  if (a.url) parts.push(`url=${a.url}`);
-  if (a.value) parts.push(`value=${a.value}`);
-  if (a.key) parts.push(`key=${a.key}`);
-  if (a.modifiers) parts.push(`modifiers=${a.modifiers}`);
-  return parts.join(' ');
-}
-
-export function snapshotSignature(s: A11ySnapshot): string {
-  return s.domHash;
 }

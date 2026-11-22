@@ -7,7 +7,7 @@ import type {
   TabContext,
 } from './orchestrator-types';
 import type { AgentPlan, SkillId } from './types';
-import { classifyTask, getSkill } from './skills';
+import { classifyTask } from './skills';
 
 // ── Tab Manager ───────────────────────────────────────────────────────
 
@@ -303,10 +303,6 @@ export function allSubtasksComplete(plan: OrchestrationPlan): boolean {
   );
 }
 
-export function anySubtasksPending(plan: OrchestrationPlan): boolean {
-  return plan.subtasks.some((s) => s.status === 'pending');
-}
-
 export function nextPendingSubtask(plan: OrchestrationPlan): Subtask | undefined {
   return plan.subtasks.find((s) => s.status === 'pending');
 }
@@ -365,10 +361,6 @@ export function advanceOrchPlan(plan: OrchestrationPlan, toolName: string): void
   plan.updatedAt = Date.now();
 }
 
-export function getCurrentSubtask(plan: OrchestrationPlan): Subtask | undefined {
-  return plan.subtasks.find((s) => s.status === 'running');
-}
-
 export function markSubtaskDone(plan: OrchestrationPlan, subtaskId: string): void {
   const st = findSubtask(plan, subtaskId);
   if (st) {
@@ -388,29 +380,7 @@ export function markSubtaskFailed(plan: OrchestrationPlan, subtaskId: string, er
   }
 }
 
-export function getSubtaskResult(plan: OrchestrationPlan, index: number): string | undefined {
-  const st = plan.subtasks.find((s) => s.index === index);
-  return st?.result;
-}
-
 // ── Sub-task skill injection ──────────────────────────────────────────
-
-export function skillPromptForSubtask(subtask: Subtask): string {
-  const prompts: string[] = [];
-
-  // Get the skill's own prompt
-  if (subtask.skillId) {
-    const skill = getSkill(subtask.skillId);
-    if (skill) {
-      prompts.push(skill.prompt);
-    }
-  }
-
-  // Inject context from completed dependent subtasks
-  prompts.push(`SUBTASK: ${subtask.description}`);
-
-  return prompts.join('\n\n');
-}
 
 // ── Utils ─────────────────────────────────────────────────────────────
 

@@ -82,7 +82,7 @@ import { summarizeExtraction } from '@/lib/extraction';
 import { ERROR_PAGE_DOM_HASH_PREFIX, assessPageHealth, describePageTransition, type RecoveryPage } from '@/lib/page-state';
 import { parsePlanSteps, advancePlan, completePlan, planContext, markPlanStepFailed, shouldAdvancePlanAfterTool, isValidPlanStepCount, PLAN_MIN_STEPS, PLAN_MAX_STEPS } from '@/lib/planner';
 import { decideRetry } from '@/lib/retry';
-import { learnFromSuccess, getCookieHint, getSearchHint, getRecoveryHint } from '@/lib/semantic-memory';
+import { learnFromSuccess, getCookieHint, getSearchHint } from '@/lib/semantic-memory';
 import { learnFromTask, memoryContext } from '@/lib/memory';
 import { loadConversation, renderConversationContext } from '@/lib/conversation';
 import { classifyTaskNeural, skillPrompts } from '@/lib/skills';
@@ -1741,12 +1741,6 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
             role: 'user',
             content: `[REVIEW] ✗ retry #${stepRetryCount}: ${retry.strategy} — ${step.result?.error ?? 'action failed'}`,
           });
-
-          // ── Learn recovery if retry succeeds later ──
-          const recoveryHint = await getRecoveryHint(snapshot, toolCall.name);
-          if (recoveryHint) {
-            history.push({ role: 'user', content: `[REVIEW] Hint: ${recoveryHint}` });
-          }
 
           step.finishedAt = Date.now();
           step.timings = finalizeTimings(stepStart, { snapshotMs, screenshotMs, llmMs, actionMs });

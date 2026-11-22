@@ -93,31 +93,3 @@ export function decideRetry(
       };
   }
 }
-
-export function retryPromptForStep(
-  retryCount: number,
-  maxRetries: number,
-  strategy: RetryStrategy,
-  originalError: string,
-): string {
-  const header = `[RETRY ${retryCount}/${maxRetries}] Previous action failed: ${originalError}`;
-
-  switch (strategy) {
-    case 'close_popup':
-      return `${header}\nA popup/dialog was detected on the page. Find the close button and click it.`;
-    case 'different_selector':
-      return `${header}\nElement changed or not found. Find a similar element by name/text.`;
-    case 'wait_and_retry':
-      return `${header}\nPage is loading. Wait longer and take a new snapshot.`;
-    case 'scroll_to_element':
-      return `${header}\nScroll the page — the element may be outside the visible area.`;
-    case 'coordinates_click':
-      return `${header}\nSystem will perform a coordinate click via CDP.`;
-    case 'refresh_page':
-      return `${header}\nRefresh the page and retry the step.`;
-    case 'try_alternative':
-      return `${header}\nFind an alternative way to complete the task.`;
-    default:
-      return `${header}\nWait for the page to settle, then retry. If it fails again, try a different element.`;
-  }
-}

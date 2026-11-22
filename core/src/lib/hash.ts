@@ -1,12 +1,3 @@
-export async function sha256Hex(input: string): Promise<string> {
-  const buf = new TextEncoder().encode(input);
-  const digest = await crypto.subtle.digest('SHA-256', buf);
-  const bytes = new Uint8Array(digest);
-  let out = '';
-  for (let i = 0; i < bytes.length; i++) out += bytes[i].toString(16).padStart(2, '0');
-  return out;
-}
-
 export function fastHash(input: string): string {
   let h1 = 0xdeadbeef ^ 0;
   let h2 = 0x41c6ce57 ^ 0;

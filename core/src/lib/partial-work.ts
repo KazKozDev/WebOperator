@@ -183,11 +183,6 @@ export function buildTraceQuestionPrompt(goal: string, work: CollectedWork, ques
   ].join('\n');
 }
 
-/** Steps whose results were summarized, for marking the synthetic step. */
-export function isInterrupted(status: AgentTask['status']): boolean {
-  return status === 'stopped';
-}
-
 export type { AgentStep };
 
 /** Evidence below this is too thin for the question to be worth asking. */
