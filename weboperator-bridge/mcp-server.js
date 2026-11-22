@@ -340,7 +340,8 @@ async function handleToolCall(name, args) {
       };
     }
     case 'browser_extract': {
-      const res = await callBridge('browser.extract', withTabId({ ...refPayload(args), instruction: args.instruction, selector: args.selector, ...(args.schema !== undefined ? { schema: args.schema } : {}) }, args), args.schema ? 120_000 : 30_000);
+      const collection = Object.fromEntries(['mode', 'target', 'collectionId', 'since'].filter((key) => args[key] !== undefined).map((key) => [key, args[key]]));
+      const res = await callBridge('browser.extract', withTabId({ ...refPayload(args), instruction: args.instruction, selector: args.selector, ...(args.schema !== undefined ? { schema: args.schema } : {}), ...collection }, args), args.schema ? 120_000 : collection.mode ? 45_000 : 30_000);
       return {
         content: [
           {

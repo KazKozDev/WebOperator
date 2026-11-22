@@ -2438,6 +2438,48 @@ button.danger {
   mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8'/%3E%3C/svg%3E");
 }
 
+.i-sparkles {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linejoin='round'%3E%3Cpath d='m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5ZM20 1v6M17 4h6'/%3E%3C/svg%3E");
+}
+
+.prompt-review {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  color: var(--text-2);
+}
+
+.prompt-preview {
+  max-height: 42vh;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.prompt-preview textarea {
+  display: block;
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  margin: 6px 0;
+  padding: 8px;
+  color: var(--text);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.prompt-preview pre { white-space: pre-wrap; }
+.prompt-preview ul { padding-left: 18px; }
+.prompt-preview [role="alert"] { color: var(--warning); }
+.prompt-preview-actions { display: flex; justify-content: flex-end; gap: 12px; }
+
 
 /* Detected skills chips */
 .detected-skills {

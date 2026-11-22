@@ -1,5 +1,9 @@
+import { showCursor } from './cursor';
 import { observationRequest, waitForObservedNetwork, hasObservation } from './bridge-observation';
+import { refinePrompt } from '@/lib/prompt-refinement';
+import { registerSidePanel } from './side-panel';
 import { handleDialog } from './bridge-dialog';
+import { bridgeCollect } from './bridge-collection';
 import { mediaRequest } from './bridge-media';
 import { cookiesRequest, downloadsRequest } from './bridge-io';
 import { validateSchema } from '@/lib/bridge-schema';
@@ -83,17 +87,14 @@ void getSessionState().then((session) => {
   for (const id of session.stoppedTaskIds) state.stopped.add(id);
 });
 
+registerSidePanel();
+
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.sidePanel.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => {});
   reconcileScheduledAlarms().catch((err) => console.error('[schedule] reconcile failed', err));
 });
 
 chrome.runtime.onStartup?.addListener(() => {
   reconcileScheduledAlarms().catch((err) => console.error('[schedule] startup reconcile failed', err));
-});
-
-chrome.action?.onClicked.addListener(async (tab) => {
-  if (tab.id !== undefined) await chrome.sidePanel.open({ tabId: tab.id });
 });
 
 chrome.runtime.onMessage.addListener((raw, _sender, sendResponse) => {
@@ -113,6 +114,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 async function handle(msg: SWMessage): Promise<unknown> {
   switch (msg.kind) {
+    case 'prompt:refine': return refinePrompt(msg.draft, await getSettings(), requestModelResponse);
     case 'settings:get': return getSettings();
     case 'settings:update': return saveSettings(msg.patch);
     case 'task:list': return listTasks();
@@ -126,7 +128,7 @@ async function handle(msg: SWMessage): Promise<unknown> {
     case 'eval:getTask': return getEvalTask(msg.id);
     case 'eval:waitTask': return waitForEvalTask(msg.id, msg.timeoutMs);
     case 'eval:clear': return clearEvalTasks();
-    case 'task:start': return startTask(msg.goal, msg.tabId, { attachments: msg.attachments });
+    case 'task:start': return startTask(msg.goal, msg.tabId, { attachments: msg.attachments, parentTaskId: msg.parentTaskId });
     case 'task:resume_checkpoint': return resumeTaskFromCheckpoint(msg.id);
     case 'task:pause': state.paused.add(msg.id); return { ok: true };
 
@@ -189,16 +191,23 @@ async function handle(msg: SWMessage): Promise<unknown> {
   }
 }
 
-async function startTask(goal: string, tabId: number, options: { autoConfirm?: boolean; attachments?: TaskAttachment[] } = {}): Promise<AgentTask> {
+async function startTask(goal: string, tabId: number, options: { autoConfirm?: boolean; attachments?: TaskAttachment[]; parentTaskId?: string } = {}): Promise<AgentTask> {
   const settings = await getSettings();
   const attachments = options.attachments ?? [];
   const attachmentNote = attachments.length
     ? `\n\nTASK ATTACHMENTS (use upload_attachment; never type or reveal local paths):\n${attachments.map((item) => `- ${item.id}: ${item.name}`).join('\n')}`
     : '';
   const task = createAgentTask(`${goal}${attachmentNote}`, tabId, settings);
+  if (options.parentTaskId) {
+    const parent = await getTask(options.parentTaskId);
+    if (!parent) throw new Error('Previous chat turn not found.');
+    if (!['done', 'failed', 'stopped'].includes(parent.status)) throw new Error('Wait for the previous turn to finish.');
+    task.parentTaskId = parent.id;
+  }
   if (attachments.length) state.attachments.set(task.id, new Map(attachments.map((item) => [item.id, item])));
   await saveTask(task);
   await ensureContentScript(tabId);
+  await showCursor(tabId).catch(error => console.warn('[cursor] Could not show pointer', error));
 
   runTask(task, {
     settings,
@@ -589,6 +598,24 @@ function describeToolCall(call: ToolCall): string {
   }
 }
 
+/** One step of a bridge collection, recorded in the external-agent trace like any bridge action. */
+async function runCollectionStep(tabId: number, call: ToolCall): Promise<ActionResult> {
+  const resp = await recordBridgeActionStep(tabId, call, `External Agent: ${describeToolCall(call)}`, async () => {
+    // Refs stay stable per element; a fresh pass gives the current pager control its ref.
+    if (call.name === 'extract' && call.arguments.refs === 'rows') {
+      await chrome.tabs.sendMessage(tabId, { kind: 'snapshot:take', options: { allElements: true } }, { frameId: 0 }).catch(() => undefined);
+    }
+    const result = await chrome.tabs.sendMessage(tabId, { kind: 'action:run', action: call }, { frameId: 0 }) as CSResponse;
+    if (call.name === 'click') {
+      await waitForTabComplete(tabId, 6_000).catch(() => undefined);
+      await ensureContentScript(tabId);
+    }
+    return result;
+  }) as CSResponse;
+  if (resp?.kind === 'action:result') return resp.result;
+  return { ok: false, durationMs: 0, error: resp?.kind === 'error' ? resp.error : 'Unexpected content-script response' };
+}
+
 async function recordBridgeActionStep(
   tabId: number,
   toolCall: ToolCall,
@@ -773,6 +800,10 @@ async function executeBridgeRequest(type: string, payload: Record<string, unknow
     case 'browser.extract': {
       const tabId = await activeTabIdFromPayload(payload);
       if (type === 'browser.extract' && payload.schema !== undefined) return structuredExtract(tabId, payload);
+      if (type === 'browser.extract' && payload.mode !== undefined) {
+        await ensureContentScript(tabId);
+        return bridgeCollect(tabId, payload, { run: (call) => runCollectionStep(tabId, call) });
+      }
       if (type === 'browser.click' && (payload.button !== undefined || payload.clickCount !== undefined || payload.modifiers !== undefined)) {
         const ref = String(payload.ref ?? (payload.index === undefined ? '' : `@e${payload.index}`));
         return mediaRequest(tabId, type, { ...payload, ref }, bridgeFrame(tabId, ref));

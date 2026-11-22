@@ -1,3 +1,4 @@
+import { collectionScroller, readCollection } from './collection';
 import type { ActionResult, ToolCall } from './types';
 import { findElementByRef } from './a11y';
 import { parseBatchActions, validateBatchCall } from './batch-actions';
@@ -54,6 +55,7 @@ async function dispatch(call: ToolCall): Promise<unknown> {
       typeof call.arguments.amountPx === 'number' ? call.arguments.amountPx : 400,
       call.arguments.to ? String(call.arguments.to) : undefined,
       call.arguments.block ? String(call.arguments.block) : 'center',
+      call.arguments.collectionList === true,
     );
     case 'wait': return doWait(
       Math.min(Number(call.arguments.ms ?? 1000), 120_000),
@@ -61,7 +63,9 @@ async function dispatch(call: ToolCall): Promise<unknown> {
       call.arguments.ref ? String(call.arguments.ref) : undefined,
       call.arguments,
     );
-    case 'extract': return doExtract(String(call.arguments.refs ?? ''));
+    case 'extract':
+      if (call.arguments.refs === 'rows' || call.arguments.refs === 'chunk') return readCollection(call.arguments.refs, call.arguments);
+      return doExtract(String(call.arguments.refs ?? ''));
     case 'navigate':
     case 'done':
     case 'open_tab':
@@ -125,7 +129,22 @@ function resolve(ref: string, block: ScrollLogicalPosition = 'center'): HTMLElem
 
 async function doClick(ref: string): Promise<void> {
   const el = resolve(ref);
-  const event = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+  type Point = { x: number; y: number };
+  const state = globalThis as unknown as Record<symbol, unknown>;
+  const paint = state[Symbol.for('weboperator.cursorPaint')] as ((point: Point, pressed?: boolean) => boolean) | undefined;
+  const rect = el.getBoundingClientRect();
+  const x = (Math.max(0, rect.left) + Math.min(window.innerWidth, rect.right)) / 2;
+  const y = (Math.max(0, rect.top) + Math.min(window.innerHeight, rect.bottom)) / 2;
+  if (paint) {
+    const start = (state[Symbol.for('weboperator.virtualCursor')] as () => Point)();
+    for (let i = 1; i <= 16; i++) {
+      paint({ x: start.x + (x - start.x) * i / 16, y: start.y + (y - start.y) * i / 16 });
+      await new Promise<void>(resolve => setTimeout(resolve, 16));
+    }
+    if (!el.isConnected) throw new Error('Target disappeared during cursor movement');
+    paint({ x, y }, true);
+  }
+  const event = new MouseEvent('click', { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y });
   const dispatched = el.dispatchEvent(event);
   if (!dispatched) throw new Error('Click was cancelled by page');
   await tick();
@@ -313,6 +332,7 @@ async function doScroll(
   amountPx: number,
   to?: string,
   block = 'center',
+  collectionList = false,
 ): Promise<{ scrolled: boolean; scrollY: number; atBoundary: boolean; note?: string }> {
   if (to !== undefined && to !== 'element') throw new Error(`Unknown scroll target: ${to}`);
   if (to === 'element') {
@@ -330,7 +350,7 @@ async function doScroll(
       container = findScrollableContainer(el) ?? el;
     }
   } else {
-    container = findScrollableContainer();
+    container = collectionList ? collectionScroller() ?? null : findScrollableContainer();
   }
 
   const isContainer = Boolean(container && container !== document.body && container !== document.documentElement);
@@ -366,7 +386,8 @@ async function doScroll(
       default: throw new Error(`Unknown direction: ${direction}`);
     }
   }
-  await tick();
+  // A lazy list fetches its next rows after the scroll lands; give it time before the next capture.
+  await (collectionList ? waitForSettledDom(2500, 400) : tick());
 
   const afterY = isContainer && container ? container.scrollTop : window.scrollY;
   const delta = Math.abs(afterY - beforeY);
@@ -425,7 +446,11 @@ type ExtractedItem = { ref: string; text: string; value?: string; href?: string 
 function doExtract(refs: string): ExtractedItem[] {
   const mode = refs.trim().toLowerCase();
   if (mode === 'visible') return extractVisibleText();
-  if (mode === 'all') return [{ ref: 'document.body', text: normalizeText(document.body.innerText).slice(0, 12_000) }];
+  if (mode === 'all') {
+    const full = normalizeText(document.body.innerText);
+    return [{ ref: 'document.body', text: full.slice(0, 12_000), ...(full.length > 12_000
+      ? { value: 'Partial preview. Use refs="chunk" for the complete text or refs="rows" for a list.' } : {}) }];
+  }
 
   return refs.split(',').map((r) => r.trim()).filter(Boolean).map((ref) => {
     const el = findElementByRef(ref);

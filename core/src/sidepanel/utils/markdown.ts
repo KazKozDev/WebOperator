@@ -20,10 +20,26 @@ export function renderMarkdown(text: string): string {
     codeSpans.push(`<code>${body}</code>`);
     return token;
   });
+  // Protect links before formatting, and shorten both Markdown and plain URLs.
+  const links: string[] = [];
+  const linkToken = (label: string, href: string) => {
+    const token = `@@WEBOPERATOR_LINK_${links.length}@@`;
+    links.push(renderSafeLink(label, unescapeHtml(href)));
+    return token;
+  };
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label: string, href: string) => linkToken(label, href));
+  html = html.replace(/https?:\/\/(?:(?!&lt;|&gt;)[^\s<>])+/g, (match) => {
+    let href = match;
+    let suffix = '';
+    while (/[.,;:!?]$/.test(href) || (href.endsWith(')') && (href.match(/\)/g)?.length ?? 0) > (href.match(/\(/g)?.length ?? 0))) {
+      suffix = href.slice(-1) + suffix;
+      href = href.slice(0, -1);
+    }
+    return linkToken(href, href) + suffix;
+  });
   html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<em><strong>$1</strong></em>');
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label: string, rawHref: string) => renderSafeLink(label, rawHref));
   html = renderMarkdownTables(html);
   html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
   html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
@@ -38,6 +54,7 @@ export function renderMarkdown(text: string): string {
   html = html.replace(/ data-list="ol"/g, '');
   html = html.replace(/>\n</g, '><');
   html = html.replace(/\n/g, '<br>');
+  html = links.reduce((rendered, link, index) => rendered.replace(`@@WEBOPERATOR_LINK_${index}@@`, link), html);
   html = codeSpans.reduce((rendered, span, index) => rendered.replace(`@@WEBOPERATOR_CODE_SPAN_${index}@@`, span), html);
   html = codeBlocks.reduce((rendered, block, index) => rendered.replace(`@@WEBOPERATOR_CODE_BLOCK_${index}@@`, block), html);
   return html;
@@ -108,7 +125,7 @@ function splitMarkdownTableRow(line: string): string[] {
 export function renderSafeLink(label: string, rawHref: string): string {
   const href = normalizeSafeLinkHref(rawHref);
   if (!href) return label;
-  return `<a href="${escapeHtmlAttribute(href)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+  return `<a href="${escapeHtmlAttribute(href)}" target="_blank" rel="noopener noreferrer">link</a>`;
 }
 
 export function normalizeSafeLinkHref(rawHref: string): string | null {
@@ -125,6 +142,11 @@ export function normalizeSafeLinkHref(rawHref: string): string | null {
   }
 
   return null;
+}
+
+/** Undoes escapeHtml in one pass, so "&amp;lt;" comes back as "&lt;" and not as "<". */
+export function unescapeHtml(value: string): string {
+  return value.replace(/&(amp|lt|gt);/g, (_match, name: string) => (name === 'amp' ? '&' : name === 'lt' ? '<' : '>'));
 }
 
 export function escapeHtml(value: string): string {

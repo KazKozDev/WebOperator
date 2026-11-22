@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { AgentStep, AgentTask, CredentialSummary, CustomSkillDefinition, ScheduledTask, ScheduleRepeat, Settings, SWEvent, TaskAttachment } from '@/lib/types';
+import type { AgentStep, AgentTask, CredentialSummary, CustomSkillDefinition, PromptRefinementResult, ScheduledTask, ScheduleRepeat, Settings, SWEvent, TaskAttachment } from '@/lib/types';
 
 import { DEFAULT_SETTINGS, PROFILE_TO_MODEL, resolveOllamaModel } from '@/lib/types';
 import { sendToSW } from '@/lib/messaging';
+import { loadConversation } from '@/lib/conversation';
 import { stageAttachment } from '@/lib/attachment-staging';
 import { ping } from '@/lib/ollama-client';
 import { formatTimings, latencyTarget } from '@/lib/benchmark';
@@ -14,6 +15,7 @@ import { Icon } from './components/Icon';
 import { PlanPanel } from './components/PlanPanel';
 import { AnswerPanel } from './components/AnswerPanel';
 import { ConfirmBox } from './components/ConfirmBox';
+import { PromptRefinementPreview } from './components/PromptRefinementPreview';
 import { useVoiceInput } from './hooks/useVoiceInput';
 
 
@@ -100,7 +102,7 @@ export function App() {
 
   async function start(text?: string) {
     const goalToRun = (text ?? goal).trim();
-    if (!goalToRun) return;
+    if (!goalToRun || isStarting || (task && !['done', 'failed', 'stopped'].includes(task.status))) return;
     setStartError(null);
     setIsStarting(true);
     setDetectedSkills([]);
@@ -116,9 +118,11 @@ export function App() {
         kind: 'task:start',
         goal: goalToRun,
         tabId: tab.id,
+        ...(task ? { parentTaskId: task.id } : {}),
         ...(attachments.length ? { attachments } : {}),
       });
       setTask(started);
+      setGoal('');
       setAttachments([]);
       setView('task');
     } catch (err) {
@@ -145,13 +149,6 @@ export function App() {
     } finally {
       setIsAttaching(false);
     }
-  }
-
-  /** Ask a follow-up about a run's collected evidence, without re-browsing. */
-  async function askAboutTask(taskId: string, question: string): Promise<string> {
-    const res = await sendToSW<{ ok: boolean; answer?: string; error?: string }>({ kind: 'task:ask', id: taskId, question });
-    if (!res.ok || !res.answer) throw new Error(res.error ?? 'Could not answer from this run.');
-    return res.answer;
   }
 
   async function resumeCheckpoint(id?: string) {
@@ -233,7 +230,10 @@ export function App() {
       )}
 
       {view === 'task' ? (
-        <TaskView goal={goal} setGoal={setGoal} task={task} start={start} isStarting={isStarting} detectedSkills={detectedSkills} onResumeCheckpoint={resumeCheckpoint} onAsk={askAboutTask} attachments={attachments} isAttaching={isAttaching} attachError={attachError} onAttach={addAttachments} onRemoveAttachment={(id) => setAttachments((list) => list.filter((a) => a.id !== id))} />
+        <>
+        {task && <button className="text-btn" disabled={isStarting || !['done', 'failed', 'stopped'].includes(task.status)} onClick={() => { setTask(null); setGoal(''); setAttachments([]); setDetectedSkills([]); setStartError(null); }}>New chat</button>}
+        <TaskView goal={goal} setGoal={setGoal} task={task} start={start} isStarting={isStarting} detectedSkills={detectedSkills} onResumeCheckpoint={resumeCheckpoint} attachments={attachments} isAttaching={isAttaching} attachError={attachError} onAttach={addAttachments} onRemoveAttachment={(id) => setAttachments((list) => list.filter((a) => a.id !== id))} />
+        </>
       ) : view === 'history' ? (
         <HistoryView onReplay={(goal) => { setGoal(goal); start(goal); }} onOpen={(t) => { setTask(t); setView('task'); }} onResumeCheckpoint={resumeCheckpoint} />
       ) : view === 'schedule' ? (
@@ -419,7 +419,7 @@ async function requestTabAccess(url?: string): Promise<void> {
   }
 }
 
-function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onResumeCheckpoint, onAsk, attachments, isAttaching, attachError, onAttach, onRemoveAttachment }: {
+function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onResumeCheckpoint, attachments, isAttaching, attachError, onAttach, onRemoveAttachment }: {
   goal: string;
   setGoal: (g: string) => void;
   task: AgentTask | null;
@@ -427,7 +427,6 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
   isStarting: boolean;
   detectedSkills: ClassifiedSkill[];
   onResumeCheckpoint?: (id: string) => void;
-  onAsk?: (taskId: string, question: string) => Promise<string>;
   attachments: TaskAttachment[];
   isAttaching: boolean;
   attachError: string | null;
@@ -435,15 +434,58 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
   onRemoveAttachment: (id: string) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [previousTurns, setPreviousTurns] = useState<AgentTask[]>([]);
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [traceOpen, setTraceOpen] = useState(true);
   const [planOpen, setPlanOpen] = useState(true);
+  const [isRefining, setIsRefining] = useState(false);
+  const [refineError, setRefineError] = useState<string | null>(null);
+  const [promptPreview, setPromptPreview] = useState<{ original: string; result: PromptRefinementResult } | null>(null);
+  const [previousDraft, setPreviousDraft] = useState<{ original: string; refined: string } | null>(null);
+  const latestGoal = useRef(goal);
+  const refinementId = useRef(0);
+  useEffect(() => { latestGoal.current = goal; }, [goal]);
+  useEffect(() => () => { refinementId.current += 1; }, []);
+
+  async function improvePrompt() {
+    if (isRefining || !goal.trim() || running) return;
+    const original = goal;
+    const id = ++refinementId.current;
+    setIsRefining(true);
+    setRefineError(null);
+    setPromptPreview(null);
+    try {
+      const result = await sendToSW<PromptRefinementResult>({ kind: 'prompt:refine', draft: original });
+      if (id !== refinementId.current) return;
+      if (!result || typeof result.prompt !== 'string' || !Array.isArray(result.changes) || !Array.isArray(result.questions)) {
+        throw new Error('Reload the extension to use the updated prompt assistant. Your original text was kept.');
+      }
+      if (latestGoal.current !== original) {
+        setRefineError('The text changed while improving it. Your edits were kept.');
+        return;
+      }
+      setPromptPreview({ original, result });
+    } catch (error) {
+      if (id === refinementId.current) setRefineError(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (id === refinementId.current) setIsRefining(false);
+    }
+  }
   const running = isStarting || task?.status === 'running' || task?.status === 'planning';
   const paused = task?.status === 'paused';
   const awaitingConfirm = task?.status === 'awaiting_confirm';
   const finalAnswer = getTaskAnswer(task);
   const taskId = task?.id;
   const taskStatus = task?.status;
+
+  useEffect(() => {
+    let cancelled = false;
+    setPreviousTurns([]);
+    void loadConversation(task?.parentTaskId, (id) => sendToSW<AgentTask | null>({ kind: 'task:get', id }))
+      .then((turns) => { if (!cancelled) setPreviousTurns(turns); })
+      .catch(console.error);
+    return () => { cancelled = true; };
+  }, [task?.parentTaskId]);
 
   const { isListening, toggleListening, error: voiceError } = useVoiceInput({
     onTranscript: (spokenText) => {
@@ -465,6 +507,14 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
   return (
     <section className="view active task-view">
       <div className="task-scroll">
+        {previousTurns.map((turn) => (
+          <div key={turn.id}>
+            <div className="item-meta" style={{ whiteSpace: 'pre-wrap', margin: '12px 0' }}>{turn.goal}</div>
+            <AnswerPanel answer={getTaskAnswer(turn)} task={turn} isConfirmationCheckpoint={isConfirmationCheckpoint} onExport={() => downloadPdf(turn)} />
+          </div>
+        ))}
+        {task && <div className="item-meta" style={{ whiteSpace: 'pre-wrap', margin: '12px 0' }}>{task.goal}</div>}
+
         {!task?.steps.length ? (
           <div className="empty-state">
             <div className="empty-intro">Describe a goal in plain language and the agent will drive the active tab to reach it. Try one of these to start:</div>
@@ -511,7 +561,7 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
                 </div>
               </div>
             )}
-            <AnswerPanel answer={finalAnswer} task={task} isConfirmationCheckpoint={isConfirmationCheckpoint} onResumeCheckpoint={onResumeCheckpoint} onExport={() => downloadPdf(task)} onAsk={onAsk} />
+            <AnswerPanel answer={finalAnswer} task={task} isConfirmationCheckpoint={isConfirmationCheckpoint} onResumeCheckpoint={onResumeCheckpoint} onExport={() => downloadPdf(task)} />
             <PlanPanel task={task} open={planOpen} onToggle={setPlanOpen} />
 
             {detectedSkills.length > 0 && (
@@ -561,6 +611,26 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
       )}
 
       <div className="input-area">
+        {isRefining && <div role="status">Improving task…</div>}
+        {refineError && <div className="banner err" role="alert">{refineError}</div>}
+        {promptPreview && <PromptRefinementPreview
+          original={promptPreview.original}
+          result={promptPreview.result}
+          disabled={running || isRefining || goal !== promptPreview.original}
+          onApply={(refined) => {
+            if (running || isRefining || goal !== promptPreview.original) return;
+            setPreviousDraft({ original: promptPreview.original, refined });
+            setGoal(refined);
+            setPromptPreview(null);
+          }}
+          onDiscard={() => setPromptPreview(null)}
+        />}
+        {previousDraft && goal === previousDraft.refined && !isRefining && (
+          <div className="prompt-review" role="status">
+            Review the improved task before starting.
+            <button type="button" className="text-btn" disabled={running} onClick={() => { setGoal(previousDraft.original); setPreviousDraft(null); }}>Undo</button>
+          </div>
+        )}
         {voiceError && (
           <div style={{ color: 'var(--error, #ef4444)', fontSize: '11px', paddingBottom: '4px' }}>
             {voiceError}
@@ -598,7 +668,7 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
               value={goal}
               onChange={(e) => setGoal(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void start(); }
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!isRefining) void start(); }
               }}
               disabled={running}
             />
@@ -629,6 +699,17 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
             </button>
             <button
               type="button"
+              className="voice-btn"
+              title="Improve task using the selected model; review before starting"
+              aria-label="Improve task prompt"
+              aria-busy={isRefining}
+              onClick={() => void improvePrompt()}
+              disabled={running || isRefining || !goal.trim()}
+            >
+              <Icon name="sparkles" />
+            </button>
+            <button
+              type="button"
               className={`voice-btn ${isListening ? 'recording' : ''}`}
               title={isListening ? 'Listening... click to stop' : 'Voice input (dictate task)'}
               aria-label="Voice input"
@@ -642,7 +723,7 @@ function TaskView({ goal, setGoal, task, start, isStarting, detectedSkills, onRe
               title={running || paused ? 'Stop' : 'Start'}
               aria-label={running || paused ? 'Stop' : 'Start'}
               onClick={() => running || paused ? task && sendToSW({ kind: 'task:stop', id: task.id }) : start()}
-              disabled={isStarting || (!task && !goal.trim())}
+              disabled={isStarting || isRefining || (!task && !goal.trim())}
             >
               <Icon name={running || paused ? 'stop' : 'send'} />
             </button>

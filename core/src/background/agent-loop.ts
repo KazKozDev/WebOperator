@@ -1,3 +1,4 @@
+import { applyBatch, compactRows, incomplete, progress, type PageRows, type TextChunk } from '@/lib/collection';
 import { chat, OllamaError, type DroppedCapability, type OllamaChatOptions, type OllamaChatResult, type OllamaMessage } from '@/lib/ollama-client';
 import { chatOpenAI } from '@/lib/openai-client';
 import { chatGemini } from '@/lib/gemini-client';
@@ -10,7 +11,7 @@ import { chatDeepSeek } from '@/lib/deepseek-client';
 import { chatAnthropic } from '@/lib/anthropic-client';
 import { buildPartialSummaryPrompt, collectWork, describeSufficiencyCheck, fallbackPartialSummary } from '@/lib/partial-work';
 import { collectFindings, ledgerCharBudget, renderFindingsBlock } from '@/lib/findings-ledger';
-import { stepBudgetFor } from '@/lib/step-budget';
+import { requestedCount, stepBudgetFor } from '@/lib/step-budget';
 
 import {
   collapseOldObservations,
@@ -64,6 +65,7 @@ import {
 } from '@/lib/loop-guard';
 import { maskStepForStorage, maskTaskForLog } from '@/lib/masking';
 import { runCdpAction } from './cdp-actions';
+import { clickSelector } from './cursor';
 import {
   intentHash as computeIntentHash,
   lookup as lookupCache,
@@ -82,7 +84,7 @@ import { parsePlanSteps, advancePlan, completePlan, planContext, markPlanStepFai
 import { decideRetry } from '@/lib/retry';
 import { learnFromSuccess, getCookieHint, getSearchHint, getRecoveryHint } from '@/lib/semantic-memory';
 import { learnFromTask, memoryContext } from '@/lib/memory';
-import { getRecentSessionContext } from '@/lib/session-memory';
+import { loadConversation, renderConversationContext } from '@/lib/conversation';
 import { classifyTaskNeural, skillPrompts } from '@/lib/skills';
 import { isBotChallengePage, detectPageCaptcha, solveCaptcha, type CaptchaDetection } from '@/lib/captcha-solver';
 import { readLatestDownload } from '@/lib/file-reader';
@@ -219,11 +221,10 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
     history[0].content += `\n\n[SHEET CONTRACT]\nExpected range: ${sheetContract.startCell}:${rangeEndCell(sheetContract)} (${sheetContract.rows} rows x ${sheetContract.columns} columns). This is mandatory. Verification cells are only an audit; do not call done until the full range is written.`;
   }
 
-  // Inject session memory (previous turns, goals, extracted findings in this tab/session)
-  const sessionCtx = await getRecentSessionContext(task.tabId, tab.url);
-  if (sessionCtx) {
-    history.push({ role: 'user', content: sessionCtx });
-  }
+  // Keep explicit chat context across tab changes, compaction, and checkpoint resumes.
+  const previousTurns = await loadConversation(task.parentTaskId);
+  const conversation = renderConversationContext(previousTurns, Math.min(24000, Math.floor(contextTokenBudget(settings) * 0.8)));
+  if (conversation) history[0].content += `\n\n${conversation}`;
 
   // Inject memory context for this site
   const memCtx = await memoryContext(tab.url ?? '');
@@ -263,6 +264,8 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
   let consecutiveFailures = 0;
   // Loop guard: repeated no-effect calls, including short A-B-A-B cycles.
   const loopGuard = createLoopGuardState();
+  let collectionQueue: ToolCall[] = [];
+  let collectionOrigin = '';
   let cachedRemaining: ToolCall[] | null = null;
   let cachedExpectedDomHash: string | null = null;
   const loop: LoopState = { lastStepFailed: false, modelRequestedVision: false, modelRequestedReasoning: false, noToolCallStreak: 0 };
@@ -592,11 +595,18 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       let screenshotMs = 0;
       let chatOpts: OllamaChatOptions | undefined;
 
-      if (cachedRemaining && cachedRemaining.length > 0) {
+      if (collectionQueue.length && new URL(snapshot.url).origin !== collectionOrigin) collectionQueue = [];
+      if (collectionQueue.length && !loop.lastStepFailed) {
+        toolCall = collectionQueue.shift();
+        step.toolCall = toolCall;
+        toolCallSource = 'content';
+        step.note = 'Continuing saved collection';
+      } else if (cachedRemaining && cachedRemaining.length > 0) {
         toolCall = cachedRemaining.shift();
         step.toolCall = toolCall;
         step.cached = true;
       } else {
+        collectionQueue = [];
         if (cachedRemaining !== null) {
           cachedRemaining = null;
           cachedExpectedDomHash = null;
@@ -641,7 +651,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
           ? `\n${orchContext(orchPlan, plan)}\nStay on the running subtask until it is finished. Before moving to another subtask, call finish_subtask or fail_subtask.`
           : '';
         const memoryBlock = memoryHints.length > 0 ? `\n[MEMORY HINTS]\n${memoryHints.join('\n')}` : '';
-        const observation = formatObservation(snapshot, vision.reason, images.length > 0) + planBlock + orchPlanBlock + memoryBlock;
+        const observation = formatObservation(snapshot, vision.reason, images.length > 0) + planBlock + orchPlanBlock + memoryBlock + (task.collection ? '\n[Saved collection]\n' + progress(task.collection) : '');
         step.prompt = observation;
         const observationMsg: OllamaMessage = { role: 'user', content: observation };
         history.push(observationMsg);
@@ -846,7 +856,11 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       }
 
       // ── Loop guard: repeated calls/cycles with no observable effect ──
-      const actionSignature = toolCallSignature(toolCall);
+      const collected = task.collection;
+      const collectionVisit = collected && ['extract', 'click', 'scroll'].includes(toolCall.name)
+        ? '#' + collected.rows.length + ':' + collected.documents.reduce((n, d) => n + d.text.length, 0)
+        : '';
+      const actionSignature = toolCallSignature(toolCall) + collectionVisit;
       const loopGuardEligible = isLoopGuardEligible(toolCall);
       const loopDecision = loopGuardEligible && !step.cached
         ? detectLoopGuardCycle(loopGuard, actionSignature)
@@ -854,7 +868,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       // Circling that the cycle check cannot see: the same action tried again and again across
       // page changes, or a long scroll run hunting for content that is not in the snapshot.
       const revisitMsg = loopGuardEligible && !step.cached && !loopDecision.blocked
-        ? detectRepeatedVisit(loopGuard, snapshot.url, toolCall)
+        ? detectRepeatedVisit(loopGuard, snapshot.url + collectionVisit, toolCall)
         : null;
       if (loopDecision.blocked || revisitMsg) {
         const actionLabel = `${toolCall.name}(${actionRef || formatCompactArgs(toolCall.arguments)})`;
@@ -1304,6 +1318,9 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
 
 
         const hasDoneSuccess = Object.prototype.hasOwnProperty.call(toolCall.arguments, 'success');
+        if (task.collection && incomplete(task.collection) && String(toolCall.arguments.success) === 'true') {
+          throw new Error('Collection incomplete. Continue collecting or finish with success=false and the verified shortfall. ' + progress(task.collection));
+        }
         const success = String(toolCall.arguments.success ?? 'false') === 'true';
         const doneSummary = String(toolCall.arguments.summary ?? '');
 
@@ -1379,7 +1396,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
           continue;
         }
 
-        if (success && looksLikeHostileInstructionLeak(doneSummary)) {
+        if (success && looksLikeHostileInstructionLeak(doneSummary, task.collection?.rows.map(row => row.text))) {
           const msg = 'Cannot finish: final answer repeats ignored hostile page text or prompt-injection details.';
           step.result = { ok: true, durationMs: 0, extracted: msg };
           step.status = 'ok';
@@ -1492,7 +1509,34 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         });
         break;
       } else {
-        step.result = await runBrowserAction(activeTabId, snapshot, toolCall, task.id, deps);
+        const collect = toolCall.name === 'extract' && (toolCall.arguments.refs === 'rows' || toolCall.arguments.refs === 'chunk');
+        let action = toolCall;
+        if (collect && toolCall.arguments.refs === 'chunk') {
+          const prior = task.collection?.documents.find(d => d.source === snapshot.url);
+          action = { ...toolCall, arguments: { ...toolCall.arguments, offset: prior?.text.length ?? 0, revision: prior?.revision } };
+        }
+        step.result = await runBrowserAction(activeTabId, snapshot, action, task.id, deps);
+        if (collect && step.result.ok) {
+          const batch = step.result.extracted as PageRows | TextChunk;
+          const c = task.collection ??= { rows: [], pages: [], documents: [] };
+          collectionOrigin = new URL(snapshot.url).origin;
+          const moved = ['click', 'scroll', 'wait'].includes(executedCalls.at(-1)?.name ?? '');
+          // The user's own count is the floor: a model that passes the page size (25) as the
+          // target would otherwise stop a "first 50" request after one page.
+          const asked = batch.kind === 'rows' ? requestedCount(task.goal) : undefined;
+          const read = asked && asked > Number(toolCall.arguments.target ?? 0)
+            ? { ...toolCall, arguments: { ...toolCall.arguments, target: asked } } : toolCall;
+          const before = c.rows.length;
+          const priorKeys = new Set(c.rows.map(row => row.key));
+          collectionQueue = applyBatch(c, batch, read, moved).queue;
+          if (batch.kind === 'rows') {
+            // Full rows are saved and shown to the user; the model gets a compact view so a
+            // page of long cards does not crowd the history and vanish on compaction.
+            step.result = { ...step.result, extracted: compactRows(batch, c.rows.slice(before), priorKeys) };
+          }
+          await saveTask(task);
+          postToolUserMessages.push('[Saved collection] ' + progress(c));
+        }
         if (step.result.ok) executedCalls.push(toolCall);
         if (toolCall.name === 'batch_actions' && step.result.extracted && typeof step.result.extracted === 'object') {
           const batchResult = step.result.extracted as { completed?: number; outcomes?: unknown[]; stoppedAt?: number };
@@ -1959,14 +2003,14 @@ async function takeSnapshot(tabId: number): Promise<A11ySnapshot> {
     break;
   }
 
-  let snapshot = await takeFrameSnapshot(tabId, (msg) => sendToContent(tabId, msg));
+  let snapshot = await takeFrameSnapshot(tabId, (msg) => sendToContent(tabId, msg), { shadow: true });
 
   // A snapshot with nothing in it is usually a page caught mid-redirect. Give it a bounded
   // moment to settle before handing the model an empty document to reason about — a page that
   // is genuinely node-less (canvas app) costs only these few hundred milliseconds.
   for (let attempt = 0; attempt < BLANK_SNAPSHOT_RETRIES && assessPageHealth(snapshot).blank; attempt++) {
     await sleep(BLANK_SNAPSHOT_SETTLE_MS);
-    snapshot = await takeFrameSnapshot(tabId, (msg) => sendToContent(tabId, msg));
+    snapshot = await takeFrameSnapshot(tabId, (msg) => sendToContent(tabId, msg), { shadow: true });
   }
 
   return snapshot;
@@ -2257,6 +2301,21 @@ async function runBrowserAction(tabId: number, snapshot: A11ySnapshot, call: Too
     call.name === 'read_cells'
   ) {
     return runCdpAction(tabId, snapshot, call);
+  }
+
+  if (call.name === 'click') {
+    const ref = String(call.arguments.ref ?? '');
+    const node = snapshot.nodes.find(candidate => candidate.ref === ref);
+    if (node?.frameId || !node?.inViewport) return runContentAction(tabId, call);
+    if (/^@e\d+$/.test(ref)) {
+      const started = performance.now();
+      try {
+        await clickSelector(`[data-agent-ref="${ref}"]`, tabId);
+        return { ok: true, durationMs: performance.now() - started };
+      } catch (error) {
+        return { ok: false, durationMs: performance.now() - started, error: String(error) };
+      }
+    }
   }
 
   if (call.name === 'click' || call.name === 'type' || call.name === 'press') {

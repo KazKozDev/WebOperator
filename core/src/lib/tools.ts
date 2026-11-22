@@ -198,11 +198,13 @@ export const AGENT_TOOLS: OllamaToolDef[] = [
     type: 'function',
     function: {
       name: 'extract',
-      description: 'Extract data from the page and return to the user as a partial result. Pass comma-separated refs of interactive elements, refs="visible" for visible page text, or refs="all" for document.body.',
+      description: 'Extract data from the page and return to the user as a partial result. Pass comma-separated refs of interactive elements, refs="visible" for visible page text, or refs="all" for a short body preview. For bulk lists use refs="rows" before each page change or scroll; for whole articles repeat refs="chunk" until all characters are saved.',
       parameters: {
         type: 'object',
         properties: {
-          refs: { type: 'string', description: 'comma-separated refs, or "visible", or "all"' },
+          refs: { type: 'string', description: 'comma-separated refs, "visible", "all", "rows", or "chunk"' },
+          selector: { type: 'string', description: 'Optional CSS selector for individual list records or the article container.' },
+          target: { type: 'integer', description: 'Total number of list records explicitly requested across all pages.' },
           note: { type: 'string', description: 'explanation — what is being extracted' },
         },
         required: ['refs'],

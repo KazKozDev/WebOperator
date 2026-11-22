@@ -1,3 +1,4 @@
+import { clickAt } from './cursor';
 import { acquireCdp } from './cdp-session';
 import type { A11ySnapshot, ActionResult, ToolCall } from '@/lib/types';
 
@@ -136,9 +137,7 @@ async function cdpUploadAttachment(target: Debuggee, snapshot: A11ySnapshot, ref
 
 async function cdpClick(target: Debuggee, snapshot: A11ySnapshot, ref: string): Promise<void> {
   const point = centerOf(snapshot, ref);
-  await send(target, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y });
-  await send(target, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 });
-  await send(target, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 });
+  await clickAt(point.x, point.y, target.tabId);
   await sleep(80);
 }
 

@@ -1,3 +1,4 @@
+import { smoothMove } from './cursor';
 import { acquireCdp } from './cdp-session';
 import { boundedNumber, evaluateInTab } from './bridge-browser';
 import { readClipboardInPage, writeClipboardInPage } from './cdp-actions';
@@ -98,7 +99,7 @@ export async function mediaRequest(tabId: number, type: string, payload: Record<
       return { ok: true };
     }
     const pos = await point(String(payload.ref ?? ''));
-    await move(pos);
+    await smoothMove(pos.x, pos.y, tabId, 20, modifiers);
     if (type === 'browser.hover') return { ok: true };
     const button = String(payload.button ?? 'left');
     if (!['left', 'right', 'middle'].includes(button)) throw new Error('button must be left, right or middle');

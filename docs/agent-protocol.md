@@ -125,6 +125,7 @@ Browser:
 - `browser.press`
 - `browser.scroll`
 - `browser.extract`
+- `browser.image`
 
 Tasks:
 
@@ -175,6 +176,20 @@ Tasks:
   "tabId": 123
 }
 ```
+
+`browser.image` (read-only; returns an image's bytes):
+
+```json
+{
+  "ref": "@e224",
+  "tabId": 123
+}
+```
+
+The ref may point at an `<img>` or at a container (a dialog, a button wrapping a picture); then the largest loaded
+`<img>` inside it is read. The page fetches the image with its own session; if CORS blocks that, the extension's
+background worker fetches the same address. Result:
+`{ "kind": "image", "src", "mimeType", "base64", "width", "height", "bytes" }`. Nothing on the page is clicked.
 
 `tasks.start`:
 

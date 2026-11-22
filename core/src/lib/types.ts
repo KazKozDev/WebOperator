@@ -330,6 +330,9 @@ export interface TaskPauseReason {
 }
 
 export interface AgentTask {
+  collection?: import('./collection').Collection;
+  /** Previous turn in this explicit chat, including across tabs and restarts. */
+  parentTaskId?: string;
   id: string;
   goal: string;
   tabId: number;
@@ -367,8 +370,16 @@ export interface ScheduledTask {
   lastError?: string;
 }
 
+export interface PromptRefinementResult {
+  prompt: string;
+  changes: string[];
+  questions: string[];
+  warnings: string[];
+}
+
 export type SWMessage =
-  | { kind: 'task:start'; goal: string; tabId: number; attachments?: TaskAttachment[] }
+  | { kind: 'prompt:refine'; draft: string }
+  | { kind: 'task:start'; goal: string; tabId: number; attachments?: TaskAttachment[]; parentTaskId?: string }
   | { kind: 'task:pause'; id: string }
   | { kind: 'task:resume'; id: string }
   | { kind: 'task:stop'; id: string }

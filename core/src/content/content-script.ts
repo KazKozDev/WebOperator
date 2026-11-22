@@ -1,3 +1,4 @@
+import './overlay.js';
 import { pageRequest } from '@/lib/bridge-page';
 import { buildSnapshot } from '@/lib/a11y';
 import { runAction } from '@/lib/actions';
@@ -148,10 +149,14 @@ function hideOverlay(): void {
 
 function setAgentGlow(active: boolean): void {
   if (!active) {
+    document.getElementById('__weboperator_cursor__')?.remove();
     document.getElementById(AGENT_GLOW_ID)?.remove();
     return;
   }
 
+  const state = globalThis as unknown as Record<symbol, unknown>;
+  const position = (state[Symbol.for('weboperator.virtualCursor')] as () => { x: number; y: number })();
+  (state[Symbol.for('weboperator.cursorPaint')] as (p: typeof position) => boolean)(position);
   ensureAgentGlowStyle();
   if (document.getElementById(AGENT_GLOW_ID)) return;
 

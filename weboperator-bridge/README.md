@@ -10,6 +10,8 @@ The stdio server and HTTP MCP endpoint expose the same **45 tools**: browser act
 
 New tools include `browser_image`, `browser_select_option`, `browser_handle_dialog`, and `agent_task_pause`, `agent_task_resume`, `agent_task_wait`.
 
+`browser_extract` with `mode:"rows"` or `mode:"chunk"` collects a long list or article and checks that it is complete. Ask for 200 records and the extension pages or scrolls through the list, rechecks a load that stalls, and reports the actual count if the site has fewer; for an article it reads by section and says where it stopped. Repeat the call with the returned `collectionId` until `complete` is true.
+
 `browser_snapshot` returns an accessibility tree with numbered interactive elements; the action tools take those numbers, so an agent never guesses at CSS selectors.
 
 After updating, rebuild and reload the extension and reconnect your MCP client so it fetches the new tool list. Running clients keep their current server process until restarted; local changes do not update an already published npm package.
