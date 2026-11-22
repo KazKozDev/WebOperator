@@ -4,7 +4,7 @@ const net = require('net');
 const { randomUUID } = require('crypto');
 
 const socketPath = process.env.WEBOPERATOR_AGENT_SOCKET || '/tmp/weboperator-bridge.sock';
-const token = process.env.WEBOPERATOR_API_TOKEN || '';
+const token = require('./token').loadBridgeToken();
 const input = process.argv[2] ? JSON.parse(process.argv[2]) : { type: 'bridge.health' };
 const message = {
   id: input.id || randomUUID(),

@@ -129,8 +129,9 @@ The `debugger` permission is why Chrome shows a yellow "WebOperator started debu
 
 ### Bridge authentication
 
-The bridge listens on `127.0.0.1:8765` and will accept unauthenticated calls until you set
-`WEBOPERATOR_API_TOKEN`. Set it. Every bridge variable — bind host, port, socket and log
+The bridge listens on `127.0.0.1:8765` and refuses calls without a token. Unless you set
+`WEBOPERATOR_API_TOKEN`, it creates one in `~/.weboperator/bridge-token` on first start, and
+the MCP server picks it up from there; HTTP clients send it as `Authorization: Bearer`. Every bridge variable — bind host, port, socket and log
 paths — is documented in [docs/api.md](docs/api.md).
 
 ### Requirements
@@ -164,7 +165,7 @@ paths — is documented in [docs/api.md](docs/api.md).
   above is fixed by the manifest key, and the side panel's own error message repeats it.
 - **"Model stopped issuing tool calls"** — the model cannot call tools, or is too small to do it reliably. Swap it; tool calling is the one hard requirement.
 - **Chrome rejects the folder on Load unpacked** — point it at `core/dist` or at the unzipped release folder, not at the repository root.
-- **The bridge answers `401`** — you set `WEBOPERATOR_API_TOKEN` on the bridge but the client is not sending it. Add `Authorization: Bearer $WEBOPERATOR_API_TOKEN` to the request.
+- **The bridge answers `401`** — the client is not sending the bridge token. Add `Authorization: Bearer $(cat ~/.weboperator/bridge-token)`, or your `WEBOPERATOR_API_TOKEN` if you set one, to the request.
 - **A task fails on a page that looks fine** — check the step trace in the side panel first; a stale element ref or a bot-detection wall shows up there as the failing action.
 
 </details>

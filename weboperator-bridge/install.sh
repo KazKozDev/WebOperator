@@ -52,10 +52,13 @@ EOF
   echo "Installed native host: $HOST_FILE"
 done
 
+TOKEN_FILE="$(node -e "const t = require(process.argv[1]); t.loadBridgeToken(); console.log(t.TOKEN_FILE)" "$SCRIPT_DIR/token.js")"
+
 echo ""
 echo "Extension ID: $EXT_ID"
 echo "Native Host: $HOST_SCRIPT"
 echo "Agent socket: ${WEBOPERATOR_AGENT_SOCKET:-/tmp/weboperator-bridge.sock}"
 echo "HTTP API: http://127.0.0.1:8765"
+echo "API token: $TOKEN_FILE (send it as: Authorization: Bearer \$(cat \"$TOKEN_FILE\"))"
 echo ""
 echo "Reload the extension in chrome://extensions."

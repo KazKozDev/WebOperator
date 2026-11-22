@@ -29,6 +29,15 @@ evals.
 
 ### Fixed
 
+- The bridge no longer runs open by default. A missing `WEBOPERATOR_API_TOKEN`
+  left every HTTP and socket call unauthenticated, the opposite of what the docs
+  said, so any local process or a web page posting `text/plain` to
+  `127.0.0.1:8765` could drive the browser. The bridge now falls back to a token
+  in `~/.weboperator/bridge-token` (0600, created on first start), which the MCP
+  server and agent client read too, so existing MCP setups keep working.
+  `WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE=1` still turns auth off for
+  development. Plain HTTP clients now have to send the token.
+
 - The MCP server's HTTP fallback, which never worked: it sent the extension's
   request types (`browser.snapshot`) to an API that takes tool names
   (`browser_snapshot`), so with the socket unavailable every tool came back
