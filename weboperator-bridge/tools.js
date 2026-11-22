@@ -291,4 +291,66 @@ function imageContent(result) {
   return [{ type: 'image', data: base64, mimeType: result.mimeType }, { type: 'text', text: JSON.stringify(metadata) }];
 }
 
-module.exports = { TOOLS, TOOL_TYPES, imageContent };
+/** The agent-facing summary of a finished task, shared by the stdio and HTTP MCP servers. */
+function formatTaskResultForAgent(task) {
+  if (!task) return { ok: false, status: 'failed', error: 'Task not found or timed out' };
+
+  const steps = Array.isArray(task.steps) ? task.steps : [];
+  let answer = '';
+  const extractedList = [];
+
+  for (const step of steps) {
+    if (step.toolCall) {
+      const args = step.toolCall.arguments || {};
+      if (step.toolCall.name === 'done') {
+        if (args.answer || args.text || args.note || args.summary) {
+          answer = String(args.answer || args.text || args.note || args.summary);
+        }
+      }
+      if (step.toolCall.name === 'extract' && args.instruction) {
+        if (step.result && step.result.extracted) {
+          extractedList.push(step.result.extracted);
+        }
+      }
+    }
+    if (step.result && step.result.extracted !== undefined) {
+      extractedList.push(step.result.extracted);
+    }
+    if (!answer && step.note && step.status === 'ok') {
+      answer = step.note;
+    }
+  }
+
+  if (!answer && extractedList.length > 0) {
+    answer = typeof extractedList[extractedList.length - 1] === 'string'
+      ? extractedList[extractedList.length - 1]
+      : JSON.stringify(extractedList, null, 2);
+  }
+
+  if (!answer && task.plan && Array.isArray(task.plan.steps)) {
+    const doneSteps = task.plan.steps.filter((s) => s.status === 'done');
+    if (doneSteps.length > 0) {
+      answer = doneSteps.map((s) => `✓ ${s.description}`).join('\n');
+    }
+  }
+
+  if (!answer && task.status === 'done') {
+    answer = `Goal completed successfully: "${task.goal}"`;
+  } else if (!answer && task.status === 'failed') {
+    answer = `Goal failed: ${task.error || 'Unknown error'}`;
+  }
+
+  return {
+    ok: task.status === 'done',
+    taskId: task.taskId || task.id,
+    status: task.status,
+    goal: task.goal,
+    answer,
+    extracted: extractedList.length > 0 ? extractedList : undefined,
+    stepCount: steps.length,
+    error: task.error,
+    modelUsed: task.modelUsed,
+  };
+}
+
+module.exports = { TOOLS, TOOL_TYPES, imageContent, formatTaskResultForAgent };
