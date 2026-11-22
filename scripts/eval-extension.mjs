@@ -74,6 +74,11 @@ try {
   const controlPage = await context.newPage();
   await controlPage.goto(`chrome-extension://${extensionId}/src/sidepanel/index.html`);
   await sendEvalMessage(controlPage, { kind: 'eval:clear' });
+  // DEBUG(temp): who closes what
+  controlPage.on('close', () => console.log('DEBUG controlPage closed'));
+  context.on('close', () => console.log('DEBUG context closed'));
+  context.browser()?.on('disconnected', () => console.log('DEBUG browser disconnected'));
+  context.on('page', (p) => { const u = () => p.url(); p.on('close', () => console.log('DEBUG page closed ' + u())); });
 
   const results = [];
   for (const task of selectedTasks) {
@@ -307,11 +312,13 @@ function finalAnswer(task) {
  * Use it to compare runs against each other, not to quote a leaderboard number.
  */
 function scoreAnswer(gold, answer) {
-  const goldText = String(gold ?? '').trim();
+  // Gold answers are often written as sentences ("The Battle of Hastings."); the trailing
+  // period would otherwise survive normalizeText and fail a match the answer plainly makes.
+  const goldText = String(gold ?? '').trim().replace(/[.!?;:]+$/, '');
   const hay = normalizeText(answer);
   if (!goldText || !hay) return 0;
 
-  const goldLines = goldText.split('\n').map((line) => line.trim()).filter(Boolean);
+  const goldLines = goldText.split('\n').map((line) => line.trim().replace(/[.!?;:]+$/, '')).filter(Boolean);
   if (goldLines.length > 1) {
     const hits = goldLines.filter((line) => hay.includes(normalizeText(line))).length;
     return hits / goldLines.length;

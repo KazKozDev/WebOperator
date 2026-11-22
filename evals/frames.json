@@ -1,0 +1,184 @@
+[
+  {
+    "id": "frames-0",
+    "title": "If my future wife has the same first name as the 15th first lady of t…",
+    "source": "google/frames-benchmark (test)",
+    "reasoningTypes": [
+      "Multiple constraints"
+    ],
+    "startUrl": "https://duckduckgo.com/",
+    "prompt": "If my future wife has the same first name as the 15th first lady of the United States' mother and her surname is the same as the second assassinated president's mother's maiden name, what is my future wife's name?",
+    "goldAnswer": "Jane Ballou",
+    "goldUrls": [
+      "https://en.wikipedia.org/wiki/President_of_the_United_States",
+      "https://en.wikipedia.org/wiki/James_Buchanan",
+      "https://en.wikipedia.org/wiki/Harriet_Lane",
+      "https://en.wikipedia.org/wiki/List_of_presidents_of_the_United_States_who_died_in_office",
+      "https://en.wikipedia.org/wiki/James_A._Garfield"
+    ]
+  },
+  {
+    "id": "frames-1",
+    "title": "Imagine there is a building called Bronte tower whose height in feet …",
+    "source": "google/frames-benchmark (test)",
+    "reasoningTypes": [
+      "Numerical reasoning",
+      "Tabular reasoning",
+      "Multiple constraints"
+    ],
+    "startUrl": "https://duckduckgo.com/",
+    "prompt": "Imagine there is a building called Bronte tower whose height in feet is the same number as the dewey decimal classification for the Charlotte Bronte book that was published in 1847. Where would this building rank among tallest buildings in New York City, as of August 2024?",
+    "goldAnswer": "37th",
+    "goldUrls": [
+      "https://en.wikipedia.org/wiki/Charlotte_Bront%C3%AB",
+      "https://en.wikipedia.org/wiki/Jane_Eyre",
+      "https://en.wikipedia.org/wiki/List_of_tallest_buildings_in_New_York_City"
+    ]
+  },
+  {
+    "id": "frames-2",
+    "title": "How many years earlier would Punxsutawney Phil have to be canonically…",
+    "source": "google/frames-benchmark (test)",
+    "reasoningTypes": [
+      "Numerical reasoning",
+      "Multiple constraints",
+      "Temporal reasoning"
+    ],
+    "startUrl": "https://duckduckgo.com/",
+    "prompt": "How many years earlier would Punxsutawney Phil have to be canonically alive to have made a Groundhog Day prediction in the same state as the US capitol?",
+    "goldAnswer": "87",
+    "goldUrls": [
+      "https://en.wikipedia.org/wiki/Punxsutawney_Phil",
+      "https://en.wikipedia.org/wiki/United_States_Capitol"
+    ]
+  },
+  {
+    "id": "frames-3",
+    "title": "As of August 1, 2024, which country were holders of the FIFA World Cu…",
+    "source": "google/frames-benchmark (test)",
+    "reasoningTypes": [
+      "Tabular reasoning",
+      "Multiple constraints",
+      "Temporal reasoning"
+    ],
+    "startUrl": "https://duckduckgo.com/",
+    "prompt": "As of August 1, 2024, which country were holders of the FIFA World Cup the last time the UEFA Champions League was won by a club from London?",
+    "goldAnswer": "France",
+    "goldUrls": [
+      "https://en.wikipedia.org/wiki/FIFA_World_Cup",
+      "https://en.wikipedia.org/wiki/London",
+      "https://en.wikipedia.org/wiki/UEFA_Champions_League"
+    ]
+  },
+  {
+    "id": "frames-4",
+    "title": "What is the name of the vocalist from the first band to make it in th…",
+    "source": "google/frames-benchmark (test)",
+    "reasoningTypes": [
+      "Multiple constraints"
+    ],
+    "startUrl": "https://duckduckgo.com/",
+    "prompt": "What is the name of the vocalist from the first band to make it in the top 200 under the record label that produced the third studio album for Dismal Euphony?",
+    "goldAnswer": "Jens Kidman",
+    "goldUrls": [
+      "https://en.wikipedia.org/wiki/Dismal_Euphony",
+      "https://en.wikipedia.org/wiki/All_Little_Devils",
+      "https://en.wikipedia.org/wiki/Nuclear_Blast",
+      "https://en.wikipedia.org/wiki/Meshuggah"
+    ]
+  },
+  {
+    "id": "frames-5",
+    "title": "According to the 2000 United States census, what was the 2000 populat…",
+    "source": "google/frames-benchmark (test)",
+    "reasoningTypes": [
+      "Numerical reasoning",
+      "Tabular reasoning",
+      "Multiple constraints"
+    ],
+    "startUrl": "https://duckduckgo.com/",
+    "prompt": "According to the 2000 United States census, what was the 2000 population of the birth city of the only 21st-century mayor of Austin, Texas who also served as mayor in the 1990s? Round your answer to the nearest thousand.",
+    "goldAnswer": "506000",
+    "goldUrls": [
+      "https://en.wikipedia.org/wiki/Mayor_of_Austin",
+      "https://en.wikipedia.org/wiki/Kirk_Watson",
+      "https://en.wikipedia.org/wiki/Oklahoma_City"
+    ]
+  },
+  {
+    "id": "frames-6",
+    "title": "I have an element in mind and would like you to identify the person i…",
+    "source": "google/frames-benchmark (test)",
+    "reasoningTypes": [
+      "Numerical reasoning",
+      "Multiple constraints",
+      "Temporal reasoning"
+    ],
+    "startUrl": "https://duckduckgo.com/",
+    "prompt": "I have an element in mind and would like you to identify the person it was named after. Here's a clue: The element's atomic number is 9 higher than that of an element discovered by the scientist who discovered Zirconium in the same year.",
+    "goldAnswer": "Mendelevium is named after Dmitri Mendeleev.",
+    "goldUrls": [
+      "https://en.wikipedia.org/wiki/Zirconium",
+      "https://en.wikipedia.org/wiki/Martin_Heinrich_Klaproth",
+      "https://en.wikipedia.org/wiki/Uranium",
+      "https://en.wikipedia.org/wiki/Mendelevium",
+      "https://en.wikipedia.org/wiki/Periodic_table"
+    ]
+  },
+  {
+    "id": "frames-7",
+    "title": "As of Aug 3, 2024, the artist who released the album \"Father of Asahd…",
+    "source": "google/frames-benchmark (test)",
+    "reasoningTypes": [
+      "Multiple constraints",
+      "Temporal reasoning"
+    ],
+    "startUrl": "https://duckduckgo.com/",
+    "prompt": "As of Aug 3, 2024, the artist who released the album \"Father of Asahd\" went to the same high school as an Olympic diver. How many Olympic teams did this diver participate on?",
+    "goldAnswer": "2",
+    "goldUrls": [
+      "https://en.wikipedia.org/wiki/Father_of_Asahd",
+      "https://en.wikipedia.org/wiki/DJ_Khaled",
+      "https://en.wikipedia.org/wiki/Dr._Phillips_High_School",
+      "https://en.wikipedia.org/wiki/Mark_Ruiz"
+    ]
+  },
+  {
+    "id": "frames-8",
+    "title": "A general motors vehicle is named after the largest ward in the count…",
+    "source": "google/frames-benchmark (test)",
+    "reasoningTypes": [
+      "Tabular reasoning",
+      "Multiple constraints",
+      "Temporal reasoning"
+    ],
+    "startUrl": "https://duckduckgo.com/",
+    "prompt": "A general motors vehicle is named after the largest ward in the country of Monaco.  How many people had walked on the moon as of the first model year of the vehicle? Note: the model year is not the same as the year the model was first produced.",
+    "goldAnswer": "4",
+    "goldUrls": [
+      "https://en.wikipedia.org/wiki/Monaco",
+      "https://en.wikipedia.org/wiki/List_of_Chevrolet_vehicles",
+      "https://en.wikipedia.org/wiki/Chevrolet_Monte_Carlo",
+      "https://en.wikipedia.org/wiki/Moon",
+      "https://en.wikipedia.org/wiki/Apollo_program",
+      "https://en.wikipedia.org/wiki/List_of_Apollo_missions"
+    ]
+  },
+  {
+    "id": "frames-9",
+    "title": "The Pope born Pietro Barbo ended a long-running war two years after h…",
+    "source": "google/frames-benchmark (test)",
+    "reasoningTypes": [
+      "Temporal reasoning"
+    ],
+    "startUrl": "https://duckduckgo.com/",
+    "prompt": "The Pope born Pietro Barbo ended a long-running war two years after his papacy began, which famous conflict, immortalized in tapestry took place 400 years earlier?",
+    "goldAnswer": "The Battle of Hastings.",
+    "goldUrls": [
+      "https://en.wikipedia.org/wiki/Pope_Paul_II",
+      "https://en.wikipedia.org/wiki/Thirteen_Years%27_War_(1454%E2%80%931466)",
+      "https://en.wikipedia.org/wiki/Bayeux_Tapestry",
+      "https://en.wikipedia.org/wiki/Battle_of_Hastings"
+    ]
+  }
+]
