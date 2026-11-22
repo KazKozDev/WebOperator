@@ -48,6 +48,14 @@ It can navigate, click, type, press keys, scroll, switch tabs, screenshot, and p
 Compare info across tabs
 ```
 
+Long jobs do not stop at the first screen. The agent saves what it collects as it goes and checks that it has everything before it answers.
+
+| Task | How the agent checks it got everything |
+| --- | --- |
+| Collect 200 emails, job listings, or products | Saves the records on each page, checks the ranges shown, moves to the next page, and counts unique records. |
+| Collect results from an infinite scroll | Saves new records before every scroll. If loading stops before the target, it reports the actual count. |
+| Read a long article | Reads the text in sections or consecutive chunks and records how far it got. |
+
 The side panel streams the plan, every action, and the final answer, and keeps the full trace; history, checkpoints, and scheduled runs each get their own tab. The flip side: the agent only knows what it can actually see in the browser, so anything hidden, paywalled, or geo-blocked simply will not show up in the answer.
 
 <br>
