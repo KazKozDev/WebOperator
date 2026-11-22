@@ -87,7 +87,7 @@ export function AnswerPanel({
         </div>
       </div>
       <div className="answer-text" dangerouslySetInnerHTML={{ __html: renderMarkdown(answer ?? fallback) }} />
-      {task.collection && <details>
+      {task.collection && <details open={task.collection.rows.length > 0}>
         <summary>Collected data · {progress(task.collection).split('\n')[0]}</summary>
         <pre style={{ whiteSpace: 'pre-wrap' }}>{progress(task.collection)}</pre>
         <ol>{task.collection.rows.map(row => <li key={row.key}>{row.text}</li>)}</ol>

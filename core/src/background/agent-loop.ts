@@ -1,4 +1,4 @@
-import { applyBatch, incomplete, progress, type PageRows, type TextChunk } from '@/lib/collection';
+import { applyBatch, compactRows, incomplete, progress, type PageRows, type TextChunk } from '@/lib/collection';
 import { chat, OllamaError, type DroppedCapability, type OllamaChatOptions, type OllamaChatResult, type OllamaMessage } from '@/lib/ollama-client';
 import { chatOpenAI } from '@/lib/openai-client';
 import { chatGemini } from '@/lib/gemini-client';
@@ -11,7 +11,7 @@ import { chatDeepSeek } from '@/lib/deepseek-client';
 import { chatAnthropic } from '@/lib/anthropic-client';
 import { buildPartialSummaryPrompt, collectWork, describeSufficiencyCheck, fallbackPartialSummary } from '@/lib/partial-work';
 import { collectFindings, ledgerCharBudget, renderFindingsBlock } from '@/lib/findings-ledger';
-import { stepBudgetFor } from '@/lib/step-budget';
+import { requestedCount, stepBudgetFor } from '@/lib/step-budget';
 
 import {
   collapseOldObservations,
@@ -1521,7 +1521,18 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
           const c = task.collection ??= { rows: [], pages: [], documents: [] };
           collectionOrigin = new URL(snapshot.url).origin;
           const moved = ['click', 'scroll', 'wait'].includes(executedCalls.at(-1)?.name ?? '');
-          collectionQueue = applyBatch(c, batch, toolCall, moved).queue;
+          // The user's own count is the floor: a model that passes the page size (25) as the
+          // target would otherwise stop a "first 50" request after one page.
+          const asked = batch.kind === 'rows' ? requestedCount(task.goal) : undefined;
+          const read = asked && asked > Number(toolCall.arguments.target ?? 0)
+            ? { ...toolCall, arguments: { ...toolCall.arguments, target: asked } } : toolCall;
+          const before = c.rows.length;
+          collectionQueue = applyBatch(c, batch, read, moved).queue;
+          if (batch.kind === 'rows') {
+            // Full rows are saved and shown to the user; the model gets a compact view so a
+            // page of long cards does not crowd the history and vanish on compaction.
+            step.result = { ...step.result, extracted: compactRows(batch, c.rows.slice(before)) };
+          }
           await saveTask(task);
           postToolUserMessages.push('[Saved collection] ' + progress(c));
         }

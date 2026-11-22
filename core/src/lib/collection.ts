@@ -247,14 +247,28 @@ export function collectionFollowUp(c: Collection, batch: PageRows | TextChunk, r
 
 /** Merges one capture into the collection and returns the steps that continue it. */
 export function applyBatch(c: Collection, batch: PageRows | TextChunk, read: ToolCall, moved = true): { queue: ToolCall[]; advanced: boolean } {
+  // A later, larger target wins: the first read may have passed the page size by mistake.
   const requested = Number(read.arguments.target);
-  if (batch.kind === 'rows' && !c.target && Number.isSafeInteger(requested) && requested > 0) c.target = requested;
+  if (batch.kind === 'rows' && Number.isSafeInteger(requested) && requested > (c.target ?? 0)) c.target = requested;
   const previous = batch.kind === 'rows' ? c.rows.length : c.documents.find(d => d.source === batch.source)?.text.length ?? 0;
   mergeCollection(c, batch);
   const advanced = batch.kind === 'rows'
     ? c.rows.length > previous
     : batch.text.length > 0 && (batch.offset === 0 || batch.offset + batch.text.length > previous);
   return { queue: collectionFollowUp(c, batch, read, advanced, moved), advanced };
+}
+
+/** What the model sees for a rows capture: the new rows, each cut to one short line. */
+export function compactRows(batch: PageRows, added: CollectedRow[], width = 200): Record<string, unknown> {
+  return {
+    kind: 'rows',
+    source: batch.source,
+    ...(batch.range ? { range: batch.range } : {}),
+    ...(batch.claimed ? { claimed: batch.claimed } : {}),
+    newRows: added.map(row => row.text.replace(/\s+/g, ' ').trim().slice(0, width)),
+    alreadySaved: batch.rows.length - added.length,
+    note: 'Full rows are saved and shown to the user under Collected data.',
+  };
 }
 
 const isRead = (call: ToolCall) => call.name === 'extract' && (call.arguments.refs === 'rows' || call.arguments.refs === 'chunk');

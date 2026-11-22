@@ -50,11 +50,17 @@ const EXHAUSTIVE = [
 ] as const;
 
 /** An explicit count of things to visit — "20 писем", "top 50 results". */
-const BULK_COUNT = /(?<![\p{L}\p{N}])(\d{1,4})\s*(?:писем|письма|сообщени\p{L}*|штук|товар\p{L}*|позиц\p{L}*|стро\p{L}*|результат\p{L}*|ссыл\p{L}*|статей|items?|messages?|emails?|rows?|results?|links?|products?|entries)(?![\p{L}\p{N}])/iu;
+const BULK_COUNT = /(?<![\p{L}\p{N}])(\d{1,4})\s*(?:писем|письма|сообщени\p{L}*|штук|товар\p{L}*|позиц\p{L}*|стро\p{L}*|результат\p{L}*|ссыл\p{L}*|стат\p{L}*|вакан\p{L}*|назван\p{L}*|заголов\p{L}*|пост\p{L}*|отзыв\p{L}*|запис\p{L}*|items?|messages?|emails?|rows?|results?|links?|products?|entries|articles?|papers?|jobs?|listings?|titles?|posts?|reviews?|records?)(?![\p{L}\p{N}])/iu;
+
+/** The count of items the goal names ("первые 50 статей" → 50), if it names one. */
+export function requestedCount(goal: string): number | undefined {
+  const match = BULK_COUNT.exec(goal ?? '');
+  return match ? Number(match[1]) : undefined;
+}
 
 function mentionsBulkCount(goal: string): boolean {
-  const match = BULK_COUNT.exec(goal);
-  return match ? Number(match[1]) >= BULK_COUNT_THRESHOLD : false;
+  const count = requestedCount(goal);
+  return count !== undefined && count >= BULK_COUNT_THRESHOLD;
 }
 
 /**

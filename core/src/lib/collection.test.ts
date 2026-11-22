@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chunkEnd, collectionFollowUp, incomplete, lastHeadingBefore, mergeCollection, parseRange, progress, type Collection } from './collection';
+import { applyBatch, chunkEnd, collectionFollowUp, compactRows, incomplete, lastHeadingBefore, mergeCollection, parseRange, progress, type Collection } from './collection';
 const fresh = (): Collection => ({ rows: [], pages: [], documents: [] });
 const rows = (first: number, last: number) => Array.from({ length: last-first+1 }, (_, i) => ({key: String(first+i), text: 'Item ' + (first+i)}));
 describe('persistent collection', () => {
@@ -160,5 +160,28 @@ describe('long text', () => {
     mergeCollection(c, { kind:'chunk', source:'article', revision:'1', offset:end, total:full.length, text:full.slice(end), heading:'Section 3' });
     expect(incomplete(c)).toBe(false);
     expect(progress(c)).toContain('reached "Section 3"');
+  });
+});
+
+describe('target and model view', () => {
+  it('raises a target that was set to the page size', () => {
+    const c = fresh();
+    const page = { kind:'rows' as const, source:'search', range:[1,25] as [number,number], claimed: 5981, rows: rows(1, 25), nextRef: '@e4' };
+    expect(applyBatch(c, page, {name:'extract',arguments:{refs:'rows',target:25}}).queue).toEqual([]);
+    expect(c.target).toBe(25);
+    const next = applyBatch(c, page, {name:'extract',arguments:{refs:'rows',target:50}}, false).queue;
+    expect(c.target).toBe(50);
+    expect(next.map(x => x.name)).toEqual(['click', 'extract']);
+    expect(applyBatch(c, page, {name:'extract',arguments:{refs:'rows',target:10}}, false).queue.length).toBe(2);
+    expect(c.target).toBe(50);
+  });
+  it('gives the model one short line per new row', () => {
+    const long = { key: 'k', text: 'arXiv:2611.26531  [pdf]\n  Cost-Aware Agentic Feature Optimization\n' + 'abstract '.repeat(200) };
+    const view = compactRows({ kind:'rows', source:'search', range:[1,25], claimed: 5981, rows: [long, long] }, [long]);
+    expect(view).toMatchObject({ range: [1, 25], claimed: 5981, alreadySaved: 1 });
+    const [line] = view.newRows as string[];
+    expect(line.length).toBe(200);
+    expect(line).toContain('Cost-Aware Agentic Feature Optimization');
+    expect(line).not.toContain('\n');
   });
 });

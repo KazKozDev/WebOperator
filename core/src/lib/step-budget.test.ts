@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BASE_STEP_BUDGET, SWEEP_STEP_BUDGET, stepBudgetFor } from './step-budget';
+import { BASE_STEP_BUDGET, SWEEP_STEP_BUDGET, stepBudgetFor, requestedCount } from './step-budget';
 
 const budget = (goal: string) => stepBudgetFor(goal).maxSteps;
 
@@ -39,5 +39,15 @@ describe('stepBudgetFor', () => {
   it('always states a reason for the budget it picked', () => {
     expect(stepBudgetFor('проверь почту за 5 дней').reason).toMatch(/window of time/);
     expect(stepBudgetFor('заполни форму').reason).toBe('bounded task');
+  });
+});
+
+describe('requestedCount', () => {
+  it('reads the count the user asked for', () => {
+    expect(requestedCount('выпиши названия первых 50 статей')).toBe(50);
+    expect(requestedCount('собери 200 вакансий с hh')).toBe(200);
+    expect(requestedCount('list the first 50 articles')).toBe(50);
+    expect(requestedCount('collect 120 job listings')).toBe(120);
+    expect(requestedCount('summarize this page')).toBeUndefined();
   });
 });
