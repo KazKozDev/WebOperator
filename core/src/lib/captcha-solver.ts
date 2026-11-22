@@ -7,15 +7,11 @@
 
 import type { Settings } from './types';
 import { getSettings } from './storage';
-import { chatOpenAI } from './openai-client';
+import { chatDeepSeek, chatOpenAI, chatOpenRouter, chatSiliconFlow, chatXai } from './openai-client';
 import { chatAnthropic } from './anthropic-client';
 import { chatGemini } from './gemini-client';
-import { chatXai } from './xai-client';
-import { chatOpenRouter } from './openrouter-client';
-import { chatSiliconFlow } from './siliconflow-client';
 import { chatOpenAICompatibleProvider } from './openai-compatible-client';
 import { chatMlx } from './mlx-client';
-import { chatDeepSeek } from './deepseek-client';
 import { chat, type OllamaChatOptions } from './ollama-client';
 
 export interface CaptchaDetection {

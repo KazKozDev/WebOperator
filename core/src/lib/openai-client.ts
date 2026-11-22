@@ -29,6 +29,53 @@ export async function chatOpenAI(opts: OllamaChatOptions, apiKey: string, model:
   });
 }
 
+export async function chatOpenRouter(opts: OllamaChatOptions, apiKey: string, model: string): Promise<OllamaChatResult> {
+  return chatOpenAICompatible({
+    opts,
+    apiKey,
+    model,
+    label: 'OpenRouter',
+    url: 'https://openrouter.ai/api/v1/chat/completions',
+    headers: { 'HTTP-Referer': 'chrome-extension://browseagent', 'X-Title': 'WebOperator' },
+    passReasoning: true,
+  });
+}
+
+export async function chatSiliconFlow(opts: OllamaChatOptions, apiKey: string, model: string): Promise<OllamaChatResult> {
+  return chatOpenAICompatible({
+    opts,
+    apiKey,
+    model,
+    label: 'SiliconFlow',
+    url: 'https://api.siliconflow.com/v1/chat/completions',
+    passReasoning: true,
+  });
+}
+
+export async function chatDeepSeek(opts: OllamaChatOptions, apiKey: string, model: string): Promise<OllamaChatResult> {
+  return chatOpenAICompatible({
+    opts,
+    apiKey,
+    model,
+    label: 'DeepSeek',
+    url: 'https://api.deepseek.com/chat/completions',
+    passReasoning: true,
+    // The DeepSeek API rejects `image_url` blocks with a 400, so it runs text-only.
+    images: false,
+  });
+}
+
+export async function chatXai(opts: OllamaChatOptions, apiKey: string, xaiModel: string): Promise<OllamaChatResult> {
+  return chatOpenAICompatible({
+    opts,
+    apiKey,
+    model: xaiModel,
+    label: 'xAI',
+    url: 'https://api.x.ai/v1/chat/completions',
+    passReasoning: true,
+  });
+}
+
 export async function chatOpenAICompatible({
   opts,
   apiKey,
@@ -36,6 +83,9 @@ export async function chatOpenAICompatible({
   label,
   url,
   requireApiKey = true,
+  headers = {},
+  passReasoning = false,
+  images = true,
 }: {
   opts: OllamaChatOptions;
   apiKey: string;
@@ -44,12 +94,19 @@ export async function chatOpenAICompatible({
   url: string;
   /** Self-hosted servers (LM Studio, vLLM, llama.cpp) usually accept an unauthenticated request. */
   requireApiKey?: boolean;
+  /** Extra request headers, e.g. OpenRouter's app attribution. */
+  headers?: Record<string, string>;
+  /** Send `reasoning_content` back on assistant turns; reasoning models (DeepSeek, Qwen) expect it. */
+  passReasoning?: boolean;
+  /** False for text-only APIs that reject `image_url` blocks. */
+  images?: boolean;
 }): Promise<OllamaChatResult> {
   if (requireApiKey && !apiKey.trim()) throw new Error(`${label} API key is empty`);
   if (!model.trim()) throw new Error(`${label} model is empty`);
 
   const startedAt = Date.now();
   const messages = opts.messages.map((m) => {
+    const reasoning = passReasoning && m.role === 'assistant' ? m.reasoning_content : undefined;
     if (m.role === 'tool') {
       return { role: 'tool', content: m.content, tool_call_id: m.tool_call_id };
     }
@@ -58,6 +115,7 @@ export async function chatOpenAICompatible({
       return {
         role: 'assistant',
         content: m.content || null,
+        ...(reasoning ? { reasoning_content: reasoning } : {}),
         tool_calls: m.tool_calls.map((tc) => ({
           id: tc.id || tc.function.name,
           type: 'function',
@@ -66,7 +124,9 @@ export async function chatOpenAICompatible({
       };
     }
 
-    if (opts.images && opts.images.length > 0 && m === opts.messages[opts.messages.length - 1] && m.role === 'user') {
+    if (reasoning) return { role: 'assistant', content: m.content, reasoning_content: reasoning };
+
+    if (images && opts.images && opts.images.length > 0 && m === opts.messages[opts.messages.length - 1] && m.role === 'user') {
       return {
         role: 'user',
         content: [
@@ -96,7 +156,7 @@ export async function chatOpenAICompatible({
       ...(toolPayload.length > 0 ? { tools: toolPayload } : {}),
       temperature: 0.2,
     };
-    let res = await requestChatCompletions(url, apiKey, body, signal);
+    let res = await requestChatCompletions(url, apiKey, headers, body, signal);
 
     if (!res.ok && res.status === 400) {
       const text = await res.text().catch(() => '');
@@ -107,7 +167,7 @@ export async function chatOpenAICompatible({
           stream: Boolean(opts.onUpdate),
           ...(toolPayload.length > 0 ? { tools: toolPayload } : {}),
         };
-        res = await requestChatCompletions(url, apiKey, fallbackBody, signal);
+        res = await requestChatCompletions(url, apiKey, headers, fallbackBody, signal);
       } else {
         throw new Error(`${label} ${res.status}: ${text || res.statusText}`);
       }
@@ -150,11 +210,12 @@ export async function chatOpenAICompatible({
   }
 }
 
-function requestChatCompletions(url: string, apiKey: string, body: unknown, signal: AbortSignal): Promise<Response> {
+function requestChatCompletions(url: string, apiKey: string, headers: Record<string, string>, body: unknown, signal: AbortSignal): Promise<Response> {
   return fetchWithRetry(url, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
+      ...headers,
       // A keyless local server rejects `Bearer ` outright on some stacks, so send nothing.
       ...(apiKey.trim() ? { authorization: `Bearer ${apiKey}` } : {}),
     },
