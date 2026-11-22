@@ -3,6 +3,7 @@ import { observationRequest, waitForObservedNetwork, hasObservation } from './br
 import { refinePrompt } from '@/lib/prompt-refinement';
 import { registerSidePanel } from './side-panel';
 import { handleDialog } from './bridge-dialog';
+import { bridgeCollect } from './bridge-collection';
 import { mediaRequest } from './bridge-media';
 import { cookiesRequest, downloadsRequest } from './bridge-io';
 import { validateSchema } from '@/lib/bridge-schema';
@@ -597,6 +598,24 @@ function describeToolCall(call: ToolCall): string {
   }
 }
 
+/** One step of a bridge collection, recorded in the external-agent trace like any bridge action. */
+async function runCollectionStep(tabId: number, call: ToolCall): Promise<ActionResult> {
+  const resp = await recordBridgeActionStep(tabId, call, `External Agent: ${describeToolCall(call)}`, async () => {
+    // Refs stay stable per element; a fresh pass gives the current pager control its ref.
+    if (call.name === 'extract' && call.arguments.refs === 'rows') {
+      await chrome.tabs.sendMessage(tabId, { kind: 'snapshot:take', options: { allElements: true } }, { frameId: 0 }).catch(() => undefined);
+    }
+    const result = await chrome.tabs.sendMessage(tabId, { kind: 'action:run', action: call }, { frameId: 0 }) as CSResponse;
+    if (call.name === 'click') {
+      await waitForTabComplete(tabId, 6_000).catch(() => undefined);
+      await ensureContentScript(tabId);
+    }
+    return result;
+  }) as CSResponse;
+  if (resp?.kind === 'action:result') return resp.result;
+  return { ok: false, durationMs: 0, error: resp?.kind === 'error' ? resp.error : 'Unexpected content-script response' };
+}
+
 async function recordBridgeActionStep(
   tabId: number,
   toolCall: ToolCall,
@@ -781,6 +800,10 @@ async function executeBridgeRequest(type: string, payload: Record<string, unknow
     case 'browser.extract': {
       const tabId = await activeTabIdFromPayload(payload);
       if (type === 'browser.extract' && payload.schema !== undefined) return structuredExtract(tabId, payload);
+      if (type === 'browser.extract' && payload.mode !== undefined) {
+        await ensureContentScript(tabId);
+        return bridgeCollect(tabId, payload, { run: (call) => runCollectionStep(tabId, call) });
+      }
       if (type === 'browser.click' && (payload.button !== undefined || payload.clickCount !== undefined || payload.modifiers !== undefined)) {
         const ref = String(payload.ref ?? (payload.index === undefined ? '' : `@e${payload.index}`));
         return mediaRequest(tabId, type, { ...payload, ref }, bridgeFrame(tabId, ref));

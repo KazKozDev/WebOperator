@@ -1,4 +1,4 @@
-import { collectionFollowUp, mergeCollection, incomplete, progress, type PageRows, type TextChunk } from '@/lib/collection';
+import { applyBatch, incomplete, progress, type PageRows, type TextChunk } from '@/lib/collection';
 import { chat, OllamaError, type DroppedCapability, type OllamaChatOptions, type OllamaChatResult, type OllamaMessage } from '@/lib/ollama-client';
 import { chatOpenAI } from '@/lib/openai-client';
 import { chatGemini } from '@/lib/gemini-client';
@@ -1519,13 +1519,9 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
         if (collect && step.result.ok) {
           const batch = step.result.extracted as PageRows | TextChunk;
           const c = task.collection ??= { rows: [], pages: [], documents: [] };
-          const requested = Number(toolCall.arguments.target);
-          if (batch.kind === 'rows' && !c.target && Number.isSafeInteger(requested) && requested > 0) c.target = requested;
-          const previousCount = batch.kind === 'rows' ? c.rows.length : c.documents.find(d => d.source === batch.source)?.text.length ?? 0;
-          mergeCollection(c, batch);
-          const advanced = batch.kind === 'rows' ? c.rows.length > previousCount : batch.text.length > 0 && (batch.offset === 0 || batch.offset + batch.text.length > previousCount);
           collectionOrigin = new URL(snapshot.url).origin;
-          collectionQueue = collectionFollowUp(c, batch, toolCall, advanced);
+          const moved = ['click', 'scroll', 'wait'].includes(executedCalls.at(-1)?.name ?? '');
+          collectionQueue = applyBatch(c, batch, toolCall, moved).queue;
           await saveTask(task);
           postToolUserMessages.push('[Saved collection] ' + progress(c));
         }

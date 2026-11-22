@@ -104,6 +104,18 @@ describe('infinite scroll', () => {
     expect(incomplete(c)).toBe(true);
     expect(progress(c)).toContain('loading stopped at 40/200');
   });
+  it('moves on instead of rechecking when nothing moved before the re-read', () => {
+    const c = fresh();
+    c.target = 200;
+    const read = {name:'extract' as const,arguments:{refs:'rows',target:200}};
+    const page = { kind:'rows' as const, source:'p1', range:[1,50] as [number,number], rows: rows(1, 50), nextRef: '@e2' };
+    mergeCollection(c, page);
+    expect(collectionFollowUp(c, page, read, false, false).map(x => x.name)).toEqual(['click', 'extract']);
+    const feed = { kind:'rows' as const, source:'feed', rows: rows(51, 60), scrollBy: 600 };
+    mergeCollection(c, feed);
+    expect(collectionFollowUp(c, feed, read, false, false).map(x => x.name)).toEqual(['scroll', 'extract']);
+    expect(c.rechecked).toBeFalsy();
+  });
   it('clears the stall once new records arrive', () => {
     const c = fresh();
     c.target = 200;

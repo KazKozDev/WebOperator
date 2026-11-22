@@ -275,7 +275,13 @@ extend('browser_snapshot', {
   roles: { type: 'array', items: { type: 'string' } }, query: { type: 'string' }, text: { type: 'boolean' }, diff: { type: 'boolean' },
   includeImages: { type: 'boolean' }, minImageArea: { type: 'integer', minimum: 0 }, shadow: { type: 'boolean' },
 });
-extend('browser_extract', { schema: { type: 'object', description: 'JSON Schema, validated without eval. Unsupported keywords return an explicit error. Extraction uses the configured model.' } });
+extend('browser_extract', {
+  schema: { type: 'object', description: 'JSON Schema, validated without eval. Unsupported keywords return an explicit error. Extraction uses the configured model.' },
+  mode: { type: 'string', enum: ['rows', 'chunk'], description: 'Self-checking collection. "rows" saves list records, follows Next or scrolls the list, rechecks a load that adds nothing, and stops at target or at the total the pager claims. "chunk" reads long text in paragraph-sized chunks and records the section reached. Each call works for up to about 12 s; call again with collectionId until complete is true or stopReason explains the shortfall.' },
+  target: { type: 'integer', minimum: 1, maximum: 10000, description: 'With mode="rows": how many records to collect. Without it, one capture of the current list.' },
+  collectionId: { type: 'string', pattern: '^[\\w-]{1,64}$', description: 'Returned by the first mode call; pass it to resume the same collection.' },
+  since: { type: 'integer', minimum: 0, description: 'Return only rows (or text characters) after this count; pass nextSince from the previous call.' },
+});
 extend('browser_click', { button: { type: 'string', enum: ['left', 'right', 'middle'] }, clickCount: { type: 'integer', minimum: 1, maximum: 3 }, modifiers: { type: 'string' } });
 extend('browser_screenshot', { ...REF_PROP, fullPage: { type: 'boolean' }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'integer', minimum: 0, maximum: 100 }, saveTo: { type: 'string', description: 'Absolute local output path. Existing files are not overwritten.' } });
 

@@ -216,18 +216,25 @@ function firstUnverified(c: Collection): number {
   return first;
 }
 
-export function collectionFollowUp(c: Collection, batch: PageRows | TextChunk, read: ToolCall, advanced: boolean): ToolCall[] {
+/**
+ * The steps that continue a collection after one capture. `moved` says whether a scroll,
+ * page change or wait came right before it: only then does a capture that adds nothing
+ * count as a stalled load. A plain re-read (a resumed call, a model retry) moves on instead.
+ */
+export function collectionFollowUp(c: Collection, batch: PageRows | TextChunk, read: ToolCall, advanced: boolean, moved = true): ToolCall[] {
   if (batch.kind === 'chunk') return advanced && batch.offset + batch.text.length < batch.total ? [read] : [];
   const want = goal(c);
   if (!want || c.rows.length >= want) return [];
-  if (!advanced) {
+  if (!advanced && moved) {
     // Lazy lists often answer a scroll a moment late: look once more before calling it a stall.
     if (c.rechecked) { c.stalled = true; return []; }
     c.rechecked = true;
     return [{ name: 'wait', arguments: { ms: STALL_RECHECK_MS, until: 'none', reason: 'Recheck a load that added no records' } }, read];
   }
-  c.rechecked = false;
-  c.stalled = false;
+  if (advanced) {
+    c.rechecked = false;
+    c.stalled = false;
+  }
   const fullPage = !batch.range || firstUnverified(c) > batch.range[1];
   if (fullPage && batch.nextRef) {
     return [{ name: 'click', arguments: { ref: batch.nextRef, reason: 'Next page of requested records' } }, read];
@@ -236,4 +243,57 @@ export function collectionFollowUp(c: Collection, batch: PageRows | TextChunk, r
     return [{ name: 'scroll', arguments: { direction: 'down', amountPx: batch.scrollBy, collectionList: true } }, read];
   }
   return [];
+}
+
+/** Merges one capture into the collection and returns the steps that continue it. */
+export function applyBatch(c: Collection, batch: PageRows | TextChunk, read: ToolCall, moved = true): { queue: ToolCall[]; advanced: boolean } {
+  const requested = Number(read.arguments.target);
+  if (batch.kind === 'rows' && !c.target && Number.isSafeInteger(requested) && requested > 0) c.target = requested;
+  const previous = batch.kind === 'rows' ? c.rows.length : c.documents.find(d => d.source === batch.source)?.text.length ?? 0;
+  mergeCollection(c, batch);
+  const advanced = batch.kind === 'rows'
+    ? c.rows.length > previous
+    : batch.text.length > 0 && (batch.offset === 0 || batch.offset + batch.text.length > previous);
+  return { queue: collectionFollowUp(c, batch, read, advanced, moved), advanced };
+}
+
+const isRead = (call: ToolCall) => call.name === 'extract' && (call.arguments.refs === 'rows' || call.arguments.refs === 'chunk');
+
+export interface FollowOutcome { steps: number; timedOut: boolean; error?: string }
+
+/**
+ * Runs a collection to its end (target met, no more pages, stall, or chunk total reached)
+ * without a model in the loop: the same traversal the agent queues, for callers such as
+ * the MCP bridge. Stops at the deadline and leaves the collection resumable.
+ */
+export async function followCollection(
+  c: Collection,
+  read: ToolCall,
+  run: (call: ToolCall) => Promise<{ ok: boolean; extracted?: unknown; error?: string }>,
+  opts: { deadline: number; now?: () => number; maxSteps?: number },
+): Promise<FollowOutcome> {
+  const now = opts.now ?? Date.now;
+  const maxSteps = opts.maxSteps ?? 200;
+  let queue: ToolCall[] = [read];
+  let steps = 0;
+  let moved = false;
+  while (queue.length) {
+    if (now() >= opts.deadline || steps >= maxSteps) return { steps, timedOut: true };
+    let call = queue.shift()!;
+    if (call.arguments.refs === 'chunk') {
+      const prior = c.documents.at(-1);
+      call = { ...call, arguments: { ...call.arguments, offset: prior?.text.length ?? 0, revision: prior?.revision } };
+    }
+    const result = await run(call);
+    steps++;
+    if (!result.ok) return { steps, timedOut: false, error: result.error ?? `${call.name} failed` };
+    if (!isRead(call)) { moved = true; continue; }
+    try {
+      queue = applyBatch(c, result.extracted as PageRows | TextChunk, read, moved).queue;
+      moved = false;
+    } catch (err) {
+      return { steps, timedOut: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+  return { steps, timedOut: false };
 }

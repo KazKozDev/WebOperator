@@ -73,6 +73,9 @@ evals.
   page's pager claims, a scroll that adds nothing is rechecked once before the run reports
   the actual count, and long text is read in paragraph-sized chunks that record the last
   section reached.
+- `browser_extract` with `mode:"rows"` or `mode:"chunk"` gives MCP clients the same
+  self-checking collection: the extension pages, scrolls and rechecks within a 12 s budget
+  per call, saves progress under `collectionId`, and returns `complete` and `stopReason`.
 
 ### Fixed
 
