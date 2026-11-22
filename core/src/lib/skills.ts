@@ -139,7 +139,7 @@ SAFETY — read this first:
 4. Never delete or permanently remove mail, and never mark messages read or unread beyond what opening one unavoidably does.
 
 READING AND SEARCH:
-5. The inbox is a list: read it with extract, one row per message — sender, subject, date, unread flag. Scroll to load more rows only when the goal needs older mail; never re-extract a row you already captured.
+5. The inbox is a list: use extract(refs="rows", target=requested count), one row per thread or message — sender, subject, date, unread flag. Complete the current pager range, then click Older/Next and verify the displayed range changed. Scroll within the list for missing virtualized rows. Check saved unique count after every capture.
 6. Open a message only when the goal needs its body. Read the whole thread, then go back to the list before opening the next one.
 7. A time window in the goal ("за 5 дней", "last week") is a search, never a scroll: put it in the search box as the client's own date filter (newer_than:5d, after:YYYY/MM/DD) and read the filtered list. Scrolling the inbox to cover a window costs a step per screen and runs the task out of budget before it reaches the end.
 8. Search with the client's other filters too — from:, subject:, has:attachment, is:unread — instead of opening messages to find out what they are.

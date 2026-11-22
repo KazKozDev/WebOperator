@@ -8,7 +8,7 @@ import { runAction } from './actions';
 describe('batch action execution', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('window', {});
+    vi.stubGlobal('window', { innerWidth: 800, innerHeight: 600, getComputedStyle: () => ({}) });
     vi.stubGlobal('MouseEvent', class {
       constructor(_type: string, _init: unknown) {}
     });
@@ -16,9 +16,9 @@ describe('batch action execution', () => {
 
   it('stops at the first failed child and reports per-action outcomes', async () => {
     const elements = new Map([
-      ['@e1', { scrollIntoView: vi.fn(), dispatchEvent: vi.fn().mockReturnValue(true) }],
-      ['@e2', { scrollIntoView: vi.fn(), dispatchEvent: vi.fn().mockReturnValue(false) }],
-      ['@e3', { scrollIntoView: vi.fn(), dispatchEvent: vi.fn().mockReturnValue(true) }],
+      ['@e1', { scrollIntoView: vi.fn(), getBoundingClientRect: () => ({ width: 20, height: 20, top: 10, left: 10, bottom: 30, right: 30 }), dispatchEvent: vi.fn().mockReturnValue(true) }],
+      ['@e2', { scrollIntoView: vi.fn(), getBoundingClientRect: () => ({ width: 20, height: 20, top: 10, left: 10, bottom: 30, right: 30 }), dispatchEvent: vi.fn().mockReturnValue(false) }],
+      ['@e3', { scrollIntoView: vi.fn(), getBoundingClientRect: () => ({ width: 20, height: 20, top: 10, left: 10, bottom: 30, right: 30 }), dispatchEvent: vi.fn().mockReturnValue(true) }],
     ]);
     findElementByRef.mockImplementation((ref: string) => elements.get(ref));
 

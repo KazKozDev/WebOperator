@@ -6,9 +6,13 @@ It drives the browser you are already signed into, so your sessions, cookies, an
 
 ## Tools
 
-`browser_snapshot` · `browser_navigate` · `browser_click` · `browser_type` · `browser_press` · `browser_scroll` · `browser_screenshot` · `browser_extract` · `browser_solve_captcha` · `weboperator_execute_goal`
+The stdio server and HTTP MCP endpoint expose the same **45 tools**: browser actions, image reading, JavaScript dialogs, tabs, task lifecycle, network and console observation, cookies, storage, file transfers and clipboard access. See the [tool catalogue](https://github.com/KazKozDev/WebOperator/blob/main/docs/mcp-tools.md).
+
+New tools include `browser_image`, `browser_select_option`, `browser_handle_dialog`, and `agent_task_pause`, `agent_task_resume`, `agent_task_wait`.
 
 `browser_snapshot` returns an accessibility tree with numbered interactive elements; the action tools take those numbers, so an agent never guesses at CSS selectors.
+
+After updating, rebuild and reload the extension and reconnect your MCP client so it fetches the new tool list. Running clients keep their current server process until restarted; local changes do not update an already published npm package.
 
 ## Install
 

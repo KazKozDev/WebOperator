@@ -1,3 +1,4 @@
+import { collectionScroller, readCollection } from './collection';
 import type { ActionResult, ToolCall } from './types';
 import { findElementByRef } from './a11y';
 import { parseBatchActions, validateBatchCall } from './batch-actions';
@@ -52,13 +53,19 @@ async function dispatch(call: ToolCall): Promise<unknown> {
       String(call.arguments.direction ?? 'down'),
       call.arguments.ref ? String(call.arguments.ref) : undefined,
       typeof call.arguments.amountPx === 'number' ? call.arguments.amountPx : 400,
+      call.arguments.to ? String(call.arguments.to) : undefined,
+      call.arguments.block ? String(call.arguments.block) : 'center',
+      call.arguments.collectionList === true,
     );
     case 'wait': return doWait(
-      Math.min(Number(call.arguments.ms ?? 1000), 10_000),
+      Math.min(Number(call.arguments.ms ?? 1000), 120_000),
       String(call.arguments.until ?? 'none'),
       call.arguments.ref ? String(call.arguments.ref) : undefined,
+      call.arguments,
     );
-    case 'extract': return doExtract(String(call.arguments.refs ?? ''));
+    case 'extract':
+      if (call.arguments.refs === 'rows' || call.arguments.refs === 'chunk') return readCollection(call.arguments.refs, call.arguments);
+      return doExtract(String(call.arguments.refs ?? ''));
     case 'navigate':
     case 'done':
     case 'open_tab':
@@ -108,16 +115,36 @@ async function doBatchActions(call: ToolCall): Promise<{ outcomes: BatchActionOu
   return { outcomes, completed: outcomes.length };
 }
 
-function resolve(ref: string): HTMLElement {
-  const el = findElementByRef(ref);
+function resolve(ref: string, block: ScrollLogicalPosition = 'center'): HTMLElement {
+  const el = ref.startsWith('@') ? findElementByRef(ref) : document.querySelector<HTMLElement>(ref);
   if (!el) throw new Error(`Element ${ref} not found in current snapshot`);
-  el.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
+  el.scrollIntoView({ block, behavior: 'instant' as ScrollBehavior });
+  const rect = el.getBoundingClientRect();
+  if (!isVisibleElement(el) || (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) ||
+      rect.bottom <= 0 || rect.right <= 0 || rect.top >= window.innerHeight || rect.left >= window.innerWidth) {
+    throw new Error('Element not visible after scroll');
+  }
   return el;
 }
 
 async function doClick(ref: string): Promise<void> {
   const el = resolve(ref);
-  const event = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+  type Point = { x: number; y: number };
+  const state = globalThis as unknown as Record<symbol, unknown>;
+  const paint = state[Symbol.for('weboperator.cursorPaint')] as ((point: Point, pressed?: boolean) => boolean) | undefined;
+  const rect = el.getBoundingClientRect();
+  const x = (Math.max(0, rect.left) + Math.min(window.innerWidth, rect.right)) / 2;
+  const y = (Math.max(0, rect.top) + Math.min(window.innerHeight, rect.bottom)) / 2;
+  if (paint) {
+    const start = (state[Symbol.for('weboperator.virtualCursor')] as () => Point)();
+    for (let i = 1; i <= 16; i++) {
+      paint({ x: start.x + (x - start.x) * i / 16, y: start.y + (y - start.y) * i / 16 });
+      await new Promise<void>(resolve => setTimeout(resolve, 16));
+    }
+    if (!el.isConnected) throw new Error('Target disappeared during cursor movement');
+    paint({ x, y }, true);
+  }
+  const event = new MouseEvent('click', { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y });
   const dispatched = el.dispatchEvent(event);
   if (!dispatched) throw new Error('Click was cancelled by page');
   await tick();
@@ -266,6 +293,7 @@ function dispatchEditorInput(target: HTMLElement, data?: string): void {
 async function doSelect(ref: string, value: string): Promise<void> {
   const el = resolve(ref);
   if (!(el instanceof HTMLSelectElement)) throw new Error(`Element ${ref} is not a <select>`);
+  if (el.disabled) throw new Error('Select is disabled');
   const lowerVal = value.trim().toLowerCase();
   const match = Array.from(el.options).find(
     (o) =>
@@ -275,6 +303,7 @@ async function doSelect(ref: string, value: string): Promise<void> {
       o.textContent?.trim().toLowerCase() === lowerVal,
   );
   if (!match) throw new Error(`Option "${value}" not found`);
+  if (match.disabled || (match.parentElement instanceof HTMLOptGroupElement && match.parentElement.disabled)) throw new Error('Option is disabled');
   el.value = match.value;
   el.dispatchEvent(new Event('input', { bubbles: true }));
   el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -301,7 +330,19 @@ async function doScroll(
   direction: string,
   ref: string | undefined,
   amountPx: number,
+  to?: string,
+  block = 'center',
+  collectionList = false,
 ): Promise<{ scrolled: boolean; scrollY: number; atBoundary: boolean; note?: string }> {
+  if (to !== undefined && to !== 'element') throw new Error(`Unknown scroll target: ${to}`);
+  if (to === 'element') {
+    if (!ref) throw new Error('scroll to=element requires ref');
+    if (!['start', 'center', 'end', 'nearest'].includes(block)) throw new Error(`Invalid scroll block: ${block}`);
+    const beforeY = window.scrollY;
+    resolve(ref, block as ScrollLogicalPosition);
+    await tick();
+    return { scrolled: window.scrollY !== beforeY, scrollY: Math.round(window.scrollY), atBoundary: false };
+  }
   let container: HTMLElement | null = null;
   if (ref) {
     const el = findElementByRef(ref);
@@ -309,7 +350,7 @@ async function doScroll(
       container = findScrollableContainer(el) ?? el;
     }
   } else {
-    container = findScrollableContainer();
+    container = collectionList ? collectionScroller() ?? null : findScrollableContainer();
   }
 
   const isContainer = Boolean(container && container !== document.body && container !== document.documentElement);
@@ -370,30 +411,33 @@ async function doScroll(
   };
 }
 
-async function doWait(ms: number, until: string, ref?: string): Promise<void> {
-  if (until === 'none') { await sleep(ms); return; }
-  if (until === 'load') {
-    if (document.readyState === 'complete') return;
-    await new Promise<void>((resolve) => {
-      const done = () => { window.removeEventListener('load', done); resolve(); };
-      window.addEventListener('load', done, { once: true });
-      setTimeout(done, ms);
-    });
-    return;
-  }
-  if (until === 'element') {
-    if (!ref) throw new Error('wait until=element requires ref');
-    const start = Date.now();
-    while (Date.now() - start < ms) {
-      if (findElementByRef(ref)) return;
-      await sleep(100);
-    }
-    throw new Error(`Element ${ref} did not appear within ${ms}ms`);
-  }
-  if (until === 'network_idle') {
-    await sleep(Math.min(ms, 2000));
-    return;
-  }
+async function doWait(ms: number, until: string, ref?: string, options: Record<string, unknown> = {}): Promise<{ matched?: string }> {
+  if (until === 'none' || until === 'timeout') { await sleep(ms); return {}; }
+  const pollMs = Number(options.pollMs ?? 150);
+  const selector = typeof options.selector === 'string' ? options.selector : undefined;
+  const text = typeof options.text === 'string' ? options.text : undefined;
+  if (until === 'element' && !ref && !selector) throw new Error('element wait requires ref or selector');
+  if (until === 'text' && !text) throw new Error('text wait requires text');
+  if (!['element', 'text', 'load', 'network_idle'].includes(until)) throw new Error(`Unknown wait condition: ${until}`);
+  const start = Date.now();
+  let changedAt = start;
+  const observer = until === 'network_idle' ? new MutationObserver(() => { changedAt = Date.now(); }) : undefined;
+  observer?.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
+  try {
+    do {
+      const el = ref ? findElementByRef(ref) : selector ? document.querySelector<HTMLElement>(selector) : document.body;
+      if (until === 'load' && document.readyState === 'complete') return {};
+      if (until === 'network_idle' && Date.now() - changedAt >= 500) return { matched: 'dom_quiet' };
+      if (until === 'element' && el && (options.visible !== true || isVisibleElement(el))) return { matched: ref || selector };
+      if (until === 'text' && el) {
+        const candidates = options.visible === true ? [el, ...el.querySelectorAll<HTMLElement>('*')] : [el];
+        if (candidates.some((node) => (options.visible !== true || isVisibleElement(node)) && (node.innerText ?? node.textContent ?? '').includes(text!))) return { matched: text };
+      }
+      if (Date.now() - start >= ms) break;
+      await sleep(Math.min(pollMs, ms - (Date.now() - start)));
+    } while (Date.now() - start <= ms);
+    throw new Error(`Wait ${until} ${ref || selector || text || ''} did not match within ${ms}ms`);
+  } finally { observer?.disconnect(); }
 }
 
 type ExtractedItem = { ref: string; text: string; value?: string; href?: string };
@@ -401,7 +445,11 @@ type ExtractedItem = { ref: string; text: string; value?: string; href?: string 
 function doExtract(refs: string): ExtractedItem[] {
   const mode = refs.trim().toLowerCase();
   if (mode === 'visible') return extractVisibleText();
-  if (mode === 'all') return [{ ref: 'document.body', text: normalizeText(document.body.innerText).slice(0, 12_000) }];
+  if (mode === 'all') {
+    const full = normalizeText(document.body.innerText);
+    return [{ ref: 'document.body', text: full.slice(0, 12_000), ...(full.length > 12_000
+      ? { value: 'Partial preview. Use refs="chunk" for the complete text or refs="rows" for a list.' } : {}) }];
+  }
 
   return refs.split(',').map((r) => r.trim()).filter(Boolean).map((ref) => {
     const el = findElementByRef(ref);

@@ -42,7 +42,7 @@ export async function blobToBase64(blob: Blob): Promise<string> {
 /** Fetches the image the ref points at with the page's own session, and returns its bytes. */
 export async function readImage(ref: string): Promise<ImageReadResult> {
   const img = imageForRef(ref);
-  if (!img) return { ok: false, error: `No image at ${ref}` };
+  if (!img) return { ok: false, error: `No image at ${ref}; try the parent link or a snapshot with includeImages:true` };
   const src = img.currentSrc || img.src;
   const width = img.naturalWidth;
   const height = img.naturalHeight;

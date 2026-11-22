@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 
 async function loadRenderer() {
   vi.stubGlobal('chrome', {
@@ -12,6 +14,21 @@ async function loadRenderer() {
   });
   return import('./App');
 }
+
+describe('side panel startup', () => {
+  it('renders navigation, starter prompts and the task input before loading settings', async () => {
+    const { App } = await loadRenderer();
+
+    const html = renderToStaticMarkup(createElement(App));
+
+    expect(html).toContain('WebOperator');
+    expect(html).toContain('Settings');
+    expect(html).toContain('Summarize the current page');
+    expect(html).toContain('<textarea');
+    expect(html).toContain('aria-label="Improve task prompt"');
+    expect(html.indexOf('aria-label="Attach file"')).toBeLessThan(html.indexOf('aria-label="Improve task prompt"'));
+  });
+});
 
 describe('renderMarkdown', () => {
   it('does not allow markdown link URLs to break out of href attributes', async () => {
@@ -49,7 +66,7 @@ describe('renderMarkdown', () => {
 
     const html = renderMarkdown('[<script>alert(1)</script>](https://example.com)');
 
-    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(html).toContain('>link</a>');
     expect(html).not.toContain('<script>');
   });
 
@@ -98,5 +115,23 @@ describe('renderMarkdown', () => {
     expect(html).toContain('<td>bad</td>');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('javascript:');
+  });
+});
+
+
+describe('answer link labels', () => {
+  it('hides Markdown labels and bare URLs behind link, preserving destinations', async () => {
+    const { renderMarkdown } = await loadRenderer();
+    const html = renderMarkdown('[Source](https://example.com/a) and https://example.com/b?x=1&y=2.');
+    expect(html).toContain('href="https://example.com/a"');
+    expect(html).toContain('href="https://example.com/b?x=1&amp;y=2"');
+    expect(html.match(/>link<\/a>/g)).toHaveLength(2);
+    expect(html).not.toContain('Source');
+    expect(html).toContain('</a>.');
+  });
+
+  it('keeps literal URLs inside code intact', async () => {
+    const { renderMarkdown } = await loadRenderer();
+    expect(renderMarkdown('`https://example.com/a`')).toBe('<code>https://example.com/a</code>');
   });
 });

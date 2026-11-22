@@ -1,6 +1,18 @@
 name: audit
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - core/package.json
+      - core/package-lock.json
+      - .github/workflows/audit.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - core/package.json
+      - core/package-lock.json
+      - .github/workflows/audit.yml
   schedule:
     # Nightly, so a freshly disclosed advisory surfaces without a push.
     - cron: "14 3 * * *"

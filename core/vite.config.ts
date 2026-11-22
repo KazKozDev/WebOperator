@@ -52,7 +52,11 @@ export default defineConfig({
       plugins: [],
     },
   },
-  plugins: [react(), crx({ manifest }), ortRuntime()],
+  plugins: [react(), crx({
+    manifest,
+    // Avoid the module loader's cross-origin import from pages such as YouTube.
+    contentScripts: { standaloneFiles: ['src/content/content-script.ts'] },
+  }), ortRuntime()],
   build: {
     target: 'esnext',
     sourcemap: true,

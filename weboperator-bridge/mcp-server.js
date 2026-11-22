@@ -17,6 +17,13 @@ const BRIDGE_HOST = process.env.WEBOPERATOR_BRIDGE_HOST || '127.0.0.1';
 const BRIDGE_PORT = Number(process.env.WEBOPERATOR_BRIDGE_PORT || 8765);
 const API_TOKEN = process.env.WEBOPERATOR_API_TOKEN || '';
 
+// Shared, optional tool properties understood by the extension itself:
+// `tabId` acts on one specific tab instead of the focused one, `ref` targets an
+// element straight from a snapshot (e.g. "@e12") — including scroll containers,
+// which is how a virtualized list (Gmail, chat apps) is scrolled without
+// touching the window.
+const { TOOLS, TOOL_TYPES, imageContent } = require('./tools');
+
 process.stdout.on('error', (err) => {
   if (err && err.code === 'EPIPE') process.exit(0);
 });
@@ -25,172 +32,6 @@ process.on('uncaughtException', (err) => {
 });
 
 
-const TOOLS = [
-  {
-    name: 'browser_snapshot',
-    description: 'Capture the structured accessibility tree and numbered interactive elements (buttons, inputs, links) from the current active browser tab.',
-    inputSchema: {
-      type: 'object',
-      properties: {},
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'browser_navigate',
-    description: 'Navigate the active browser tab to a specified URL.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        url: {
-          type: 'string',
-          description: 'The URL to navigate to (e.g. "https://google.com").',
-        },
-      },
-      required: ['url'],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'browser_click',
-    description: 'Click an element on the webpage by its numeric index (from browser_snapshot) or CSS selector.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        index: {
-          type: 'number',
-          description: 'The numeric index of the interactive element from the snapshot.',
-        },
-        selector: {
-          type: 'string',
-          description: 'Alternative CSS selector of the element to click.',
-        },
-      },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'browser_type',
-    description: 'Type text into an input field by element index or selector.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        index: {
-          type: 'number',
-          description: 'The numeric index of the input element from the snapshot.',
-        },
-        selector: {
-          type: 'string',
-          description: 'Alternative CSS selector of the input element.',
-        },
-        text: {
-          type: 'string',
-          description: 'The text to type into the field.',
-        },
-        clear: {
-          type: 'boolean',
-          description: 'Whether to clear existing text before typing (default: false).',
-        },
-      },
-      required: ['text'],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'browser_press',
-    description: 'Press a keyboard key on the active webpage (e.g. "Enter", "Tab", "Escape", "ArrowDown", "Backspace").',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        key: {
-          type: 'string',
-          description: 'The key to press (e.g. "Enter", "Tab", "Escape").',
-        },
-      },
-      required: ['key'],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'browser_scroll',
-    description: 'Scroll the active webpage up or down.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        direction: {
-          type: 'string',
-          enum: ['down', 'up'],
-          description: 'Direction to scroll (default: "down").',
-        },
-        amount: {
-          type: 'number',
-          description: 'Number of pixels to scroll (default: 500).',
-        },
-      },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'browser_screenshot',
-    description: 'Capture a visual PNG screenshot of the current active browser tab.',
-    inputSchema: {
-      type: 'object',
-      properties: {},
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'browser_extract',
-    description: 'Extract text or structured data from the webpage according to an extraction instruction.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        instruction: {
-          type: 'string',
-          description: 'Extraction guidance or prompt (e.g. "Extract all product prices and titles").',
-        },
-        selector: {
-          type: 'string',
-          description: 'Optional CSS selector to scope extraction.',
-        },
-      },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'browser_solve_captcha',
-    description: 'Attempt to detect and automatically solve or click Cloudflare Turnstile, reCAPTCHA, hCaptcha, slider puzzle, or visual text challenges in the active tab.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        type: {
-          type: 'string',
-          enum: ['cloudflare', 'recaptcha', 'hcaptcha', 'slider', 'image', 'audio', 'press_and_hold', 'pow', 'auto'],
-          description: 'Optional captcha type to target (default: auto).',
-        },
-      },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'weboperator_execute_goal',
-    description: 'Execute an autonomous browser goal end-to-end using WebOperator multi-step planner.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        goal: {
-          type: 'string',
-          description: 'Natural language goal for the agent to achieve (e.g. "Find cheapest flight from Paris to Rome on Kayak").',
-        },
-        timeoutMs: {
-          type: 'number',
-          description: 'Maximum timeout in milliseconds (default: 120000).',
-        },
-      },
-      required: ['goal'],
-      additionalProperties: false,
-    },
-  },
-];
 
 async function callBridge(type, payload = {}, timeoutMs = 60_000) {
   // Try Unix Domain Socket first
@@ -222,7 +63,7 @@ function httpRequestFor(type, payload, timeoutMs) {
   // browser.snapshot -> browser_snapshot, and so on for every browser tool.
   return {
     path: '/v1/tools/call',
-    body: { tool: type.replace('.', '_'), arguments: payload, timeoutMs },
+    body: { tool: Object.keys(TOOL_TYPES).find((name) => TOOL_TYPES[name] === type) ?? type.replace('.', '_'), arguments: payload, timeoutMs },
   };
 }
 
@@ -345,10 +186,66 @@ function callHttp(type, payload, timeoutMs) {
   });
 }
 
+// Snapshot refs look like "@e12". A bare numeric index maps onto the same
+// scheme ("12" -> "@e12"), anything already carrying the "@" prefix or a CSS
+// selector is passed through untouched.
+function assertActionSucceeded(res) {
+  const result = res?.kind === 'action:result' ? res.result : res;
+  if (res?.kind === 'error' || result?.ok === false) throw new Error(result?.error || res.error || 'Browser action failed');
+}
+
+function refArg(args = {}) {
+  if (args.ref !== undefined && args.ref !== null && args.ref !== '') return String(args.ref);
+  if (args.index !== undefined && args.index !== null && args.index !== '') {
+    const raw = String(args.index).trim();
+    if (raw.startsWith('@')) return raw;
+    return `@e${raw.replace(/^e/i, '')}`;
+  }
+  return '';
+}
+
+function refPayload(args = {}) {
+  const payload = {};
+  const ref = refArg(args);
+  if (ref) payload.ref = ref;
+  if (args.selector !== undefined && args.selector !== null && args.selector !== '') payload.selector = String(args.selector);
+  return payload;
+}
+
+function tabIdArg(args = {}) {
+  const raw = args.tabId;
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function withTabId(payload, args = {}) {
+  const tabId = tabIdArg(args);
+  return tabId === undefined ? payload : { ...payload, tabId };
+}
+
+// The extension types via `mode`; the historic MCP `clear` flag is mapped onto it.
+function typeOptions(args = {}) {
+  if (args.mode === 'append' || args.mode === 'replace') return { mode: args.mode };
+  if (args.clear === true) return { mode: 'replace' };
+  if (args.clear === false) return { mode: 'append' };
+  return {};
+}
+
 async function handleToolCall(name, args) {
+  if (name.startsWith('agent_task_') || name.startsWith('tabs_') || name === 'browser_eval' || name === 'browser_wait') {
+    if (!TOOL_TYPES[name]) throw new Error(`Unknown tool: ${name}`);
+    const timeoutMs = Number(args.timeoutMs ?? (name === 'agent_task_wait' || (name === 'agent_task_start' && args.wait) ? 120_000 : 30_000)) + 10_000;
+    const res = await callBridge(TOOL_TYPES[name], args, timeoutMs);
+    return { ...(res?.ok === false ? { isError: true } : {}), content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+  }
   switch (name) {
+    case 'browser_image': {
+      const res = await callBridge('browser.image', args, 30_000);
+      return { content: imageContent(res) };
+    }
     case 'browser_snapshot': {
-      const res = await callBridge('browser.snapshot', {}, 30_000);
+      const res = await callBridge('browser.snapshot', args, 30_000);
       return {
         content: [
           {
@@ -359,7 +256,7 @@ async function handleToolCall(name, args) {
       };
     }
     case 'browser_navigate': {
-      const res = await callBridge('browser.navigate', { url: args.url }, 60_000);
+      const res = await callBridge('browser.navigate', withTabId({ url: args.url }, args), 60_000);
       return {
         content: [
           {
@@ -370,7 +267,8 @@ async function handleToolCall(name, args) {
       };
     }
     case 'browser_click': {
-      const res = await callBridge('browser.click', { index: args.index, selector: args.selector }, 30_000);
+      const res = await callBridge('browser.click', withTabId({ ...refPayload(args), ...(args.button !== undefined ? { button: args.button } : {}), ...(args.clickCount !== undefined ? { clickCount: args.clickCount } : {}), ...(args.modifiers !== undefined ? { modifiers: args.modifiers } : {}) }, args), 30_000);
+      assertActionSucceeded(res);
       return {
         content: [
           {
@@ -381,7 +279,8 @@ async function handleToolCall(name, args) {
       };
     }
     case 'browser_type': {
-      const res = await callBridge('browser.type', { index: args.index, selector: args.selector, text: args.text, clear: args.clear }, 30_000);
+      const res = await callBridge('browser.type', withTabId({ ...refPayload(args), text: args.text, ...typeOptions(args) }, args), 30_000);
+      assertActionSucceeded(res);
       return {
         content: [
           {
@@ -392,7 +291,7 @@ async function handleToolCall(name, args) {
       };
     }
     case 'browser_press': {
-      const res = await callBridge('browser.press', { key: args.key }, 30_000);
+      const res = await callBridge('browser.press', withTabId({ ...refPayload(args), key: args.key, ...(args.modifiers ? { modifiers: String(args.modifiers) } : {}) }, args), 30_000);
       return {
         content: [
           {
@@ -403,19 +302,22 @@ async function handleToolCall(name, args) {
       };
     }
     case 'browser_scroll': {
-      const res = await callBridge('browser.scroll', { direction: args.direction || 'down', amount: args.amount || 500 }, 30_000);
+      const amount = Number(args.amount || 500);
+      const res = await callBridge('browser.scroll', withTabId({ ...refPayload(args), direction: args.direction || 'down', amount, amountPx: amount, ...(args.to !== undefined ? { to: args.to, block: args.block ?? 'center' } : {}) }, args), 30_000);
+      assertActionSucceeded(res);
       return {
         content: [
           {
             type: 'text',
-            text: `Scrolled ${args.direction || 'down'}. ${res?.status || 'ok'}`,
+            text: JSON.stringify(res, null, 2),
           },
         ],
       };
     }
     case 'browser_screenshot': {
-      const res = await callBridge('browser.screenshot', {}, 30_000);
-      const dataUri = res?.dataUri || res?.screenshot || '';
+      const res = await callBridge('browser.screenshot', args, 30_000);
+      if (res?.path) return { content: [{ type: 'text', text: JSON.stringify({ path: res.path, w: res.w, h: res.h }) }] };
+      const dataUri = res?.dataUrl || res?.dataUri || res?.screenshot || '';
       const base64Data = dataUri.replace(/^data:image\/[a-z]+;base64,/, '');
       if (base64Data) {
         return {
@@ -423,7 +325,7 @@ async function handleToolCall(name, args) {
             {
               type: 'image',
               data: base64Data,
-              mimeType: 'image/png',
+              mimeType: dataUri.startsWith('data:image/jpeg') ? 'image/jpeg' : 'image/png',
             },
           ],
         };
@@ -438,7 +340,7 @@ async function handleToolCall(name, args) {
       };
     }
     case 'browser_extract': {
-      const res = await callBridge('browser.extract', { instruction: args.instruction, selector: args.selector }, 30_000);
+      const res = await callBridge('browser.extract', withTabId({ ...refPayload(args), instruction: args.instruction, selector: args.selector, ...(args.schema !== undefined ? { schema: args.schema } : {}) }, args), args.schema ? 120_000 : 30_000);
       return {
         content: [
           {
@@ -449,7 +351,7 @@ async function handleToolCall(name, args) {
       };
     }
     case 'browser_solve_captcha': {
-      const res = await callBridge('browser.solve_captcha', { type: args.type === 'auto' ? undefined : args.type }, 30_000);
+      const res = await callBridge('browser.solve_captcha', withTabId({ type: args.type === 'auto' ? undefined : args.type }, args), 30_000);
       return {
         content: [
           {
@@ -461,14 +363,15 @@ async function handleToolCall(name, args) {
     }
     case 'weboperator_execute_goal': {
       const taskTimeout = Number(args.timeoutMs || 120_000);
-      const startRes = await callBridge('tasks.start', { goal: args.goal, timeoutMs: taskTimeout }, 30_000);
-      const taskId = startRes && startRes.id;
+      const startRes = await callBridge('tasks.start', withTabId({ ...args, goal: args.goal, timeoutMs: taskTimeout, wait: false }, args), 30_000);
+      const taskId = startRes && (startRes.taskId || startRes.id);
+      if (args.wait === false) return { content: [{ type: 'text', text: JSON.stringify({ ...startRes, taskId }, null, 2) }] };
       let finalTask = startRes;
       if (taskId) {
         finalTask = await callBridge('tasks.wait', { id: taskId, timeoutMs: taskTimeout }, taskTimeout + 10_000);
       }
       const formatted = formatTaskResultForAgent(finalTask || startRes);
-      const responseText = formatted.answer || JSON.stringify(formatted, null, 2);
+      const responseText = JSON.stringify(formatted, null, 2);
       return {
         content: [
           {
@@ -478,8 +381,13 @@ async function handleToolCall(name, args) {
         ],
       };
     }
-    default:
-      throw new Error(`Unknown tool: ${name}`);
+    default: {
+      if (!TOOL_TYPES[name]) throw new Error(`Unknown tool: ${name}`);
+      const timeout = Math.max(30000, Number(args.timeoutMs ?? (name === 'browser_download' ? 120000 : 0)) + 10000);
+      const res = await callBridge(TOOL_TYPES[name], args, timeout);
+      assertActionSucceeded(res);
+      return { content: [{ type: 'text', text: typeof res === 'string' ? res : JSON.stringify(res, null, 2) }] };
+    }
   }
 }
 
@@ -533,6 +441,7 @@ function formatTaskResultForAgent(task) {
 
   return {
     ok: task.status === 'done',
+    taskId: task.taskId || task.id,
     status: task.status,
     goal: task.goal,
     answer,
