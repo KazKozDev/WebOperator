@@ -4,7 +4,7 @@ import type { A11ySnapshot, Settings } from './types';
 // How many of the most recent page snapshots stay in the history at full size.
 // Older observations are collapsed to a one-line summary (the action taken on them
 // is preserved in the assistant tool-call message that follows each observation).
-export const OBSERVATION_WINDOW = 2;
+const OBSERVATION_WINDOW = 2;
 
 // How many of the most recent whole steps are kept verbatim when the history is
 // folded for budget. Cutting at a step boundary keeps assistant/tool pairs intact.

@@ -1,8 +1,8 @@
 import { frameIdFromRef } from './frames';
 import type { A11ySnapshot, ToolCall } from './types';
 
-export const BATCH_MIN_ACTIONS = 2;
-export const BATCH_MAX_ACTIONS = 5;
+const BATCH_MIN_ACTIONS = 2;
+const BATCH_MAX_ACTIONS = 5;
 
 const BATCHABLE_NAMES = new Set<ToolCall['name']>(['click', 'type', 'press', 'select']);
 const SAFE_CLICK_ROLES = new Set(['button', 'checkbox', 'radio', 'switch', 'tab']);

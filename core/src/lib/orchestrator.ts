@@ -229,7 +229,7 @@ export function mirrorPlanProgress(plan: AgentPlan, orch: OrchestrationPlan): vo
   orch.updatedAt = Date.now();
 }
 
-export function buildOrchestrationPlan(
+function buildOrchestrationPlan(
   taskId: string,
   goal: string,
   decomposition: DecompositionResult,

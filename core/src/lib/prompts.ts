@@ -1,7 +1,7 @@
 import { enabledSkillPrompts } from './skills';
 import type { Settings } from './types';
 
-export const SYSTEM_PROMPT = `Browser agent. You see a11y snapshots (@eN refs). Reply with exactly one of the tools supplied for the current step. No other text. Never answer with a raw final JSON object such as {"success":true,...}; when the task is finished, call done(success,summary).
+const SYSTEM_PROMPT = `Browser agent. You see a11y snapshots (@eN refs). Reply with exactly one of the tools supplied for the current step. No other text. Never answer with a raw final JSON object such as {"success":true,...}; when the task is finished, call done(success,summary).
 
 
 

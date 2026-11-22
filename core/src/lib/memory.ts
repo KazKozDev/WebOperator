@@ -1,7 +1,7 @@
 import type { ToolCall } from './types';
 
 // ── Memory types ─────────────────────────────────────────────────────
-export interface SiteMemory {
+interface SiteMemory {
   urlPattern: string;
   lastVisited: number;
   hits: number;
@@ -12,7 +12,7 @@ export interface SiteMemory {
   successTips: string[];         // what works well
 }
 
-export interface AgentMemory {
+interface AgentMemory {
   version: 1;
   sites: Record<string, SiteMemory>;  // url pattern → site memory
   recentWins: string[];               // last 5 successful task summaries
@@ -34,7 +34,7 @@ function emptyMemory(): AgentMemory {
 }
 
 // ── URL pattern extraction ───────────────────────────────────────────
-export function siteKey(url: string): string {
+function siteKey(url: string): string {
   try {
     const u = new URL(url);
     return u.hostname.replace(/^www\./, '');
@@ -46,7 +46,7 @@ export function siteKey(url: string): string {
 // ── Load / Save ──────────────────────────────────────────────────────
 const STORAGE_KEY = 'agent_memory';
 
-export async function loadMemory(): Promise<AgentMemory> {
+async function loadMemory(): Promise<AgentMemory> {
   try {
     const raw = await chrome.storage.local.get(STORAGE_KEY) as Record<string, unknown>;
     // Storage returns an untyped bag; the guard below is what actually
@@ -57,7 +57,7 @@ export async function loadMemory(): Promise<AgentMemory> {
   return emptyMemory();
 }
 
-export async function saveMemory(mem: AgentMemory): Promise<void> {
+async function saveMemory(mem: AgentMemory): Promise<void> {
   mem.updatedAt = Date.now();
   await chrome.storage.local.set({ [STORAGE_KEY]: mem });
 }

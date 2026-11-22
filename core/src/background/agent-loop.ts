@@ -1906,7 +1906,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
  * a blocking page left the tab stranded — the largest fixable cluster in the benchmark. Steering
  * back to the last page that worked costs one navigation and keeps the run alive.
  */
-export async function takeSnapshotOrRecover(tabId: number, recoveryUrl: string | undefined): Promise<A11ySnapshot> {
+async function takeSnapshotOrRecover(tabId: number, recoveryUrl: string | undefined): Promise<A11ySnapshot> {
   try {
     return await takeSnapshot(tabId);
   } catch (err) {
@@ -2225,7 +2225,7 @@ function serializeOrchestration(plan: OrchestrationPlan): AgentOrchestrationStat
  * deterministic summary when the model is unreachable — a provider outage is
  * one of the reasons a user hits stop, so this must not depend on one.
  */
-export async function summarizeInterruptedWork(
+async function summarizeInterruptedWork(
   task: AgentTask,
   settings: Settings,
   model: string,

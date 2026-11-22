@@ -14,7 +14,7 @@ export type AgentState =
   | 'COMPLETED'
   | 'FAILED';
 
-export interface StateTransitionEvent {
+interface StateTransitionEvent {
   from: AgentState;
   to: AgentState;
   taskId: string;

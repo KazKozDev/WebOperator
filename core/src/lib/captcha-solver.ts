@@ -27,12 +27,12 @@ export interface CaptchaDetection {
   inputRef?: string;
 }
 
-export interface CaptchaHandoffPreparation {
+interface CaptchaHandoffPreparation {
   prepared: boolean;
   message: string;
 }
 
-export type LLMCaptchaCaller = (prompt: string, imagesBase64?: string[]) => Promise<string>;
+type LLMCaptchaCaller = (prompt: string, imagesBase64?: string[]) => Promise<string>;
 
 export interface CaptchaSolverOptions {
   settings?: Settings;
@@ -1258,7 +1258,7 @@ export async function detectPageCaptcha(tabId: number): Promise<CaptchaDetection
 /**
  * Makes an interactive challenge easy to reach during a human handoff.
  */
-export async function prepareCaptchaHandoff(
+async function prepareCaptchaHandoff(
   tabId: number,
   type: CaptchaDetection['type']
 ): Promise<CaptchaHandoffPreparation> {
@@ -1714,7 +1714,7 @@ Return ONLY the raw code string without spaces, quotes, markdown formatting, or 
 /**
  * Transcribes an audio challenge buffer or base64 data using OpenAI Whisper API or local fallback.
  */
-export async function transcribeCaptchaAudio(
+async function transcribeCaptchaAudio(
   base64Audio: string,
   mimeType = 'audio/mp3',
   options?: CaptchaSolverOptions

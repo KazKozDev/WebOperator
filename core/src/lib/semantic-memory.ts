@@ -3,7 +3,7 @@ import { urlPattern } from './action-cache';
 import type { A11ySnapshot, RecoveryMemory, SitePattern, ToolCall } from './types';
 import { parseBatchActions } from './batch-actions';
 
-export async function getSitePattern(snapshot: A11ySnapshot): Promise<SitePattern | undefined> {
+async function getSitePattern(snapshot: A11ySnapshot): Promise<SitePattern | undefined> {
   const pat = urlPattern(snapshot.url);
   return db.sitePatterns.get(pat);
 }

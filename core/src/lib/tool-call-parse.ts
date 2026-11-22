@@ -9,7 +9,7 @@ export function safeJsonAny(value: string): unknown {
   }
 }
 
-export function stripCodeFence(content: string): string {
+function stripCodeFence(content: string): string {
   const match = content.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
   return match ? match[1].trim() : content;
 }

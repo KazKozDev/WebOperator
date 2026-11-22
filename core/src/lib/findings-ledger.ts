@@ -42,7 +42,7 @@ const MAX_FINDING_CHARS = 2400;
 const MAX_FINDINGS = 80;
 
 /** Share of the model's context budget the ledger may occupy. */
-export const LEDGER_BUDGET_RATIO = 0.15;
+const LEDGER_BUDGET_RATIO = 0.15;
 
 /** Absolute ceiling, so a large cloud budget does not turn every observation into a data dump. */
 const LEDGER_MAX_CHARS = 6000;

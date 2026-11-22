@@ -140,8 +140,3 @@ export function planContext(plan: AgentPlan): string {
   return lines.join('\n');
 }
 
-export function planSummary(plan: AgentPlan): string {
-  const done = plan.steps.filter((s) => s.status === 'done').length;
-  const failed = plan.steps.filter((s) => s.status === 'failed').length;
-  return `${done}/${plan.steps.length} steps done${failed > 0 ? ` (${failed} failed)` : ''}`;
-}

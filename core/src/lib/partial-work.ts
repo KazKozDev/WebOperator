@@ -1,4 +1,4 @@
-import type { AgentPlan, AgentStep, AgentTask } from './types';
+import type { AgentPlan, AgentTask } from './types';
 
 /**
  * Everything a task managed to collect before it was interrupted.
@@ -9,7 +9,7 @@ import type { AgentPlan, AgentStep, AgentTask } from './types';
  */
 
 /** One piece of evidence the agent extracted, in the order it was collected. */
-export interface EvidenceItem {
+interface EvidenceItem {
   stepIndex: number;
   tool: string;
   url?: string;
@@ -188,7 +188,6 @@ export function isInterrupted(status: AgentTask['status']): boolean {
   return status === 'stopped';
 }
 
-export type { AgentStep };
 
 /** Evidence below this is too thin for the question to be worth asking. */
 const SUFFICIENCY_MIN_EVIDENCE = 2;

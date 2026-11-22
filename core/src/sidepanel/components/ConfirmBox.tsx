@@ -23,7 +23,7 @@ export function ConfirmBox({ task, onDecide }: { task: AgentTask; onDecide: (all
   );
 }
 
-export function describeToolCall(call: AgentStep['toolCall'] | undefined): string {
+function describeToolCall(call: AgentStep['toolCall'] | undefined): string {
   if (!call) return 'The agent is waiting for your approval to continue.';
   const args = (call.arguments ?? {}) as Record<string, unknown>;
   const reason = typeof args.reason === 'string' ? args.reason : '';

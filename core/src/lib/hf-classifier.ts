@@ -54,7 +54,7 @@ function cosineSimilarity(a: number[], b: number[]): number {
 /**
  * Lazily loads the Hugging Face Transformers feature extraction pipeline.
  */
-export async function getHFPipeline(): Promise<unknown> {
+async function getHFPipeline(): Promise<unknown> {
 
   if (embeddingPipeline) return embeddingPipeline;
   if (isInitializing) {
@@ -80,7 +80,7 @@ export async function getHFPipeline(): Promise<unknown> {
 /**
  * Generates normalized embedding vector for a given text.
  */
-export async function getEmbedding(text: string): Promise<number[]> {
+async function getEmbedding(text: string): Promise<number[]> {
   const extractor = (await getHFPipeline()) as (t: string, opts: unknown) => Promise<{ data: Float32Array }>;
   const output = await extractor(text, { pooling: 'mean', normalize: true });
   return Array.from(output.data);
@@ -90,7 +90,7 @@ export async function getEmbedding(text: string): Promise<number[]> {
 /**
  * Pre-warms neural embeddings for all built-in skills.
  */
-export async function precomputeSkillEmbeddings(): Promise<void> {
+async function precomputeSkillEmbeddings(): Promise<void> {
   for (const skill of BUILT_IN_SKILLS) {
     if (skill.risk === 'high') continue;
     if (!skillEmbeddingCache.has(skill.id)) {
