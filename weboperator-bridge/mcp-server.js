@@ -15,7 +15,7 @@ const { version: SERVER_VERSION } = require('./package.json');
 const SOCKET_PATH = process.env.WEBOPERATOR_AGENT_SOCKET || '/tmp/weboperator-bridge.sock';
 const BRIDGE_HOST = process.env.WEBOPERATOR_BRIDGE_HOST || '127.0.0.1';
 const BRIDGE_PORT = Number(process.env.WEBOPERATOR_BRIDGE_PORT || 8765);
-const API_TOKEN = process.env.WEBOPERATOR_API_TOKEN || '';
+const API_TOKEN = require('./token').loadBridgeToken();
 
 // Shared, optional tool properties understood by the extension itself:
 // `tabId` acts on one specific tab instead of the focused one, `ref` targets an

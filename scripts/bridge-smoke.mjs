@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { spawn } from 'node:child_process';
 import net from 'node:net';
+import { mkdtempSync, readFileSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 const port = 19000 + Math.floor(Math.random() * 1000);
 const token = 'test-token';
@@ -12,15 +15,20 @@ const unauthPort = port + 2000;
 const unauthBase = `http://127.0.0.1:${unauthPort}`;
 const unauthSocketPath = `/tmp/weboperator-bridge-smoke-unauth-${process.pid}.sock`;
 
+// Default start: no token and no bypass in the environment, so the bridge must fail closed
+// on a token file it creates in HOME.
+const defaultHome = mkdtempSync(path.join(tmpdir(), 'weboperator-home-'));
+const cleanEnv = { ...process.env };
+delete cleanEnv.WEBOPERATOR_API_TOKEN;
+delete cleanEnv.WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE;
 const unauthChild = spawn(process.execPath, ['weboperator-bridge/bridge.js'], {
   cwd: new URL('..', import.meta.url),
   env: {
-    ...process.env,
+    ...cleanEnv,
+    HOME: defaultHome,
     WEBOPERATOR_BRIDGE_PORT: String(unauthPort),
     WEBOPERATOR_AGENT_SOCKET: unauthSocketPath,
     WEBOPERATOR_BRIDGE_LOG: '/tmp/weboperator-bridge-smoke-unauth.log',
-    WEBOPERATOR_API_TOKEN: '',
-    WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE: '0',
   },
 
   stdio: ['ignore', 'ignore', 'inherit'],
@@ -40,8 +48,17 @@ const child = spawn(process.execPath, ['weboperator-bridge/bridge.js'], {
 
 try {
   await waitForServer(`${unauthBase}/health`);
+  assert.equal((await getJson(`${unauthBase}/health`)).authRequired, true);
   const unauthDenied = await fetch(`${unauthBase}/v1/browser/snapshot`);
   assert.equal(unauthDenied.status, 401);
+  const noPreflight = await fetch(`${unauthBase}/v1/tools/call`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{"tool":"browser_eval","arguments":{"expression":"1"}}' });
+  assert.equal(noPreflight.status, 401);
+  const tokenFile = path.join(defaultHome, '.weboperator', 'bridge-token');
+  assert.equal(statSync(tokenFile).mode & 0o777, 0o600);
+  const fileToken = readFileSync(tokenFile, 'utf8').trim();
+  assert.match(fileToken, /^[0-9a-f]{64}$/);
+  const withFileToken = await fetch(`${unauthBase}/v1/browser/snapshot`, { headers: { authorization: `Bearer ${fileToken}` } });
+  assert.notEqual(withFileToken.status, 401);
 
   await waitForServer(`${base}/health`);
 

@@ -28,7 +28,7 @@ Environment variables:
 - `WEBOPERATOR_BRIDGE_PORT`: bind port, default `8765`
 - `WEBOPERATOR_BRIDGE_LOG`: log file, default `/tmp/weboperator-bridge.log`
 - `WEBOPERATOR_AGENT_SOCKET`: framed JSON socket path, default `/tmp/weboperator-bridge.sock`
-- `WEBOPERATOR_API_TOKEN`: bearer token for `/v1/*`
+- `WEBOPERATOR_API_TOKEN`: bearer token for `/v1/*`; when unset, the token in `~/.weboperator/bridge-token` is used (created on first start, mode 0600)
 - `WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE=1`: explicit development-only bypass when no token is set
 
 ## Auth
@@ -43,7 +43,7 @@ X-WebOperator-Token: <token>
 Query-string tokens are not supported because URLs are commonly logged.
 `GET /health` does not require auth and returns `authRequired`.
 Socket requests must include `"token":"<token>"`.
-If no token is configured, `/v1/*` and socket requests are rejected unless `WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE=1` is set.
+Without `WEBOPERATOR_API_TOKEN` the bridge reads or creates `~/.weboperator/bridge-token`, so it never runs open by default. `mcp-server.js` and `agent-client.js` read the same file. Only `WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE=1`, with no token set, turns auth off.
 
 For a machine-readable contract, see `docs/openapi.yaml`.
 

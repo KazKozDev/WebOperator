@@ -36,7 +36,7 @@ UTF-8 JSON payload
 
 ## Auth
 
-Every agent request must include `WEBOPERATOR_API_TOKEN` when the bridge starts:
+Every agent request must include the bridge token: `WEBOPERATOR_API_TOKEN`, or when it is unset the contents of `~/.weboperator/bridge-token`:
 
 ```json
 {
@@ -45,7 +45,7 @@ Every agent request must include `WEBOPERATOR_API_TOKEN` when the bridge starts:
 ```
 
 Events do not require a token after the socket is connected.
-If no token is configured, requests are rejected unless `WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE=1` is set for development.
+Auth is off only when `WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE=1` is set and no token is configured, for development.
 
 ## Request
 
@@ -55,7 +55,7 @@ If no token is configured, requests are rejected unless `WEBOPERATOR_ALLOW_UNAUT
   "type": "browser.snapshot",
   "payload": {},
   "timeoutMs": 30000,
-  "token": "optional-if-auth-enabled"
+  "token": "<bridge token>"
 }
 ```
 
@@ -65,7 +65,7 @@ Fields:
 - `type`: command name
 - `payload`: command payload object
 - `timeoutMs`: optional request timeout
-- `token`: required only when `WEBOPERATOR_API_TOKEN` is set
+- `token`: required unless the bridge runs with `WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE=1`
 
 ## Response
 

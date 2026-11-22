@@ -46,7 +46,7 @@ Reload the extension in `chrome://extensions` after registering the host.
 | `WEBOPERATOR_BRIDGE_PORT` | `8765` | Port of the local bridge HTTP API |
 | `WEBOPERATOR_BRIDGE_HOST` | `127.0.0.1` | Bridge bind address |
 | `WEBOPERATOR_AGENT_SOCKET` | `/tmp/weboperator-bridge.sock` | Unix socket the bridge listens on |
-| `WEBOPERATOR_API_TOKEN` | _(unset)_ | Shared token, required when unauthenticated bridge access is disabled |
+| `WEBOPERATOR_API_TOKEN` | _(unset)_ | Shared token. When unset, bridge and MCP server use `~/.weboperator/bridge-token`, created on first start |
 
 macOS and Linux. Chrome, Chromium, Brave, Edge, and Arc are all registered by the installer.
 

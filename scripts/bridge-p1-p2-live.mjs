@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
@@ -7,7 +8,7 @@ import net from 'node:net';
 import { randomUUID } from 'node:crypto';
 
 const socketPath = process.env.WEBOPERATOR_AGENT_SOCKET || '/tmp/weboperator-bridge.sock';
-const token = process.env.WEBOPERATOR_API_TOKEN;
+const token = createRequire(import.meta.url)('../weboperator-bridge/token.js').loadBridgeToken();
 const rows = [];
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
 const fixture = createServer((req, res) => {

@@ -52,9 +52,9 @@ Only needed to drive the browser from an external agent.
 
 - macOS or Linux. `weboperator-bridge/install.sh` exits with "Unsupported OS."
   anywhere else, so Windows has no supported path.
-- The bridge accepts unauthenticated calls unless `WEBOPERATOR_API_TOKEN` is
-  set and `WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE=0`. See the environment
-  variable table in the README.
+- The bridge refuses calls without a token. It uses `WEBOPERATOR_API_TOKEN`, or
+  creates `~/.weboperator/bridge-token` on first start; only
+  `WEBOPERATOR_ALLOW_UNAUTHENTICATED_BRIDGE=1` turns auth off. See docs/api.md.
 
 ## Development
 

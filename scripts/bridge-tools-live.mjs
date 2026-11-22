@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
+const bridgeToken = require('../weboperator-bridge/token.js').loadBridgeToken();
 const { TOOLS } = require('../weboperator-bridge/tools.js');
 const endpoint = `http://127.0.0.1:${process.env.WEBOPERATOR_BRIDGE_PORT || 8765}/mcp`;
 const pixel = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6UAAAAABJRU5ErkJggg==';
@@ -74,7 +75,7 @@ try {
 }
 function evaluate(expression) { return tool('browser_eval', { tabId, expression }); }
 async function rpc(method, params) {
-  const response = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json', ...(process.env.WEBOPERATOR_API_TOKEN ? { authorization: `Bearer ${process.env.WEBOPERATOR_API_TOKEN}` } : {}) }, body: JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method, params }), signal: AbortSignal.timeout(40000) });
+  const response = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${bridgeToken}` }, body: JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method, params }), signal: AbortSignal.timeout(40000) });
   if (!response.ok) throw new Error(`MCP HTTP ${response.status}`);
   const message = await response.json();
   if (message.error) throw new Error(message.error.message);

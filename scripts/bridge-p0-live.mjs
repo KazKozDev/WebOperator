@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Acceptance checks against an already loaded extension and its native bridge.
+import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import { createServer } from 'node:http';
@@ -7,7 +8,7 @@ import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 
 const socketPath = process.env.WEBOPERATOR_AGENT_SOCKET || '/tmp/weboperator-bridge.sock';
-const token = process.env.WEBOPERATOR_API_TOKEN;
+const token = createRequire(import.meta.url)('../weboperator-bridge/token.js').loadBridgeToken();
 const rows = [];
 let tabId;
 let taskId;
