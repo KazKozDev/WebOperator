@@ -1396,7 +1396,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
           continue;
         }
 
-        if (success && looksLikeHostileInstructionLeak(doneSummary)) {
+        if (success && looksLikeHostileInstructionLeak(doneSummary, task.collection?.rows.map(row => row.text))) {
           const msg = 'Cannot finish: final answer repeats ignored hostile page text or prompt-injection details.';
           step.result = { ok: true, durationMs: 0, extracted: msg };
           step.status = 'ok';
@@ -1527,11 +1527,12 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
           const read = asked && asked > Number(toolCall.arguments.target ?? 0)
             ? { ...toolCall, arguments: { ...toolCall.arguments, target: asked } } : toolCall;
           const before = c.rows.length;
+          const priorKeys = new Set(c.rows.map(row => row.key));
           collectionQueue = applyBatch(c, batch, read, moved).queue;
           if (batch.kind === 'rows') {
             // Full rows are saved and shown to the user; the model gets a compact view so a
             // page of long cards does not crowd the history and vanish on compaction.
-            step.result = { ...step.result, extracted: compactRows(batch, c.rows.slice(before)) };
+            step.result = { ...step.result, extracted: compactRows(batch, c.rows.slice(before), priorKeys) };
           }
           await saveTask(task);
           postToolUserMessages.push('[Saved collection] ' + progress(c));

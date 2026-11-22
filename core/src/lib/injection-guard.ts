@@ -90,6 +90,32 @@ export function hostileLeakClasses(summary: string): string[] {
   return classes;
 }
 
-export function looksLikeHostileInstructionLeak(summary: string): boolean {
-  return hostileLeakClasses(summary).length > 0;
+/**
+ * Classes that fire on the topic alone. A list of saved records can legitimately name the topic
+ * ("PIPETTE: Prompt Injection Purple-Teaming for Robust LLM Agents" is a paper title), so for
+ * these the lines that only repeat a saved record are set aside before the check. The
+ * imperative and attribution classes never are: quoting "ignore previous instructions" stays
+ * blocked even when it came out of a record.
+ */
+const TOPIC_CLASSES = new Set(['names-the-attack', 'narrates-ignoring', 'narrates-page-instruction']);
+
+const normalizeLine = (text: string) => text.replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+/** The summary without lines that are a whole saved record, or a whole line of one. */
+export function withoutCollectedRecords(summary: string, records: string[]): string {
+  const known = new Set<string>();
+  for (const record of records) {
+    known.add(normalizeLine(record));
+    for (const part of record.split(/\n| · /)) known.add(normalizeLine(part));
+  }
+  return summary.split('\n')
+    .filter(line => !known.has(normalizeLine(line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, ''))))
+    .join('\n');
+}
+
+export function looksLikeHostileInstructionLeak(summary: string, records: string[] = []): boolean {
+  const classes = hostileLeakClasses(summary);
+  if (!classes.length) return false;
+  if (!records.length || classes.some(id => !TOPIC_CLASSES.has(id))) return true;
+  return hostileLeakClasses(withoutCollectedRecords(summary, records)).length > 0;
 }

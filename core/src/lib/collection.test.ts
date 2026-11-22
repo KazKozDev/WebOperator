@@ -177,8 +177,8 @@ describe('target and model view', () => {
   });
   it('gives the model one short line per new row', () => {
     const long = { key: 'k', text: 'arXiv:2611.26531  [pdf]\n  Cost-Aware Agentic Feature Optimization\n' + 'abstract '.repeat(200) };
-    const view = compactRows({ kind:'rows', source:'search', range:[1,25], claimed: 5981, rows: [long, long] }, [long]);
-    expect(view).toMatchObject({ range: [1, 25], claimed: 5981, alreadySaved: 1 });
+    const view = compactRows({ kind:'rows', source:'search', range:[1,25], claimed: 5981, rows: [long, { ...long, key: 'old' }, { ...long, key: 'extra' }] }, [long], new Set(['old']));
+    expect(view).toMatchObject({ range: [1, 25], claimed: 5981, alreadySaved: 1, beyondTarget: 1 });
     const [line] = view.newRows as string[];
     expect(line.length).toBe(200);
     expect(line).toContain('Cost-Aware Agentic Feature Optimization');

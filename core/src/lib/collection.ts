@@ -259,14 +259,16 @@ export function applyBatch(c: Collection, batch: PageRows | TextChunk, read: Too
 }
 
 /** What the model sees for a rows capture: the new rows, each cut to one short line. */
-export function compactRows(batch: PageRows, added: CollectedRow[], width = 200): Record<string, unknown> {
+export function compactRows(batch: PageRows, added: CollectedRow[], priorKeys: ReadonlySet<string>, width = 200): Record<string, unknown> {
+  const duplicates = batch.rows.filter(row => priorKeys.has(row.key)).length;
   return {
     kind: 'rows',
     source: batch.source,
     ...(batch.range ? { range: batch.range } : {}),
     ...(batch.claimed ? { claimed: batch.claimed } : {}),
     newRows: added.map(row => row.text.replace(/\s+/g, ' ').trim().slice(0, width)),
-    alreadySaved: batch.rows.length - added.length,
+    alreadySaved: duplicates,
+    beyondTarget: batch.rows.length - added.length - duplicates,
     note: 'Full rows are saved and shown to the user under Collected data.',
   };
 }
