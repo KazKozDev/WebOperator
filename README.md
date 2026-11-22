@@ -17,7 +17,7 @@ Your goal, typed once · The agent plans, acts, verifies · Every step visible
 ## Quick start
 
 Two ways in. If you would rather not touch Node, grab the
-`weboperator-1.5.0-chrome.zip` archive from the
+`weboperator-1.6.0-chrome.zip` archive from the
 [latest release](https://github.com/KazKozDev/WebOperator/releases/latest) and unzip it —
 that folder *is* the built extension.
 
@@ -67,7 +67,7 @@ The side panel streams the plan, every action, and the final answer, and keeps t
 - **Agent engineering** — a plan, act and verify loop, 29 browser tools, 6 loop guards
 - **LLM security** — the prompt-injection attack rate down from 44.4% to 0.0% across 9 adversarial fixtures
 - **LLM evaluation** — AssistantBench and 24 fixtures in a deterministic harness, see [docs/evals.md](docs/evals.md)
-- **MCP** — the browser exposed as an MCP server with 10 tools for any agent client
+- **MCP** — the browser exposed as an MCP server with 45 tools for any agent client
 
 <br>
 
@@ -95,6 +95,19 @@ node mcp-server.js
 ```
 
 `install.sh` registers the Native Messaging host that wires those calls to your active Chrome or Brave tab. Drop-in configs for Hermes and OpenClaw are already in `weboperator-bridge/`.
+
+## How it compares
+
+What each project's own README says, checked 2026-11-22. "Not stated" means its README does not mention it, not that the feature is missing.
+
+| | WebOperator | [Nanobrowser](https://github.com/nanobrowser/nanobrowser) | [BrowserOS](https://github.com/browseros-ai/BrowserOS) | [Browser Use](https://github.com/browser-use/browser-use) |
+| --- | --- | --- | --- | --- |
+| Where it runs | the Chrome tab you have open | your own browser (extension) | a second browser, logins imported from Chrome | a cloud browser by default; locally, a fresh Chrome, a profile copy, or the Chrome you have open |
+| Your logins | already there | already there | imported in one click | there when it drives your open Chrome |
+| Exposes the browser over MCP | yes, 45 tools | not stated | yes | yes (README links its MCP docs) |
+| Scheduled runs | yes: once, hourly, daily, weekly | not stated | not stated | not stated |
+| Local models (Ollama) | yes, the default | yes | not stated | any OpenAI-compatible server |
+| Install | release zip or source | Chrome Web Store | its own browser (Homebrew or installer) | Python package or CLI |
 
 ## How it works
 
@@ -201,7 +214,7 @@ There is no Dockerfile or Compose configuration.
 </br></br>
 <div align="center">
 
-[![Check](https://img.shields.io/github/actions/workflow/status/KazKozDev/WebOperator/check.yml?branch=main&style=flat-square&label=check)](https://github.com/KazKozDev/WebOperator/actions/workflows/check.yml) [![Chrome · Brave](https://img.shields.io/badge/Chrome%20%C2%B7%20Brave-MV3-333?style=flat-square)](core/manifest.config.ts) [![Version](https://img.shields.io/badge/version-1.5.0-333?style=flat-square)](core/package.json) [![LICENSE](https://img.shields.io/badge/LICENSE-MIT-333?style=flat-square)](LICENSE)
+[![Check](https://img.shields.io/github/actions/workflow/status/KazKozDev/WebOperator/check.yml?branch=main&style=flat-square&label=check)](https://github.com/KazKozDev/WebOperator/actions/workflows/check.yml) [![Chrome · Brave](https://img.shields.io/badge/Chrome%20%C2%B7%20Brave-MV3-333?style=flat-square)](core/manifest.config.ts) [![Version](https://img.shields.io/badge/version-1.6.0-333?style=flat-square)](core/package.json) [![LICENSE](https://img.shields.io/badge/LICENSE-MIT-333?style=flat-square)](LICENSE)
 
 [Issues](https://github.com/KazKozDev/WebOperator/issues) · [LICENSE](LICENSE) · [API](docs/api.md) · [ARCHITECTURE](docs/architecture.md) · [Agent protocol](docs/agent-protocol.md) · [LinkedIn](https://www.linkedin.com/in/kazkozdev/)
 

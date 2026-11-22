@@ -11,8 +11,20 @@ evals.
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-11-22
+
 ### Added
 
+- A shared 45-tool MCP catalogue for stdio and HTTP, including images, select options,
+  JavaScript dialogs, task pause/resume/wait, tabs, network/console, storage and files.
+- Complete OpenClaw tool configuration with the same 45 tools.
+- Long collections check themselves: a request for 200 records stops at the total the
+  page's pager claims, a scroll that adds nothing is rechecked once before the run reports
+  the actual count, and long text is read in paragraph-sized chunks that record the last
+  section reached.
+- `browser_extract` with `mode:"rows"` or `mode:"chunk"` gives MCP clients the same
+  self-checking collection: the extension pages, scrolls and rechecks within a 12 s budget
+  per call, saves progress under `collectionId`, and returns `complete` and `stopReason`.
 - An `openai-compatible` provider: a base URL, an optional API key, and a model
   name, for any server speaking the OpenAI chat-completions dialect — LM Studio,
   vLLM, llama.cpp, LiteLLM, Together, Groq, Fireworks, or a corporate gateway.
@@ -29,6 +41,8 @@ evals.
 
 ### Fixed
 
+- Content script loading on pages that block dynamic extension-module imports.
+- Vite security advisories by upgrading to 8.3.4.
 - The MCP server's HTTP fallback, which never worked: it sent the extension's
   request types (`browser.snapshot`) to an API that takes tool names
   (`browser_snapshot`), so with the socket unavailable every tool came back
@@ -61,26 +75,6 @@ evals.
   concatenated into the prompt at once.
 - The semantic router no longer indexes skill prompts, so rewording a playbook
   cannot silently change which goals it matches.
-
-## [1.6.0] — 2026-10-23
-
-### Added
-
-- A shared 45-tool MCP catalogue for stdio and HTTP, including images, select options,
-  JavaScript dialogs, task pause/resume/wait, tabs, network/console, storage and files.
-- Complete OpenClaw tool configuration with the same 45 tools.
-- Long collections check themselves: a request for 200 records stops at the total the
-  page's pager claims, a scroll that adds nothing is rechecked once before the run reports
-  the actual count, and long text is read in paragraph-sized chunks that record the last
-  section reached.
-- `browser_extract` with `mode:"rows"` or `mode:"chunk"` gives MCP clients the same
-  self-checking collection: the extension pages, scrolls and rechecks within a 12 s budget
-  per call, saves progress under `collectionId`, and returns `complete` and `stopReason`.
-
-### Fixed
-
-- Content script loading on pages that block dynamic extension-module imports.
-- Vite security advisories by upgrading to 8.3.4.
 
 ## [1.5.0] — 2026-08-31
 
