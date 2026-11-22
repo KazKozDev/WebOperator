@@ -61,7 +61,7 @@ The side panel streams the plan, every action, and the final answer, and keeps t
 <br>
 
 <p align="center">
-  <img src="docs/assets/competencies-v7.gif" width="100%" alt="Four competencies: agent engineering — a plan, act and verify loop with 29 tools and 6 loop guards; LLM security — the prompt-injection attack rate reduced from 44.4% to 0.0% across 9 adversarial fixtures; LLM evaluation — AssistantBench and 24 fixtures in a deterministic harness; MCP — the browser exposed as an MCP server with 10 tools for any agent client">
+  <img src="docs/assets/competencies-v7.gif" width="100%" alt="Four competencies: agent engineering — a plan, act and verify loop with 29 tools and 6 loop guards; LLM security — the prompt-injection attack rate reduced from 44.4% to 0.0% across 9 adversarial fixtures; LLM evaluation — AssistantBench and 24 fixtures in a deterministic harness; MCP — the browser exposed as an MCP server with 45 tools for any agent client">
 </p>
 
 - **Agent engineering** — a plan, act and verify loop, 29 browser tools, 6 loop guards
@@ -86,7 +86,7 @@ Every run lands in History with its trace, so you can go back afterwards and see
 
 ## Connect Hermes, OpenClaw, or another MCP agent
 
-Your live browser can be somebody else's tool. The local bridge speaks MCP over stdio and exposes ten of them: `browser_snapshot`, `browser_navigate`, `browser_click`, `browser_type`, `browser_press`, `browser_scroll`, `browser_screenshot`, `browser_extract`, `browser_solve_captcha`, and `weboperator_execute_goal`.
+Your live browser can be somebody else's tool. The local bridge speaks MCP over stdio and exposes 45 of them, including `browser_snapshot`, `browser_navigate`, `browser_click`, `browser_type`, `browser_extract`, `browser_screenshot`, tab and download tools, network and console capture, and `weboperator_execute_goal`. The full catalogue is in [`weboperator-bridge/tools.js`](weboperator-bridge/tools.js).
 
 ```bash
 cd weboperator-bridge
