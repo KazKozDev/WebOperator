@@ -1,6 +1,6 @@
 import { db } from './storage';
 import { urlPattern } from './action-cache';
-import type { A11ySnapshot, RecoveryMemory, SitePattern, ToolCall } from './types';
+import type { A11ySnapshot, SitePattern, ToolCall } from './types';
 import { parseBatchActions } from './batch-actions';
 
 export async function getSitePattern(snapshot: A11ySnapshot): Promise<SitePattern | undefined> {
@@ -58,39 +58,6 @@ export async function learnFromSuccess(
   await db.sitePatterns.put(sitePattern);
 }
 
-export async function learnRecovery(
-  snapshot: A11ySnapshot,
-  failedAction: string,
-  successAction: string,
-  recoveryHint: string,
-): Promise<void> {
-  const pat = urlPattern(snapshot.url);
-  const existing = await db.recoveryMemory.where({ urlPattern: pat, failedAction }).first();
-
-  const record: RecoveryMemory = {
-    urlPattern: pat,
-    failedAction,
-    successAction,
-    recoveryHint,
-    hitCount: (existing?.hitCount ?? 0) + 1,
-  };
-
-  await db.recoveryMemory.put(record);
-}
-
-export async function getRecoveryHint(
-  snapshot: A11ySnapshot,
-  failedAction: string,
-): Promise<string | undefined> {
-  const pat = urlPattern(snapshot.url);
-  const record = await db.recoveryMemory.where({ urlPattern: pat, failedAction }).first();
-  if (!record) return undefined;
-
-  record.hitCount += 1;
-  await db.recoveryMemory.put(record);
-  return record.recoveryHint;
-}
-
 export async function getCookieHint(snapshot: A11ySnapshot): Promise<string | undefined> {
   const pattern = await getSitePattern(snapshot);
   if (pattern?.cookieAcceptSelector) {
@@ -105,14 +72,6 @@ export async function getSearchHint(snapshot: A11ySnapshot): Promise<string | un
     return `Search input: ${pattern.searchInputRef}${pattern.searchButtonRef ? `, search button: ${pattern.searchButtonRef}` : ''}`;
   }
   return undefined;
-}
-
-export async function clearMemory(): Promise<number> {
-  const s = await db.sitePatterns.count();
-  const r = await db.recoveryMemory.count();
-  await db.sitePatterns.clear();
-  await db.recoveryMemory.clear();
-  return s + r;
 }
 
 function isSearchInput(name: string, role: string): boolean {

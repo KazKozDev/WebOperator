@@ -9,6 +9,7 @@ export class AgentDB extends Dexie {
   steps!: Table<AgentStep & { taskId: string }, string>;
   actionCache!: Table<CachedAction, string>;
   sitePatterns!: Table<SitePattern, string>;
+  /** Never written; kept so existing databases keep a valid schema without a migration. */
   recoveryMemory!: Table<RecoveryMemory, string>;
 
   constructor() {

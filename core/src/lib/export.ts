@@ -12,18 +12,6 @@ export function buildTrace(task: AgentTask): TraceFile {
   return { version: 1, exportedAt: Date.now(), task: maskTaskForLog(task) };
 }
 
-export function downloadJson(name: string, data: unknown): void {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
 // ── PDF Export ──
 
 function escapeHtml(text: string): string {
@@ -273,62 +261,6 @@ export function buildPdfHtml(task: AgentTask): string {
   </div>
 </body>
 </html>`;
-}
-
-export function downloadPdfViaPrint(task: AgentTask): void {
-  const html = buildPdfHtml(task);
-
-  const iframe = document.createElement('iframe');
-  iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:794px;height:1123px;border:none;';
-  document.body.appendChild(iframe);
-
-  const doc = iframe.contentDocument ?? iframe.contentWindow?.document;
-  if (!doc) {
-    iframe.remove();
-    // Fallback: download as HTML
-    const blob = new Blob([html], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `report-${task.id.slice(0, 8)}.html`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    return;
-  }
-
-  doc.open();
-  doc.write(html);
-  doc.close();
-
-  // Keep print synchronous with the button click. Chrome only permits print dialogs
-  // initiated during a user gesture; scheduling this even one tick later causes the
-  // dialog to be silently blocked from the extension side panel.
-  const cleanup = () => iframe.remove();
-  iframe.contentWindow?.addEventListener('afterprint', cleanup, { once: true });
-
-  try {
-    iframe.contentWindow?.focus();
-    iframe.contentWindow?.print();
-  } catch {
-    // If printing is unavailable, provide the rendered report as a usable fallback.
-    cleanup();
-    const blob = new Blob([html], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `report-${task.id.slice(0, 8)}.html`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    return;
-  }
-
-  // Some browsers do not dispatch afterprint for an iframe. Keep it alive long
-  // enough for the print preview, then remove it without leaving hidden frames.
-  setTimeout(cleanup, 30_000);
 }
 
 function printableValue(value: unknown): string {

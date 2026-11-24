@@ -60,16 +60,6 @@ function withReplyTimeout(pending: Promise<CSResponse>, msg: CSMessage): Promise
   });
 }
 
-export function onSWEvent(cb: (evt: SWEvent) => void): () => void {
-  const handler = (msg: unknown) => {
-    if (msg && typeof msg === 'object' && 'kind' in (msg as Record<string, unknown>)) {
-      cb(msg as SWEvent);
-    }
-  };
-  chrome.runtime.onMessage.addListener(handler);
-  return () => chrome.runtime.onMessage.removeListener(handler);
-}
-
 export function broadcastEvent(evt: SWEvent): void {
   for (const listener of localEventListeners) {
     try { listener(evt); } catch {}
