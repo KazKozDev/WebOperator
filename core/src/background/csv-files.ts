@@ -1,30 +1,7 @@
+import type { NativeHost } from './native-host';
 import type { AgentTask, ToolCall } from '@/lib/types';
 
-export type CsvHost = (payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
-
-export function requestCsv(port: chrome.runtime.Port | null, payload: Record<string, unknown>): ReturnType<CsvHost> {
-  if (!port) return Promise.reject(new Error('CSV processing requires the WebOperator native bridge'));
-  const id = crypto.randomUUID();
-  return new Promise((resolve, reject) => {
-    function cleanup() {
-      clearTimeout(timer);
-      port!.onMessage.removeListener(receive);
-      port!.onDisconnect.removeListener(disconnect);
-    }
-    function disconnect() { cleanup(); reject(new Error('CSV bridge disconnected')); }
-    function receive(msg: { kind?: string; id?: string; result?: Record<string, unknown>; error?: string }) {
-      if (msg.kind !== 'csv:response' || msg.id !== id) return;
-      cleanup();
-      if (msg.error || !msg.result) reject(new Error(msg.error ?? 'Missing CSV result'));
-      else resolve(msg.result);
-    }
-    const timer = setTimeout(() => { cleanup(); reject(new Error('CSV bridge timed out')); }, 30000);
-    port.onMessage.addListener(receive);
-    port.onDisconnect.addListener(disconnect);
-    try { port.postMessage({ kind: 'csv:request', id, payload }); }
-    catch (error) { cleanup(); reject(error); }
-  });
-}
+export type CsvHost = NativeHost;
 
 export async function runCsvTool(task: AgentTask, call: ToolCall, host?: CsvHost) {
   const { downloadId, filters, updates, columns, separator } = call.arguments;

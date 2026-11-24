@@ -89,6 +89,10 @@ async function dispatch(call: ToolCall): Promise<unknown> {
     case 'inspect_csv':
     case 'transform_csv':
     case 'confirm_submission':
+    case 'list_connectors':
+    case 'call_connector':
+    case 'numbers_read':
+    case 'numbers_edit':
     case 'upload_attachment':
     case 'start_subtask':
     case 'finish_subtask':

@@ -47,8 +47,32 @@ Reload the extension in `chrome://extensions` after registering the host.
 | `WEBOPERATOR_BRIDGE_HOST` | `127.0.0.1` | Bridge bind address |
 | `WEBOPERATOR_AGENT_SOCKET` | `/tmp/weboperator-bridge.sock` | Unix socket the bridge listens on |
 | `WEBOPERATOR_API_TOKEN` | _(unset)_ | Shared token, required when unauthenticated bridge access is disabled |
+| `WEBOPERATOR_CONNECTORS` | `~/.weboperator/connectors.json` | External MCP servers the in-extension agent may call |
 
 macOS and Linux. Chrome, Chromium, Brave, Edge, and Arc are all registered by the installer.
+
+## Connectors
+
+The extension's own agent can call other MCP servers, for example a mail server to create a draft. List them in `~/.weboperator/connectors.json` (mode `600`; the bridge refuses a file others can write):
+
+```json
+{
+  "servers": {
+    "mail": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": ["-y", "some-mail-mcp-server"],
+      "env": { "MAIL_ACCOUNT": "me@example.com" },
+      "readOnly": ["list_messages", "search_messages"]
+    }
+  }
+}
+```
+
+Chrome starts the bridge with a minimal `PATH`, so use an absolute `command`. Every connector call asks you first, as a browser submit does, except tools you list under `readOnly`. A server's own read-only annotations are not trusted. A write that was interrupted, for example by an extension restart, is recorded: repeating it asks again with a warning.
+
+## Numbers (macOS)
+
+`numbers_read` and `numbers_edit` open a downloaded `.xlsx` file in Numbers (CSV goes through `transform_csv`, since Numbers' CSV import drops leading zeros). Edits go into a separate `.xlsx` copy next to the source. The copy is reopened and each edited cell is read back before the agent can attach it. Documents you already have open are never touched. On first use macOS asks whether Google Chrome may control Numbers.
 
 ## Security
 

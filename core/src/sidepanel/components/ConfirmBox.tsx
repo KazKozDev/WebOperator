@@ -64,6 +64,10 @@ export function describeToolCall(call: AgentStep['toolCall'] | undefined): strin
       return `Extract data from the page${reason ? ` — ${reason}` : ''}.`;
     case 'done':
       return 'Finish the task and return the final answer.';
+    case 'call_connector': {
+      const input = JSON.stringify(args.arguments ?? {});
+      return `Run ${String(args.server ?? 'connector')} → ${String(args.tool ?? 'tool')} with ${input.length > 160 ? `${input.slice(0, 157)}...` : input}${reason ? ` — ${reason}` : ''}.`;
+    }
     case 'confirm_submission':
       return `The last form submission could not be confirmed and the agent did not find the record${reason ? ` (${reason})` : ''}. Allow it to submit again? Decline if the record may already exist.`;
     case 'open_tab': {

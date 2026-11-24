@@ -1,4 +1,4 @@
-import { requestCsv } from './csv-files';
+import { requestNative } from './native-host';
 import { observeFormAction } from './form-action';
 import { showCursor } from './cursor';
 import { observationRequest, waitForObservedNetwork, hasObservation } from './bridge-observation';
@@ -230,12 +230,19 @@ async function startTask(goal: string, tabId: number, options: { autoConfirm?: b
 
 function runTrackedTask(task: AgentTask, deps: Parameters<typeof runTask>[1]) {
   state.activeRuns.add(task.id);
-  return runTask(task, { ...deps, csvHost: payload => requestCsv(apiBridgePort, payload) })
+  return runTask(task, { ...deps, csvHost: payload => requestNative(apiBridgePort, 'csv', payload),
+    connectorHost: payload => requestNative(apiBridgePort, 'mcp', payload, 150_000),
+    numbersHost: payload => requestNative(apiBridgePort, 'numbers', payload, 150_000) })
     .finally(() => state.activeRuns.delete(task.id));
 }
 
+/** The task stopped around a write it recorded: a form submit or a connector call. */
+function hasJournal(task: AgentTask): boolean {
+  return Boolean(task.saveJournal?.length || task.connectorJournal?.some(entry => entry.status === 'pending'));
+}
+
 function displayTask(task: AgentTask): AgentTask {
-  if (!state.activeRuns.has(task.id) && task.saveJournal?.length &&
+  if (!state.activeRuns.has(task.id) && hasJournal(task) &&
       ['running', 'paused', 'awaiting_confirm'].includes(task.status)) {
     return { ...task, status: 'stopped', error: 'Run interrupted. Resume to check the last submission.' };
   }
@@ -246,7 +253,7 @@ async function resumePausedTask(id: string) {
   state.paused.delete(id);
   if (state.activeRuns.has(id)) return;
   const task = await getTask(id);
-  if (task?.saveJournal?.length && task.status !== 'done') await resumeTaskFromCheckpoint(id);
+  if (task && hasJournal(task) && task.status !== 'done') await resumeTaskFromCheckpoint(id);
 }
 
 function resumeTaskFromCheckpoint(id: string): Promise<AgentTask> {
@@ -958,7 +965,7 @@ async function executeBridgeRequest(type: string, payload: Record<string, unknow
       if (typeof id !== 'string' || !id.trim()) throw new Error('Missing task id');
       const task = await getTask(id);
       if (!task) throw new Error(`Task not found: ${id}`);
-      if (type === 'tasks.resume' && task.saveJournal?.length && task.status !== 'done' && !state.activeRuns.has(id)) {
+      if (type === 'tasks.resume' && hasJournal(task) && task.status !== 'done' && !state.activeRuns.has(id)) {
         const resumed = await resumeTaskFromCheckpoint(id);
         return { ok: true, status: resumed.status };
       }

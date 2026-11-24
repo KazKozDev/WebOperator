@@ -32,6 +32,8 @@
     "tools.js",
     "local-files.js",
     "csv.js",
+    "mcp-client.js",
+    "numbers.js",
     "bridge.js",
     "agent-client.js",
     "native-host.sh",

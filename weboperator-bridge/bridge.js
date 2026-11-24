@@ -140,11 +140,26 @@ function sendNative(obj) {
   process.stdout.write(Buffer.concat([header, body]));
 }
 
+let connectors = null;
+function connectorRequest(payload) {
+  connectors ??= require('./mcp-client').createConnectors({ log });
+  return connectors.request(payload);
+}
+process.on('exit', () => connectors?.closeAll());
+
+// Local services the extension can ask for. Each takes a payload, never a command line.
+const NATIVE_SERVICES = {
+  csv: payload => require('./csv').csvRequest(payload),
+  mcp: connectorRequest,
+  numbers: payload => require('./numbers').numbersRequest(payload),
+};
+
 function handleNativeMessage(msg) {
-  if (msg.kind === 'csv:request') {
-    require('./csv').csvRequest(msg.payload).then(
-      result => sendNative({ kind: 'csv:response', id: msg.id, result }),
-      error => sendNative({ kind: 'csv:response', id: msg.id, error: error.message })
+  const service = /^(\w+):request$/.exec(msg.kind ?? '')?.[1];
+  if (service && Object.hasOwn(NATIVE_SERVICES, service)) {
+    Promise.resolve().then(() => NATIVE_SERVICES[service](msg.payload)).then(
+      result => sendNative({ kind: `${service}:response`, id: msg.id, result }),
+      error => sendNative({ kind: `${service}:response`, id: msg.id, error: error.message })
     );
     return;
   }

@@ -21,6 +21,11 @@ evals.
 - `inspect_csv` and `transform_csv` read a downloaded CSV, filter rows, edit or
   select columns, and write a separate verified copy through the native bridge.
   `upload_attachment` attaches that copy after rechecking its hash.
+- Connectors: the in-extension agent can list and call external MCP servers that the
+  user configures in `~/.weboperator/connectors.json`. Calls that change data use the
+  same confirmation as browser submits, and interrupted calls are journaled.
+- `numbers_read` and `numbers_edit` drive the Numbers app on macOS: edit cells of a
+  downloaded spreadsheet, export a verified `.xlsx` copy, and attach it to a page.
 
 ## [1.6.0] — 2026-11-22
 

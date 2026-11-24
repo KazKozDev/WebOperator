@@ -221,6 +221,10 @@ export type AgentActionName =
   | 'inspect_csv'
   | 'transform_csv'
   | 'confirm_submission'
+  | 'list_connectors'
+  | 'call_connector'
+  | 'numbers_read'
+  | 'numbers_edit'
   | 'read_downloaded_file'
   | 'start_subtask' | 'finish_subtask' | 'fail_subtask' | 'update_task_memory';
 
@@ -342,6 +346,7 @@ export interface TaskPauseReason {
 
 export interface AgentTask {
   saveJournal?: import('./save-journal').SaveEntry[];
+  connectorJournal?: import('../background/connectors').ConnectorCallEntry[];
   attachments?: TaskAttachment[];
   collection?: import('./collection').Collection;
   /** Previous turn in this explicit chat, including across tabs and restarts. */
