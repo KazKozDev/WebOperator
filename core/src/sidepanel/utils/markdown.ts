@@ -60,7 +60,7 @@ export function renderMarkdown(text: string): string {
   return html;
 }
 
-export function renderMarkdownTables(markdown: string): string {
+function renderMarkdownTables(markdown: string): string {
   const lines = markdown.split('\n');
   const rendered: string[] = [];
 
@@ -89,7 +89,7 @@ export function renderMarkdownTables(markdown: string): string {
   return rendered.join('\n');
 }
 
-export function renderMarkdownTable(headers: string[], rows: string[][]): string {
+function renderMarkdownTable(headers: string[], rows: string[][]): string {
   const safeHeaders = normalizeTableCells(headers, headers.length);
   const headerHtml = safeHeaders.map((cell) => `<th>${cell}</th>`).join('');
   const bodyHtml = rows
@@ -122,13 +122,13 @@ function splitMarkdownTableRow(line: string): string[] {
     .map((cell) => cell.trim());
 }
 
-export function renderSafeLink(label: string, rawHref: string): string {
+function renderSafeLink(label: string, rawHref: string): string {
   const href = normalizeSafeLinkHref(rawHref);
   if (!href) return label;
   return `<a href="${escapeHtmlAttribute(href)}" target="_blank" rel="noopener noreferrer">link</a>`;
 }
 
-export function normalizeSafeLinkHref(rawHref: string): string | null {
+function normalizeSafeLinkHref(rawHref: string): string | null {
   const href = rawHref.trim();
   if (!href) return null;
 
@@ -149,20 +149,20 @@ export function unescapeHtml(value: string): string {
   return value.replace(/&(amp|lt|gt);/g, (_match, name: string) => (name === 'amp' ? '&' : name === 'lt' ? '<' : '>'));
 }
 
-export function escapeHtml(value: string): string {
+function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 }
 
-export function escapeHtmlAttribute(value: string): string {
+function escapeHtmlAttribute(value: string): string {
   return escapeHtml(value)
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
 
-export function normalizeAnswerText(text: string): string {
+function normalizeAnswerText(text: string): string {
   return text
     .replace(/\\r\\n/g, '\n')
     .replace(/\\n/g, '\n')

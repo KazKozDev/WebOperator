@@ -274,7 +274,7 @@ export interface CredentialSummary {
   updatedAt: number;
 }
 
-export type StepStatus = 'pending' | 'running' | 'ok' | 'fail' | 'skipped';
+type StepStatus = 'pending' | 'running' | 'ok' | 'fail' | 'skipped';
 
 export interface StepTimings {
   snapshotMs?: number;
@@ -325,7 +325,7 @@ export const PROFILE_LATENCY_MULT: Record<ModelProfile, number> = {
 
 // `stopped` is the user pressing stop, and is deliberately not `failed`: the
 // run was cut short on purpose, its evidence is intact, and it can be resumed.
-export type TaskStatus = 'idle' | 'planning' | 'running' | 'paused' | 'done' | 'failed' | 'stopped' | 'awaiting_confirm';
+type TaskStatus = 'idle' | 'planning' | 'running' | 'paused' | 'done' | 'failed' | 'stopped' | 'awaiting_confirm';
 
 /**
  * Why a task is sitting in `paused`. `bot_challenge` means the page put up a
@@ -334,7 +334,7 @@ export type TaskStatus = 'idle' | 'planning' | 'running' | 'paused' | 'done' | '
  * manual Resume control remains available. The agent does not attempt to
  * defeat the challenge itself.
  */
-export interface TaskPauseReason {
+interface TaskPauseReason {
   kind: 'bot_challenge';
   challengeType?: 'cloudflare' | 'recaptcha' | 'hcaptcha' | 'image' | 'slider' | 'audio' | 'press_and_hold' | 'pow' | 'unknown';
   url: string;
@@ -370,7 +370,7 @@ export interface AgentTask {
 }
 
 export type ScheduleRepeat = 'once' | 'hourly' | 'daily' | 'weekly';
-export type ScheduledTaskStatus = 'enabled' | 'paused' | 'running' | 'last_success' | 'last_failed' | 'needs_user';
+type ScheduledTaskStatus = 'enabled' | 'paused' | 'running' | 'last_success' | 'last_failed' | 'needs_user';
 
 export interface ScheduledTask {
   id: string;
@@ -477,7 +477,7 @@ export interface AgentPlan {
   createdAt: number;
 }
 
-export interface AgentOrchestrationSubtask {
+interface AgentOrchestrationSubtask {
   id: string;
   index: number;
   description: string;
@@ -498,7 +498,7 @@ export interface AgentOrchestrationState {
 }
 
 // ── Verifier types ──
-export type VerifyStatus = 'success' | 'partial' | 'failed' | 'uncertain';
+type VerifyStatus = 'success' | 'partial' | 'failed' | 'uncertain';
 export type RetryStrategy =
   | 'none'
   | 'retry_same'

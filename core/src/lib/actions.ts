@@ -630,7 +630,7 @@ function cssPath(el: HTMLElement): string {
   return `${tag}:nth-of-type(${siblings.indexOf(el) + 1})`;
 }
 
-export function waitForSettledDom(maxWaitMs = 1200, quietMs = 100): Promise<void> {
+function waitForSettledDom(maxWaitMs = 1200, quietMs = 100): Promise<void> {
   return new Promise((resolve) => {
     let timer: number | null = null;
     let maxTimeout: number | null = null;

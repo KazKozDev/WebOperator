@@ -731,7 +731,7 @@ function sleep(ms: number): Promise<void> {
 /**
  * Applies stealth evasions to prevent automated browser detection (navigator.webdriver, plugins, permissions).
  */
-export async function applyStealthPatches(target: Debuggee): Promise<void> {
+async function applyStealthPatches(target: Debuggee): Promise<void> {
   const stealthScript = `
     try {
       Object.defineProperty(navigator, 'webdriver', {

@@ -1,7 +1,4 @@
-import type { CustomSkillDefinition, SkillId } from './types';
-
-
-export type SkillRisk = 'safe' | 'medium' | 'high';
+import type { CustomSkillDefinition, SkillId, SkillRisk } from './types';
 
 export interface SkillDefinition {
   id: SkillId;

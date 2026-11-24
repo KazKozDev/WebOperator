@@ -7,16 +7,6 @@
 
 import { listTasks, loadSteps } from './storage';
 
-export interface SessionTurnSummary {
-  taskId: string;
-  goal: string;
-  answer: string | null;
-  status: 'done' | 'failed';
-  lastUrl?: string;
-  extractedSnippet?: string;
-  timestamp: number;
-}
-
 export async function getRecentSessionContext(
   tabId: number,
   currentUrl?: string,

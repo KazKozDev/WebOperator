@@ -1,7 +1,7 @@
 import { findElementByRef } from '@/lib/a11y';
 
 /** An image read from the page: its bytes as base64, what it is, and where it came from. */
-export interface PageImage {
+interface PageImage {
   src: string;
   mimeType: string;
   base64: string;

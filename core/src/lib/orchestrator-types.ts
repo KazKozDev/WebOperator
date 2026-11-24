@@ -69,13 +69,3 @@ export type OrchestratorEvent =
   | { kind: 'orchestrator:done'; taskId: string; success: boolean; summary: string }
   | { kind: 'orchestrator:checkpoint:saved'; taskId: string; subtaskId: string }
   | { kind: 'orchestrator:checkpoint:restored'; taskId: string };
-
-export const DEFAULT_ORCHESTRATOR_CONFIG = {
-  maxSubtasks: 20,
-  maxParallelTabs: 3,
-  subtaskTimeoutMs: 120_000,
-  checkpointIntervalMs: 30_000,
-  maxCheckpointAgeDays: 7,
-} as const;
-
-export type OrchestratorConfig = typeof DEFAULT_ORCHESTRATOR_CONFIG;

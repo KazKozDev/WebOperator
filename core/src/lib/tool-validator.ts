@@ -6,7 +6,7 @@
 import type { ToolCall } from './types';
 import { validateBatchCall } from './batch-actions';
 
-export type ToolRiskLevel = 'safe' | 'low' | 'high';
+type ToolRiskLevel = 'safe' | 'low' | 'high';
 
 export interface ToolValidationResult {
   valid: boolean;

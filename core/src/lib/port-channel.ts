@@ -12,7 +12,7 @@ export type PortInboundMessage =
   | { kind: 'session:attach'; tabId?: number }
   | { kind: 'sw:message'; message: SWMessage };
 
-export type PortOutboundMessage =
+type PortOutboundMessage =
   | { type: 'pong'; timestamp: number }
   | { type: 'sw:event'; event: SWEvent }
   | { type: 'sw:response'; correlationId?: string; result?: unknown; error?: string };

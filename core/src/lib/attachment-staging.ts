@@ -8,8 +8,8 @@
 
 import type { TaskAttachment } from './types';
 
-export const ATTACHMENT_FOLDER = 'weboperator-attachments';
-export const MAX_ATTACHMENT_BYTES = 32 * 1024 * 1024;
+const ATTACHMENT_FOLDER = 'weboperator-attachments';
+const MAX_ATTACHMENT_BYTES = 32 * 1024 * 1024;
 
 function slugify(name: string): string {
   return name
