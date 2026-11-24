@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { chatSiliconFlow } from './siliconflow-client';
+import { chatSiliconFlow } from './openai-client';
 import type { OllamaChatOptions } from './ollama-client';
 
 const baseOpts: OllamaChatOptions = {

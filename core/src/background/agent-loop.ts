@@ -1,13 +1,9 @@
 import { applyBatch, compactRows, incomplete, progress, type PageRows, type TextChunk } from '@/lib/collection';
 import { chat, OllamaError, type DroppedCapability, type OllamaChatOptions, type OllamaChatResult, type OllamaMessage } from '@/lib/ollama-client';
-import { chatOpenAI } from '@/lib/openai-client';
+import { chatDeepSeek, chatOpenAI, chatOpenRouter, chatSiliconFlow, chatXai } from '@/lib/openai-client';
 import { chatGemini } from '@/lib/gemini-client';
-import { chatXai } from '@/lib/xai-client';
-import { chatOpenRouter } from '@/lib/openrouter-client';
-import { chatSiliconFlow } from '@/lib/siliconflow-client';
 import { chatOpenAICompatibleProvider } from '@/lib/openai-compatible-client';
 import { chatMlx } from '@/lib/mlx-client';
-import { chatDeepSeek } from '@/lib/deepseek-client';
 import { chatAnthropic } from '@/lib/anthropic-client';
 import { buildPartialSummaryPrompt, collectWork, describeSufficiencyCheck, fallbackPartialSummary } from '@/lib/partial-work';
 import { collectFindings, ledgerCharBudget, renderFindingsBlock } from '@/lib/findings-ledger';
