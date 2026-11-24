@@ -1,6 +1,6 @@
 {
   "name": "openclaw-weboperator",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "OpenClaw agent toolset configuration for WebOperator",
   "gateway": {
     "url": "http://127.0.0.1:8765/mcp",

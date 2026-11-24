@@ -11,6 +11,8 @@ evals.
 
 ## [Unreleased]
 
+## [1.6.1] — 2026-11-24
+
 ### Added
 
 - Form submissions are journaled in the task record before the click. After a
@@ -193,7 +195,9 @@ plan → act → verify loop, with local and remote model providers, scheduled
 tasks, history with inspectable traces, and an MCP bridge exposing the browser
 as a tool to external agents.
 
-[Unreleased]: https://github.com/KazKozDev/WebOperator/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/KazKozDev/WebOperator/compare/v1.6.1...HEAD
+[1.6.1]: https://github.com/KazKozDev/WebOperator/compare/v1.6.0...v1.6.1
+[1.6.0]: https://github.com/KazKozDev/WebOperator/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/KazKozDev/WebOperator/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/KazKozDev/WebOperator/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/KazKozDev/WebOperator/compare/v1.2.0...v1.3.0

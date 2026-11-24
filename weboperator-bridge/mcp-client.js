@@ -89,7 +89,7 @@ class StdioServer {
       proc.once('exit', (code, signal) => this.stopped(new Error(`Connector ${this.name} exited (${signal ?? code})`)));
       proc.once('error', error => this.stopped(error));
       await Promise.race([failed, this.request('initialize', {
-        protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'weboperator', version: '1.6.0' },
+        protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'weboperator', version: '1.6.1' },
       }, START_TIMEOUT_MS)]);
       this.notify('notifications/initialized');
     })();

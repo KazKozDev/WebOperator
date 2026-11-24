@@ -17,7 +17,7 @@ Your goal, typed once · The agent plans, acts, verifies · Every step visible
 ## Quick start
 
 Two ways in. If you would rather not touch Node, grab the
-`weboperator-1.6.0-chrome.zip` archive from the
+`weboperator-1.6.1-chrome.zip` archive from the
 [latest release](https://github.com/KazKozDev/WebOperator/releases/latest) and unzip it —
 that folder *is* the built extension.
 
@@ -214,7 +214,7 @@ There is no Dockerfile or Compose configuration.
 </br></br>
 <div align="center">
 
-[![Check](https://img.shields.io/github/actions/workflow/status/KazKozDev/WebOperator/check.yml?branch=main&style=flat-square&label=check)](https://github.com/KazKozDev/WebOperator/actions/workflows/check.yml) [![Chrome · Brave](https://img.shields.io/badge/Chrome%20%C2%B7%20Brave-MV3-333?style=flat-square)](core/manifest.config.ts) [![Version](https://img.shields.io/badge/version-1.6.0-333?style=flat-square)](core/package.json) [![LICENSE](https://img.shields.io/badge/LICENSE-MIT-333?style=flat-square)](LICENSE)
+[![Check](https://img.shields.io/github/actions/workflow/status/KazKozDev/WebOperator/check.yml?branch=main&style=flat-square&label=check)](https://github.com/KazKozDev/WebOperator/actions/workflows/check.yml) [![Chrome · Brave](https://img.shields.io/badge/Chrome%20%C2%B7%20Brave-MV3-333?style=flat-square)](core/manifest.config.ts) [![Version](https://img.shields.io/badge/version-1.6.1-333?style=flat-square)](core/package.json) [![LICENSE](https://img.shields.io/badge/LICENSE-MIT-333?style=flat-square)](LICENSE)
 
 [Issues](https://github.com/KazKozDev/WebOperator/issues) · [LICENSE](LICENSE) · [API](docs/api.md) · [ARCHITECTURE](docs/architecture.md) · [Agent protocol](docs/agent-protocol.md) · [LinkedIn](https://www.linkedin.com/in/kazkozdev/)
 
