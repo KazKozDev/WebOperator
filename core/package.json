@@ -25,7 +25,7 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
-    "dexie": "^4.4.5",
+    "dexie": "^4.4.7",
     "pdfmake": "^0.3.11",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
