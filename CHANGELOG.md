@@ -11,6 +11,17 @@ evals.
 
 ## [Unreleased]
 
+### Added
+
+- Form submissions are journaled in the task record before the click. After a
+  service-worker restart, Resume first looks for the stored record: a confirmation
+  notice or a `confirm_submission` call backed by a submitted value on the page
+  confirms it. A resubmission needs the user's approval, so a request created
+  before the restart is not sent twice.
+- `inspect_csv` and `transform_csv` read a downloaded CSV, filter rows, edit or
+  select columns, and write a separate verified copy through the native bridge.
+  `upload_attachment` attaches that copy after rechecking its hash.
+
 ## [1.6.0] — 2026-11-22
 
 ### Added

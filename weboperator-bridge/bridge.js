@@ -141,6 +141,13 @@ function sendNative(obj) {
 }
 
 function handleNativeMessage(msg) {
+  if (msg.kind === 'csv:request') {
+    require('./csv').csvRequest(msg.payload).then(
+      result => sendNative({ kind: 'csv:response', id: msg.id, result }),
+      error => sendNative({ kind: 'csv:response', id: msg.id, error: error.message })
+    );
+    return;
+  }
   if (msg.kind === 'bridge:hello') {
     extensionOnline = true;
     log('extension online');
@@ -525,7 +532,7 @@ async function executeToolByName(name, args = {}, timeoutMs = 30_000) {
   if (name !== 'weboperator_execute_goal' && TOOL_TYPES[name]) {
     const response = await requestExtension(TOOL_TYPES[name], { ...args, ...(args.type === 'auto' ? { type: undefined } : {}) }, Math.max(timeoutMs, Number(args.timeoutMs ?? 0) + 10_000));
     const result = response?.kind === 'action:result' ? response.result : response;
-    if (['browser_click', 'browser_type', 'browser_scroll', 'browser_select_option'].includes(name) && (response?.kind === 'error' || result?.ok === false)) {
+    if (['browser_click', 'browser_type', 'browser_press', 'browser_scroll', 'browser_select_option'].includes(name) && (response?.kind === 'error' || result?.ok === false)) {
       throw httpError(400, result?.error || response.error || 'Browser action failed');
     }
     return response;

@@ -1,3 +1,4 @@
+import { hasAutosaveHint, isSaveLabel } from './form-save';
 import { frameIdFromRef } from './frames';
 import type { A11ySnapshot, ToolCall } from './types';
 
@@ -55,6 +56,10 @@ export function validateBatchCall(
       if (snapshot && !node) return `Action ${index + 1} references missing element ${ref}`;
       if (action.name === 'click' && node && (!SAFE_CLICK_ROLES.has(node.role) || node.href)) {
         return `Action ${index + 1} cannot batch click ${node.role} ${ref}; links and navigation-like targets must run separately`;
+      }
+      if (node && ((action.name === 'click' && isSaveLabel(node.name)) ||
+          (action.name === 'type' && hasAutosaveHint(node.field?.hint)))) {
+        return `Action ${index + 1} must verify the save separately`;
       }
       if (node) {
         const label = `${node.name} ${node.value ?? ''}`.toLowerCase();

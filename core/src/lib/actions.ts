@@ -1,6 +1,8 @@
 import { collectionScroller, readCollection } from './collection';
-import type { ActionResult, ToolCall } from './types';
-import { findElementByRef } from './a11y';
+import type { ActionResult, CSResponse, ToolCall } from './types';
+import { buildSnapshot, findElementByRef } from './a11y';
+import { hasAutosaveHint, isFormSave, isSaveLabel } from './form-save';
+import { fieldInfo, fieldValue, prepareField, verifyField } from './text-field';
 import { parseBatchActions, validateBatchCall } from './batch-actions';
 
 interface BatchActionOutcome {
@@ -84,6 +86,9 @@ async function dispatch(call: ToolCall): Promise<unknown> {
     case 'fill_login_credentials':
     case 'solve_captcha':
     case 'read_downloaded_file':
+    case 'inspect_csv':
+    case 'transform_csv':
+    case 'confirm_submission':
     case 'upload_attachment':
     case 'start_subtask':
     case 'finish_subtask':
@@ -150,63 +155,117 @@ async function doClick(ref: string): Promise<void> {
   await tick();
 }
 
-async function doType(ref: string, text: string, mode: 'replace' | 'append', submit: boolean): Promise<void> {
-  const el = resolve(ref);
-  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-    el.focus();
-    const proto = el instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-    if (mode === 'replace') {
-      el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'deleteContentBackward' }));
-      setter?.call(el, '');
-      el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
+const intendedValues = new WeakMap<HTMLElement, string>();
+
+export function captureSaveContext(call: ToolCall): CSResponse {
+  const ref = String(call.arguments.ref ?? '');
+  const target = ref.startsWith('@') ? findElementByRef(ref) : ref ? document.querySelector<HTMLElement>(ref) : activeTarget();
+  if (!target) return { kind: 'ok' };
+  if (call.name === 'click' && !isSaveLabel(target.getAttribute('aria-label') || target.innerText || (target as HTMLInputElement).value || target.title || '') && !target.hasAttribute('aria-labelledby')) return { kind: 'ok' };
+  if (call.name === 'type' && String(call.arguments.submit) !== 'true' && !hasAutosaveHint(fieldInfo(target).hint)) return { kind: 'ok' };
+  const refPrefix = (target.dataset.agentRef ?? ref).match(/^@(.*)e\d+$/)?.[1] ?? '';
+  const snapshot = buildSnapshot({ refPrefix, shadow: true, includeOutsideViewport: true });
+  const targetRef = target.dataset.agentRef;
+  if (!targetRef || !isFormSave(snapshot, call.name, { ...call.arguments, ref: targetRef })) return { kind: 'ok' };
+  const form = (target as HTMLInputElement).form ?? target.closest('form');
+  const controls = form ? new Set([...form.elements, ...form.querySelectorAll('[contenteditable]')]) : [];
+  for (const field of controls) {
+    if (!(field instanceof HTMLElement)) continue;
+    const expected = intendedValues.get(field);
+    if (expected !== undefined && !(call.name === 'type' && target === field)) {
+      verifyField(field, expected, fieldValue(field), fieldInfo(field));
     }
-    el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: text }));
-    setter?.call(el, mode === 'append' ? `${el.value}${text}` : text);
-    el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-    el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
-    el.dispatchEvent(new FocusEvent('blur', { bubbles: false }));
-    if (submit) {
-      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
-      el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
-      const form = el.closest('form');
-      form?.requestSubmit?.();
-    }
-    return;
   }
-  const editable = resolveContentEditable(el);
-  if (editable) {
-    editable.focus();
-    if (mode === 'replace') {
-      const sel = window.getSelection();
-      const range = document.createRange();
-      range.selectNodeContents(editable);
-      sel?.removeAllRanges();
-      sel?.addRange(range);
-      document.execCommand('delete', false);
-    }
-    const inserted = document.execCommand('insertText', false, text);
-    if (!inserted) {
-      if (mode === 'replace') {
-        editable.textContent = text;
-      } else {
-        editable.textContent = `${editable.textContent ?? ''}${text}`;
-      }
-    }
-    editable.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
-    editable.dispatchEvent(new Event('change', { bubbles: true }));
-    if (submit) {
-      editable.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
-      editable.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
-      const form = editable.closest('form');
-      form?.requestSubmit?.();
-    }
-    return;
-  }
-  throw new Error(`Element ${ref} is not a text input`);
+  return { kind: 'save:context', snapshot, ref: targetRef, refPrefix };
 }
 
+async function doType(ref: string, text: string, mode: 'replace' | 'append', submit: boolean): Promise<void> {
+  const el = resolve(ref);
+  const native = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
+  const field = native ? el : resolveContentEditable(el);
+  if (!field) throw new Error(`Element ${ref} is not a text input`);
+  field.focus();
+  const current = fieldValue(field);
+  const expected = prepareField(field, text, mode === 'append', fieldInfo(field), current);
+  intendedValues.set(field, expected);
+  if (expected !== current) {
+    const inputType = text ? 'insertText' : 'deleteContentBackward';
+    const event = { bubbles: true, composed: true, inputType, data: text || null };
+    if (!field.dispatchEvent(new InputEvent('beforeinput', { ...event, cancelable: true }))) {
+      throw new Error('Field cancelled beforeinput. Inspect the field before retrying.');
+    }
+    if (!field.isConnected) throw new Error('Field was replaced during beforeinput.');
+    if (fieldValue(field) !== current) throw new Error('Field changed during beforeinput. Inspect before retrying.');
+    if (native) {
+      const proto = el instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+      if (!setter) throw new Error('Value setter is unavailable.');
+      setter.call(el, expected);
+      el.dispatchEvent(new InputEvent('input', event));
+    } else {
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(field);
+      if (mode === 'append') range.collapse(false);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      if (!document.execCommand(text ? 'insertText' : 'delete', false, text)) {
+        throw new Error('Field rejected the editor operation.');
+      }
+    }
+    field.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  field.blur();
+  await tick();
+  verifyField(field, expected, fieldValue(field), fieldInfo(field));
+  if (submit || document.activeElement === document.body) field.focus();
+  if (submit) pressEnter(field, {}, true);
+}
+
+// CDP delivers trusted input events. Keep comparison values in the originating
+// frame, including passwords, and bind verification to the exact edited element.
+const nativeEdits = new Map<string, { field: HTMLElement; expected: string }>();
+
+export function prepareNativeEdit(ref: string, text: string, append: boolean) {
+  const target = resolve(ref);
+  const field = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement ? target : resolveContentEditable(target);
+  if (!field) throw new Error('Target is not an editable field');
+  field.focus();
+  if (!field.matches(':focus')) throw new Error('Field did not receive focus');
+  const current = fieldValue(field);
+  const expected = prepareField(field, text, append, fieldInfo(field), current);
+  if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) {
+    if (append && current.length && field.selectionEnd === null) throw new Error('Cannot place caret at end of field');
+    if (append && field.selectionEnd !== null) field.setSelectionRange(current.length, current.length);
+    if (!append) field.select();
+  } else {
+    const range = document.createRange();
+    range.selectNodeContents(field);
+    if (append) range.collapse(false);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }
+  const token = crypto.getRandomValues(new Uint32Array(4)).join('-');
+  intendedValues.set(field, expected);
+  nativeEdits.set(token, { field, expected });
+  setTimeout(() => nativeEdits.delete(token), 10_000);
+  return { token, needsInput: current !== expected };
+}
+
+export async function verifyNativeEdit(token: string, submit: boolean, retainFocus = false): Promise<void> {
+  const edit = nativeEdits.get(token);
+  nativeEdits.delete(token);
+  if (!edit) throw new Error('Native edit expired. Inspect the field before retrying.');
+  const { field, expected } = edit;
+  if (!retainFocus) field.blur();
+  await tick();
+  verifyField(field, expected, fieldValue(field), fieldInfo(field));
+  if (submit) {
+    field.focus();
+    if (!field.matches(':focus')) throw new Error('Cannot submit a field that lost focus');
+  }
+}
 
 async function doPress(key: string, modifiersText: string, ref?: string): Promise<void> {
   const target = ref ? resolve(ref) : activeTarget();
@@ -224,18 +283,46 @@ async function doPress(key: string, modifiersText: string, ref?: string): Promis
     }
   }
 
-  dispatchKey(target, 'keydown', normalizedKey, modifiers);
-  if (normalizedKey === 'Enter' && activeTarget().isContentEditable) {
-    document.execCommand('insertParagraph', false);
-    dispatchEditorInput(activeTarget());
+  if (normalizedKey === 'Enter') pressEnter(target, modifiers, false);
+  else {
+    dispatchKey(target, 'keydown', normalizedKey, modifiers);
+    dispatchKey(target, 'keyup', normalizedKey, modifiers);
   }
-  dispatchKey(target, 'keyup', normalizedKey, modifiers);
   await tick();
+}
+
+function pressEnter(target: HTMLElement, modifiers: KeyboardEventInit, submit: boolean): void {
+  const form = (target as HTMLInputElement).form ?? target.closest('form');
+  let submitted = false;
+  const onSubmit = () => { submitted = true; };
+  form?.addEventListener('submit', onSubmit, true);
+  try {
+    const accepted = dispatchKey(target, 'keydown', 'Enter', modifiers);
+    if (accepted && !submit && target.isContentEditable) {
+      document.execCommand('insertParagraph', false);
+      dispatchEditorInput(target);
+    }
+    const released = dispatchKey(target, 'keyup', 'Enter', modifiers);
+    if (!accepted || !released || submitted || !target.isConnected) return;
+    if (!submit && target instanceof HTMLButtonElement) {
+      target.click();
+      return;
+    }
+    if (!form || Object.values(modifiers).some(Boolean)) return;
+    const implicit = target instanceof HTMLInputElement && /^(text|email|url|search|password|tel|number)$/.test(target.type);
+    if (!submit && !implicit) return;
+    const submitter = Array.from(form.elements).find(el =>
+      (el instanceof HTMLButtonElement || el instanceof HTMLInputElement) && el.type === 'submit');
+    if (submitter instanceof HTMLElement) submitter.click();
+    else if (submit || form.querySelectorAll('input:not([type="hidden"])').length === 1) form.requestSubmit();
+  } finally {
+    form?.removeEventListener('submit', onSubmit, true);
+  }
 }
 
 function resolveContentEditable(el: HTMLElement): HTMLElement | null {
   if (el.isContentEditable) return el;
-  const child = el.querySelector<HTMLElement>('[contenteditable="true"]');
+  const child = el.querySelector<HTMLElement>('[contenteditable]:not([contenteditable="false"])');
   if (child?.isContentEditable) return child;
   const parent = el.closest<HTMLElement>('[contenteditable="true"]');
   return parent?.isContentEditable ? parent : null;
@@ -271,8 +358,8 @@ function shortcutCommand(key: string): string | null {
   }
 }
 
-function dispatchKey(target: HTMLElement, type: 'keydown' | 'keyup', key: string, modifiers: KeyboardEventInit): void {
-  target.dispatchEvent(new KeyboardEvent(type, {
+function dispatchKey(target: HTMLElement, type: 'keydown' | 'keyup', key: string, modifiers: KeyboardEventInit): boolean {
+  return target.dispatchEvent(new KeyboardEvent(type, {
     bubbles: true,
     cancelable: true,
     key,

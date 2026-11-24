@@ -1,3 +1,5 @@
+import { requestCsv } from './csv-files';
+import { observeFormAction } from './form-action';
 import { showCursor } from './cursor';
 import { observationRequest, waitForObservedNetwork, hasObservation } from './bridge-observation';
 import { refinePrompt } from '@/lib/prompt-refinement';
@@ -56,7 +58,8 @@ const state = {
   paused: new Set<string>(),
   pendingConfirms: new Map<string, Pending>(),
   runningSchedules: new Set<string>(),
-  attachments: new Map<string, Map<string, TaskAttachment>>(),
+  activeRuns: new Set<string>(),
+  resuming: new Map<string, Promise<AgentTask>>(),
 };
 
 // Initialize Port Host for resilient Side Panel connection
@@ -117,12 +120,12 @@ async function handle(msg: SWMessage): Promise<unknown> {
     case 'prompt:refine': return refinePrompt(msg.draft, await getSettings(), requestModelResponse);
     case 'settings:get': return getSettings();
     case 'settings:update': return saveSettings(msg.patch);
-    case 'task:list': return listTasks();
+    case 'task:list': return (await listTasks()).map(displayTask);
     case 'task:get': {
       const task = await getTask(msg.id);
       if (!task) return null;
       task.steps = await loadSteps(msg.id);
-      return task;
+      return displayTask(task);
     }
     case 'eval:startTask': return startEvalTask(msg);
     case 'eval:getTask': return getEvalTask(msg.id);
@@ -132,7 +135,7 @@ async function handle(msg: SWMessage): Promise<unknown> {
     case 'task:resume_checkpoint': return resumeTaskFromCheckpoint(msg.id);
     case 'task:pause': state.paused.add(msg.id); return { ok: true };
 
-    case 'task:resume': state.paused.delete(msg.id); return { ok: true };
+    case 'task:resume': await resumePausedTask(msg.id); return { ok: true };
     case 'task:stop': {
       state.stopped.add(msg.id);
       state.pendingConfirms.get(msg.id)?.resolve(false);
@@ -204,12 +207,12 @@ async function startTask(goal: string, tabId: number, options: { autoConfirm?: b
     if (!['done', 'failed', 'stopped'].includes(parent.status)) throw new Error('Wait for the previous turn to finish.');
     task.parentTaskId = parent.id;
   }
-  if (attachments.length) state.attachments.set(task.id, new Map(attachments.map((item) => [item.id, item])));
+  if (attachments.length) task.attachments = attachments;
   await saveTask(task);
   await ensureContentScript(tabId);
   await showCursor(tabId).catch(error => console.warn('[cursor] Could not show pointer', error));
 
-  runTask(task, {
+  runTrackedTask(task, {
     settings,
     shouldConfirm: (t: AgentTask) => options.autoConfirm
       ? Promise.resolve(true)
@@ -220,38 +223,82 @@ async function startTask(goal: string, tabId: number, options: { autoConfirm?: b
     isPaused: (id) => state.paused.has(id),
     requestPause: (id) => state.paused.add(id),
     requestResume: (id) => state.paused.delete(id),
-    getAttachment: (taskId, attachmentId) => state.attachments.get(taskId)?.get(attachmentId),
-  }).catch((err) => console.error('[agent] run failed', err))
-    .finally(() => state.attachments.delete(task.id));
+  }).catch((err) => console.error('[agent] run failed', err));
 
   return task;
 }
 
-async function resumeTaskFromCheckpoint(taskId: string): Promise<AgentTask> {
+function runTrackedTask(task: AgentTask, deps: Parameters<typeof runTask>[1]) {
+  state.activeRuns.add(task.id);
+  return runTask(task, { ...deps, csvHost: payload => requestCsv(apiBridgePort, payload) })
+    .finally(() => state.activeRuns.delete(task.id));
+}
+
+function displayTask(task: AgentTask): AgentTask {
+  if (!state.activeRuns.has(task.id) && task.saveJournal?.length &&
+      ['running', 'paused', 'awaiting_confirm'].includes(task.status)) {
+    return { ...task, status: 'stopped', error: 'Run interrupted. Resume to check the last submission.' };
+  }
+  return task;
+}
+
+async function resumePausedTask(id: string) {
+  state.paused.delete(id);
+  if (state.activeRuns.has(id)) return;
+  const task = await getTask(id);
+  if (task?.saveJournal?.length && task.status !== 'done') await resumeTaskFromCheckpoint(id);
+}
+
+function resumeTaskFromCheckpoint(id: string): Promise<AgentTask> {
+  const pending = state.resuming.get(id);
+  if (pending) return pending;
+  const restart = restoreTask(id).finally(() => state.resuming.delete(id));
+  state.resuming.set(id, restart);
+  return restart;
+}
+
+async function restoreTask(taskId: string): Promise<AgentTask> {
   const task = await getTask(taskId);
   if (!task) throw new Error(`Task ${taskId} not found`);
   task.steps = await loadSteps(taskId);
+  if (task.status === 'done' || state.activeRuns.has(taskId)) return task;
+
+  const entry = task.saveJournal?.find(item => item.status === 'pending') ?? task.saveJournal?.at(-1);
+  let tabId = entry?.tabId ?? task.tabId;
+  const tab = await chrome.tabs.get(tabId).catch(() => undefined);
+  if (entry) {
+    const origin = new URL(entry.before.url).origin;
+    const sameOrigin = tab?.url && new URL(tab.url).origin === origin;
+    if (!sameOrigin) {
+      const matches = (await chrome.tabs.query({})).filter(t => t.url === entry.before.url);
+      if (matches.length > 1) throw new Error('Several matching tabs are open. Keep the intended record open and resume.');
+      if (!matches.length && !/^https?:/.test(entry.before.url)) throw new Error('Reopen the original record before resuming.');
+      const record = matches[0] ?? await chrome.tabs.create({ url: entry.before.url });
+      if (!record.id) throw new Error('Could not restore the record tab');
+      tabId = record.id;
+      if (!matches.length) await waitForTabComplete(tabId);
+      const originalTab = entry.tabId;
+      for (const item of task.saveJournal ?? []) {
+        if (item.tabId === originalTab && new URL(item.before.url).origin === origin) item.tabId = tabId;
+      }
+      entry.tabId = tabId;
+    }
+  } else if (!tab?.id) {
+    const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!active?.id) throw new Error('Open a browser tab before resuming.');
+    tabId = active.id;
+  }
+  await ensureContentScript(tabId);
+  const settings = await getSettings();
+  task.tabId = tabId;
   task.status = 'running';
   task.error = undefined;
   task.updatedAt = Date.now();
   await saveTask(task);
-
-  let tabId = task.tabId;
-  try {
-    const tab = await chrome.tabs.get(tabId);
-    if (!tab?.id) throw new Error('Tab closed');
-  } catch {
-    const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (active?.id) tabId = active.id;
-  }
-  task.tabId = tabId;
-  await ensureContentScript(tabId);
-
-  const settings = await getSettings();
   state.stopped.delete(taskId);
   state.paused.delete(taskId);
 
-  runTask(task, {
+  runTrackedTask(task, {
     settings,
     shouldConfirm: (t: AgentTask) =>
       new Promise<boolean>((resolve) => {
@@ -310,7 +357,7 @@ async function waitForEvalTask(id: string, timeoutMs = 120_000): Promise<AgentTa
   while (Date.now() - startedAt < timeoutMs) {
     const task = await getEvalTask(id);
     if (!task) return null;
-    if (task.status === 'done' || task.status === 'failed' || task.status === 'stopped' || task.status === 'paused' || task.status === 'awaiting_confirm') {
+    if (displayTask(task).status === 'stopped' || ['done', 'failed', 'paused', 'awaiting_confirm'].includes(task.status)) {
       return task;
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -402,7 +449,7 @@ async function runScheduledTask(id: string, force = false): Promise<void> {
     task = createAgentTask(schedule.goal, tab.id, settings);
     await saveTask(task);
 
-    const finalTask = await runTask(task, {
+    const finalTask = await runTrackedTask(task, {
       settings,
       shouldConfirm: async () => {
         await updateScheduledTask(id, {
@@ -651,13 +698,17 @@ async function recordBridgeActionStep(
     throw err;
   } finally {
     const durationMs = Date.now() - startTime;
+    const response = isRecord(stepResult) && stepResult.kind === 'action:result' && isRecord(stepResult.result) ? stepResult.result : undefined;
+    if (response?.ok === false) stepError = String(response.error ?? 'Action rejected');
     const actionResult: ActionResult = {
+      ...(response as Partial<ActionResult> | undefined),
       ok: !stepError,
       error: stepError,
       durationMs,
-      extracted: isRecord(stepResult) && 'extracted' in stepResult ? stepResult.extracted : undefined,
+      extracted: response?.extracted ?? (isRecord(stepResult) ? stepResult.extracted : undefined),
     };
 
+    const unconfirmed = actionResult.save?.status === 'unconfirmed';
     const stepIndex = (activeBridgeTask.steps?.length ?? 0) + 1;
     const step: AgentStep = {
       id: crypto.randomUUID(),
@@ -669,12 +720,12 @@ async function recordBridgeActionStep(
       thinking: `External Agent: ${describeToolCall(toolCall)}`,
       toolCall,
       result: actionResult,
-      note: stepError ? `Error: ${stepError}` : undefined,
+      note: stepError ? `Error: ${stepError}` : unconfirmed ? 'Save unconfirmed. Inspect the stored record.' : undefined,
     };
 
 
     activeBridgeTask.steps = [...(activeBridgeTask.steps ?? []), step];
-    activeBridgeTask.status = stepError ? 'failed' : 'done';
+    activeBridgeTask.status = stepError ? 'failed' : unconfirmed ? 'running' : 'done';
     activeBridgeTask.error = stepError;
     activeBridgeTask.updatedAt = Date.now();
 
@@ -806,15 +857,28 @@ async function executeBridgeRequest(type: string, payload: Record<string, unknow
       }
       if (type === 'browser.click' && (payload.button !== undefined || payload.clickCount !== undefined || payload.modifiers !== undefined)) {
         const ref = String(payload.ref ?? (payload.index === undefined ? '' : `@e${payload.index}`));
-        return mediaRequest(tabId, type, { ...payload, ref }, bridgeFrame(tabId, ref));
+        const frameId = bridgeFrame(tabId, ref);
+        const click = () => mediaRequest(tabId, type, { ...payload, ref }, frameId);
+        if (payload.button && payload.button !== 'left') return click();
+        await ensureContentScript(tabId);
+        const result = await observeFormAction(tabId, frameId, { name: 'click', arguments: { ref } }, async () => {
+          const started = performance.now();
+          const response = await click();
+          return { ...response, ok: response.ok === true, durationMs: performance.now() - started };
+        });
+        return result;
       }
       await ensureContentScript(tabId);
       const action = bridgePayloadToToolCall(type, payload);
       return recordBridgeActionStep(tabId, action, `External Agent: ${describeToolCall(action)}`, async () => {
         const frameId = bridgeFrame(tabId, String(action.arguments.ref ?? ''));
-        const resp = frameId === 0
-          ? await chrome.tabs.sendMessage(tabId, { kind: 'action:run', action }, { frameId: 0 })
-          : await chrome.tabs.sendMessage(tabId, { kind: 'action:run', action }, { frameId });
+        const sendAction = () => chrome.tabs.sendMessage(tabId, { kind: 'action:run', action }, { frameId });
+        const canSave = type === 'browser.click' || type === 'browser.type' || (type === 'browser.press' && action.arguments.key === 'Enter');
+        const resp = canSave ? { kind: 'action:result', result: await observeFormAction(tabId, frameId, action, async () => {
+          const response = await sendAction();
+          if (response.kind !== 'action:result') throw new Error(response.error ?? 'Unexpected action result');
+          return response.result;
+        }) } : await sendAction();
         if (type === 'browser.scroll' && payload.to === 'element' && resp.kind === 'action:result') {
           return { ok: resp.result.ok, ...(resp.result.extracted ?? {}), ...(resp.result.error ? { error: resp.result.error } : {}) };
         }
@@ -850,14 +914,14 @@ async function executeBridgeRequest(type: string, payload: Record<string, unknow
       });
     }
     case 'tasks.list':
-      return listTasks(Math.floor(boundedNumber(payload.limit, 50, 1, 1000)));
+      return (await listTasks(Math.floor(boundedNumber(payload.limit, 50, 1, 1000)))).map(displayTask);
     case 'tasks.get': {
       const id = String(payload.id ?? '');
       if (!id) throw new Error('Missing task id');
       const task = await getTask(id);
       if (!task) return null;
       task.steps = await loadSteps(id);
-      return task;
+      return displayTask(task);
     }
     case 'tasks.start': {
       const goal = String(payload.goal ?? payload.prompt ?? '');
@@ -894,9 +958,13 @@ async function executeBridgeRequest(type: string, payload: Record<string, unknow
       if (typeof id !== 'string' || !id.trim()) throw new Error('Missing task id');
       const task = await getTask(id);
       if (!task) throw new Error(`Task not found: ${id}`);
+      if (type === 'tasks.resume' && task.saveJournal?.length && task.status !== 'done' && !state.activeRuns.has(id)) {
+        const resumed = await resumeTaskFromCheckpoint(id);
+        return { ok: true, status: resumed.status };
+      }
       if (['done', 'failed', 'stopped'].includes(task.status)) return { ok: true, status: task.status };
       if (type === 'tasks.pause') state.paused.add(id);
-      else state.paused.delete(id);
+      else await resumePausedTask(id);
       return { ok: true, status: task.status, pauseRequested: type === 'tasks.pause' };
     }
     case 'tasks.confirm': return confirmBridgeTask(payload, state.pendingConfirms);
@@ -1006,9 +1074,9 @@ async function waitForTask(id: string, timeoutMs: number): Promise<AgentTask | n
   while (Date.now() - startedAt < timeoutMs) {
     const task = await getTask(id);
     if (!task) return null;
-    if (task.status === 'done' || task.status === 'failed' || task.status === 'stopped' || task.status === 'paused' || task.status === 'awaiting_confirm') {
+    if (displayTask(task).status === 'stopped' || ['done', 'failed', 'paused', 'awaiting_confirm'].includes(task.status)) {
       task.steps = await loadSteps(id);
-      return task;
+      return displayTask(task);
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }

@@ -1,4 +1,6 @@
 import type { A11yNode, A11ySnapshot, A11yRole, SnapshotRequestOptions } from './types';
+import { isSaveNotice } from './form-save';
+import { fieldInfo, fieldValue } from './text-field';
 import { fastHash } from './hash';
 
 const INTERACTIVE_TAGS = new Set(['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'SUMMARY']);
@@ -9,7 +11,7 @@ const INTERACTIVE_ROLES = new Set([
 
 export interface SnapshotOptions extends SnapshotRequestOptions { includeOutsideViewport?: boolean }
 const refsByPrefix = new Map<string, { refs: WeakMap<Element, string>; next: number }>();
-const SELECTORS = 'a,button,input,select,textarea,summary,[role],[contenteditable="true"],[tabindex]';
+const SELECTORS = 'a,button,input,select,textarea,summary,[role],[aria-live],[contenteditable]:not([contenteditable="false"]),[tabindex]';
 
 /** Query reachable open roots; refs remain actionable in the same roots. */
 export function queryOpenRoots<T extends HTMLElement = HTMLElement>(selector: string, root: Document | ShadowRoot | HTMLElement = document): T[] {
@@ -48,7 +50,13 @@ export function buildSnapshot(opts: SnapshotOptions = {}): A11ySnapshot {
     if (!ref) { ref = `@${refPrefix}e${registry.next++}`; registry.refs.set(el, ref); }
     el.dataset.agentRef = ref;
     const node = buildNode(el, ref, role, name, rect, inViewport);
-    if (opts.text) node.text = (el.innerText ?? el.textContent ?? '').trim().slice(0, 200);
+    const form = (el as HTMLInputElement).form ?? el.closest('form');
+    if (form instanceof HTMLFormElement) {
+      let formRef = registry.refs.get(form);
+      if (!formRef) { formRef = `@${refPrefix}e${registry.next++}`; registry.refs.set(form, formRef); }
+      node.formRef = formRef;
+    }
+    if (opts.text || role === 'status' || role === 'alert') node.text = (el.innerText ?? el.textContent ?? '').trim().slice(0, 200);
     if (el.tagName === 'IMG') {
       const img = el as HTMLImageElement;
       Object.assign(node, { src: img.currentSrc || img.src, naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight });
@@ -59,7 +67,7 @@ export function buildSnapshot(opts: SnapshotOptions = {}): A11ySnapshot {
   });
   const textSnippets = visibleTextSnippets();
   const domHash = fastHash(`${location.pathname}::${nodes.map((node) => JSON.stringify(node)).join('|')}::${textSnippets.join('|')}`);
-  return { url: location.href, title: document.title, viewport: { w: viewportW, h: viewportH, scrollX: window.scrollX, scrollY: window.scrollY }, nodes, textSnippets, domHash, takenAt: Date.now(), total: candidates.length, truncated: candidates.length > nodes.length, frameCount: 1 };
+  return { documentStart: performance.timeOrigin, url: location.href, title: document.title, viewport: { w: viewportW, h: viewportH, scrollX: window.scrollX, scrollY: window.scrollY }, nodes, textSnippets, domHash, takenAt: Date.now(), total: candidates.length, truncated: candidates.length > nodes.length, frameCount: 1 };
 }
 
 export function findElementByRef(ref: string): HTMLElement | null {
@@ -73,7 +81,8 @@ export function formatSnapshot(s: A11ySnapshot): string {
     const value = n.value ? ` value="${ellipsis(n.value, 40)}"` : '';
     const href = n.href ? ` href="${ellipsis(n.href, 80)}"` : '';
     const state = n.state?.length ? ` [${n.state.join(',')}]` : '';
-    return `  ${n.ref} ${n.role} "${ellipsis(n.name, 60)}"${value}${href}${state} @${n.bbox.x},${n.bbox.y} ${n.bbox.w}x${n.bbox.h}`;
+    const field = n.field ? ` field=${JSON.stringify(n.field)}` : '';
+    return `  ${n.ref} ${n.role} "${ellipsis(n.name, 60)}"${value}${href}${state}${field} @${n.bbox.x},${n.bbox.y} ${n.bbox.w}x${n.bbox.h}`;
   });
   const snippets = s.textSnippets?.length
     ? `\nVISIBLE TEXT (${s.textSnippets.length}):\n${s.textSnippets.map((t) => `  - ${ellipsis(t, 140)}`).join('\n')}`
@@ -110,7 +119,7 @@ function visibleTextSnippets(maxSnippets = 30): string[] {
     const inViewport = rect.bottom > 0 && rect.right > 0 && rect.top < viewportH && rect.left < viewportW;
     if (!inViewport) continue;
     const text = normalizeText(el.textContent ?? '');
-    if (text.length < 12 || seen.has(text)) continue;
+    if ((text.length < 12 && !isSaveNotice(text)) || seen.has(text)) continue;
     seen.add(text);
     snippets.push(text);
   }
@@ -123,7 +132,7 @@ function normalizeText(text: string): string {
 }
 
 function computeRole(el: HTMLElement): A11yRole | null {
-  const explicit = el.getAttribute('role');
+  const explicit = el.getAttribute('role') || (['polite', 'assertive'].includes(el.getAttribute('aria-live') ?? '') ? 'status' : null);
   if (explicit && INTERACTIVE_ROLES.has(explicit)) return explicit as A11yRole;
   const tag = el.tagName;
   if (!INTERACTIVE_TAGS.has(tag) && !el.hasAttribute('contenteditable') && el.getAttribute('tabindex') === null) {
@@ -145,7 +154,7 @@ function computeRole(el: HTMLElement): A11yRole | null {
       return 'textbox';
     }
   }
-  if (el.getAttribute('contenteditable') === 'true') return 'textbox';
+  if (el.isContentEditable) return 'textbox';
   if (explicit) return (explicit as A11yRole);
   return 'generic';
 }
@@ -158,6 +167,7 @@ function accessibleName(el: HTMLElement): string {
     const refs = labelledBy.split(/\s+/).map((id) => document.getElementById(id)?.textContent ?? '').join(' ');
     if (refs.trim()) return refs.trim();
   }
+  if (el instanceof HTMLInputElement && ['submit', 'button'].includes(el.type) && el.value) return el.value;
   if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') {
     const id = el.id;
     if (id) {
@@ -195,12 +205,14 @@ function readValue(el: HTMLElement): string | undefined {
   }
   if (el instanceof HTMLTextAreaElement) return el.value || undefined;
   if (el instanceof HTMLSelectElement) return el.value || undefined;
-  if (el.getAttribute('contenteditable') === 'true') return el.textContent?.trim() || undefined;
+  if (el.isContentEditable) return fieldValue(el) || undefined;
   return undefined;
 }
 
 function readState(el: HTMLElement): string[] {
   const s: string[] = [];
+  if (el instanceof HTMLTextAreaElement || el.isContentEditable) s.push('multiline');
+  if (el.matches(':focus')) s.push('focused');
   if ((el as HTMLButtonElement).disabled) s.push('disabled');
   if (el.getAttribute('aria-disabled') === 'true') s.push('disabled');
   if (el.getAttribute('aria-expanded') === 'true') s.push('expanded');
@@ -218,6 +230,10 @@ function buildNode(el: HTMLElement, ref: string, role: A11yRole, name: string, r
     bbox: { x: Math.round(rect.left), y: Math.round(rect.top), w: Math.round(rect.width), h: Math.round(rect.height) },
     inViewport,
   };
+  if (role === 'textbox' || role === 'searchbox' || role === 'combobox') {
+    const info = fieldInfo(el);
+    if (Object.keys(info).length) node.field = info;
+  }
   const value = readValue(el);
   if (value !== undefined) node.value = value;
   if (el instanceof HTMLAnchorElement && el.href) node.href = el.href;

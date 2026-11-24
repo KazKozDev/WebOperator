@@ -61,7 +61,7 @@ const TOOLS = [
   },
   {
     name: 'browser_type',
-    description: 'Type text into an input field by snapshot ref, element index or CSS selector.',
+    description: 'Type text by ref, index or CSS selector. Checks field limits and the full accepted value. Inspect rejected edits before retrying.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -78,6 +78,10 @@ const TOOLS = [
         text: {
           type: 'string',
           description: 'The text to type into the field.',
+        },
+        submit: {
+          type: 'boolean',
+          description: 'Press Enter once after the full value passes validation (default: false).',
         },
         clear: {
           type: 'boolean',

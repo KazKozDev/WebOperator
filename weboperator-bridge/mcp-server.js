@@ -192,6 +192,9 @@ function callHttp(type, payload, timeoutMs) {
 function assertActionSucceeded(res) {
   const result = res?.kind === 'action:result' ? res.result : res;
   if (res?.kind === 'error' || result?.ok === false) throw new Error(result?.error || res.error || 'Browser action failed');
+  if (result?.save?.status === 'unconfirmed') return 'Save unconfirmed. Inspect the record before submitting again.';
+  if (result?.save?.status === 'saved') return 'Save confirmed.';
+  return res?.status || 'ok';
 }
 
 function refArg(args = {}) {
@@ -268,35 +271,36 @@ async function handleToolCall(name, args) {
     }
     case 'browser_click': {
       const res = await callBridge('browser.click', withTabId({ ...refPayload(args), ...(args.button !== undefined ? { button: args.button } : {}), ...(args.clickCount !== undefined ? { clickCount: args.clickCount } : {}), ...(args.modifiers !== undefined ? { modifiers: args.modifiers } : {}) }, args), 30_000);
-      assertActionSucceeded(res);
+      const status = assertActionSucceeded(res);
       return {
         content: [
           {
             type: 'text',
-            text: `Clicked element. ${res?.status || 'ok'}`,
+            text: `Clicked element. ${status}`,
           },
         ],
       };
     }
     case 'browser_type': {
-      const res = await callBridge('browser.type', withTabId({ ...refPayload(args), text: args.text, ...typeOptions(args) }, args), 30_000);
-      assertActionSucceeded(res);
+      const res = await callBridge('browser.type', withTabId({ ...refPayload(args), text: args.text, ...typeOptions(args), ...(args.submit !== undefined ? { submit: args.submit } : {}) }, args), 30_000);
+      const status = assertActionSucceeded(res);
       return {
         content: [
           {
             type: 'text',
-            text: `Typed into element: "${args.text}". ${res?.status || 'ok'}`,
+            text: `Typed into element. ${status}`,
           },
         ],
       };
     }
     case 'browser_press': {
       const res = await callBridge('browser.press', withTabId({ ...refPayload(args), key: args.key, ...(args.modifiers ? { modifiers: String(args.modifiers) } : {}) }, args), 30_000);
+      const status = assertActionSucceeded(res);
       return {
         content: [
           {
             type: 'text',
-            text: `Pressed key "${args.key}". ${res?.status || 'ok'}`,
+            text: `Pressed key "${args.key}". ${status}`,
           },
         ],
       };

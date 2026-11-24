@@ -42,7 +42,6 @@ import {
   type Settings,
   type StepTimings,
   type ToolCall,
-  type TaskAttachment,
 } from '@/lib/types';
 import { actionMayOpenTab, addOpenedTabsToResult, findOpenedTabs, shouldFollowOpenedTab, type BrowserTabSummary } from '@/lib/tab-sync';
 import { findCredentialForUrl, getCustomSkills, saveStep as saveStepRaw, saveTask } from '@/lib/storage';
@@ -64,6 +63,10 @@ import {
   toolCallSignature,
 } from '@/lib/loop-guard';
 import { maskStepForStorage, maskTaskForLog } from '@/lib/masking';
+import { runCsvTool, type CsvHost } from './csv-files';
+import { confirmFromEvidence, describeSubmission, newSaveEntry, reconcileSave, runJournaledSave } from '@/lib/save-journal';
+import { isFormSave } from '@/lib/form-save';
+import { observeFormAction } from './form-action';
 import { runCdpAction } from './cdp-actions';
 import { clickSelector } from './cursor';
 import {
@@ -152,7 +155,7 @@ export interface AgentDeps {
   isPaused: (taskId: string) => boolean;
   requestPause?: (taskId: string) => void;
   requestResume?: (taskId: string) => void;
-  getAttachment?: (taskId: string, attachmentId: string) => TaskAttachment | undefined;
+  csvHost?: CsvHost;
 }
 
 interface LoopState {
@@ -202,7 +205,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
   const intent = computeIntentHash(task.goal);
 
   // Optionally reset page to clean state before starting a new task
-  if (settings.resetPageOnStart && tab.url && !tab.url.startsWith('chrome://')) {
+  if (!task.steps.length && !task.saveJournal?.length && settings.resetPageOnStart && tab.url && !tab.url.startsWith('chrome://')) {
     await chrome.tabs.update(task.tabId, { url: tab.url });
     await waitForTabComplete(task.tabId);
     await sleep(500);
@@ -225,6 +228,10 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
   const previousTurns = await loadConversation(task.parentTaskId);
   const conversation = renderConversationContext(previousTurns, Math.min(24000, Math.floor(contextTokenBudget(settings) * 0.8)));
   if (conversation) history[0].content += `\n\n${conversation}`;
+
+  const generated = task.attachments?.filter(a => a.sha256) ?? [];
+  if (generated.length) history.push({ role: 'user', content: '[AVAILABLE CSV ATTACHMENTS] ' +
+    JSON.stringify(generated.map(({ id, name }) => ({ attachmentId: id, name }))) });
 
   // Inject memory context for this site
   const memCtx = await memoryContext(tab.url ?? '');
@@ -260,7 +267,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
   const ledgerBudget = ledgerCharBudget(contextTokenBudget(settings));
   let startSnapshotHash: string | null = null;
   let stepIndex = 0;
-  let stepSerial = 0;
+  let stepSerial = task.steps.reduce((next, step) => Math.max(next, step.index + 1), 0);
   let consecutiveFailures = 0;
   // Loop guard: repeated no-effect calls, including short A-B-A-B cycles.
   const loopGuard = createLoopGuardState();
@@ -274,8 +281,8 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
   const observationRefs: ObservationRef[] = [];
 
   // ── Planner state ──
-  let plan: AgentPlan | null = null;
-  let planWasSetByModel = false;
+  let plan: AgentPlan | null = task.plan ?? null;
+  let planWasSetByModel = Boolean(plan);
 
   // ── Orchestrator state ──
   let orchPlan: OrchestrationPlan | null = null;
@@ -339,6 +346,12 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
 
 
   // ── Retry tracking per step ──
+  const restoredSaves = new Set(task.saveJournal ?? []);
+  if (restoredSaves.size) {
+    history.push({ role: 'user', content: '[RECOVERY] The previous run stopped around a form submission. Inspect the site for the stored record before any write. ' +
+      'Previously confirmed submissions must not be repeated. For an unconfirmed one, find the record (open the records list if needed) and call confirm_submission. ' +
+      [...restoredSaves].map(describeSubmission).join(' | ') });
+  }
   let stepRetryCount = 0;
   let resumeCount = 0;
   let botChallengeHandoffs = 0;
@@ -425,6 +438,12 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
       const snapshot = await takeSnapshotOrRecover(activeTabId, recoveryPage?.url);
       const snapshotMs = performance.now() - snapT0;
       step.snapshot = snapshot;
+      for (const entry of task.saveJournal ?? []) {
+        if (entry.tabId === activeTabId && reconcileSave(entry, snapshot)) {
+          await saveTask(task);
+          if (entry.status !== 'pending') history.push({ role: 'user', content: `[REVIEW] Previous submission: ${entry.status}.` });
+        }
+      }
       if (startSnapshotHash === null) startSnapshotHash = snapshot.domHash;
 
       // ── Page health: the tab may have been redirected off the working page ──
@@ -686,6 +705,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
             snapshot,
             firstStep: !planWasSetByModel,
             hasCredential: Boolean(availableCredential),
+            hasPendingSave: Boolean(task.saveJournal?.some(entry => entry.status === 'pending')),
           }),
           onUpdate: (partial) => {
             step.thinking = partial.thinking;
@@ -1301,6 +1321,38 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
           error: captchaResult.success ? undefined : captchaResult.message,
         };
         step.note = captchaResult.message;
+      } else if (toolCall.name === 'confirm_submission') {
+        const journal = task.saveJournal ?? [];
+        if (String(toolCall.arguments.found) === 'true') {
+          const resolved = confirmFromEvidence(journal, snapshot, String(toolCall.arguments.ref ?? ''));
+          if ('error' in resolved) throw new Error(resolved.error);
+          resolved.entry.status = 'confirmed';
+          await saveTask(task);
+          step.result = { ok: true, durationMs: 0, extracted: { confirmed: true, evidence: resolved.evidence } };
+          step.note = `Submission confirmed: "${truncate(resolved.evidence, 60)}" is on the page`;
+        } else {
+          const entry = journal.filter(item => item.status === 'pending').at(-1);
+          if (!entry) throw new Error('No unconfirmed submission to resolve.');
+          // A wrong "not found" creates a duplicate record, so the user decides.
+          task.status = 'awaiting_confirm';
+          task.updatedAt = Date.now();
+          await saveTask(task);
+          broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
+          const allowed = await deps.shouldConfirm(task, toolCall);
+          task.status = 'running';
+          task.updatedAt = Date.now();
+          if (allowed) entry.status = 'rejected';
+          await saveTask(task);
+          broadcastEvent({ kind: 'task:update', task: maskTaskForLog(task) });
+          if (!allowed) throw new Error('The user did not allow a resubmission. Finish with success=false and report the submission as unconfirmed.');
+          step.result = { ok: true, durationMs: 0, extracted: { resubmitAllowed: true } };
+          step.note = 'User allowed a resubmission';
+        }
+      } else if (toolCall.name === 'inspect_csv' || toolCall.name === 'transform_csv') {
+        const start = performance.now();
+        const extracted = await runCsvTool(task, toolCall, deps.csvHost);
+        if (toolCall.name === 'transform_csv') await saveTask(task);
+        step.result = { ok: true, extracted, durationMs: performance.now() - start };
       } else if (toolCall.name === 'read_downloaded_file') {
         const query = typeof toolCall.arguments.query === 'string' ? toolCall.arguments.query : undefined;
         const maxChars = typeof toolCall.arguments.maxCharacters === 'number' ? toolCall.arguments.maxCharacters : 8000;
@@ -1343,6 +1395,10 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
           continue;
         }
 
+        if (success && task.saveJournal?.some(entry => entry.status !== 'confirmed')) {
+          throw new Error('Save unconfirmed. Find the stored record and call confirm_submission, or report success=false if persistence cannot be verified. ' +
+            task.saveJournal.filter(entry => entry.status !== 'confirmed').map(describeSubmission).join(' | '));
+        }
         if (success && sheetContract) {
           const sheetStatus = sheetContractStatus(sheetContract, sheetWrittenCells);
           if (!sheetStatus.complete) {
@@ -1515,7 +1571,14 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
           const prior = task.collection?.documents.find(d => d.source === snapshot.url);
           action = { ...toolCall, arguments: { ...toolCall.arguments, offset: prior?.text.length ?? 0, revision: prior?.revision } };
         }
-        step.result = await runBrowserAction(activeTabId, snapshot, action, task.id, deps);
+        const execute = () => runBrowserAction(activeTabId, snapshot, action, task, deps);
+        if (isFormSave(snapshot, action.name, action.arguments)) {
+          const field = snapshot.nodes.find(n => action.arguments.ref ? n.ref === action.arguments.ref : n.state?.includes('focused'));
+          step.result = await runJournaledSave(task, newSaveEntry(activeTabId, snapshot, action), restoredSaves, saveTask,
+            () => observeFormAction(activeTabId, field?.frameId ?? 0, action, execute));
+        } else {
+          step.result = await execute();
+        }
         if (collect && step.result.ok) {
           const batch = step.result.extracted as PageRows | TextChunk;
           const c = task.collection ??= { rows: [], pages: [], documents: [] };
@@ -1589,7 +1652,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
 
       // ── Push tool result message (required by OpenAI-compatible APIs) ──
       const toolResultContent = step.result?.ok
-        ? (step.result?.extracted !== undefined ? JSON.stringify(step.result.extracted) : 'ok')
+        ? (step.result.save ? JSON.stringify(step.result.save) : step.result.extracted !== undefined ? JSON.stringify(step.result.extracted) : 'ok')
         : `error: ${step.result?.error ?? 'unknown'}${step.result?.extracted !== undefined ? `; details: ${JSON.stringify(step.result.extracted)}` : ''}`;
 
       // Say so the first time a call hands back content the model already has, instead of letting
@@ -2283,11 +2346,16 @@ export async function requestModelResponse(settings: Settings, opts: OllamaChatO
   return chat({ ...opts, numCtx: opts.numCtx ?? settings.ollamaNumCtx });
 }
 
-async function runBrowserAction(tabId: number, snapshot: A11ySnapshot, call: ToolCall, taskId: string, deps: AgentDeps) {
+async function runBrowserAction(tabId: number, snapshot: A11ySnapshot, call: ToolCall, task: AgentTask, deps: AgentDeps) {
   if (call.name === 'upload_attachment') {
     const attachmentId = String(call.arguments.attachmentId ?? '');
-    const attachment = deps.getAttachment?.(taskId, attachmentId);
+    const attachment = task.attachments?.find(item => item.id === attachmentId);
     if (!attachment) return { ok: false, durationMs: 0, error: `Unknown task attachment: ${attachmentId}` };
+    if (attachment.sha256) {
+      if (!deps.csvHost) throw new Error('CSV verification requires the WebOperator native bridge');
+      const result = await deps.csvHost({ mode: 'verify', file: attachment.path, sha256: attachment.sha256 });
+      if (result.verified !== true) throw new Error('CSV attachment verification failed');
+    }
     return runCdpAction(tabId, snapshot, {
       ...call,
       arguments: { ...call.arguments, path: attachment.path },
@@ -2320,7 +2388,9 @@ async function runBrowserAction(tabId: number, snapshot: A11ySnapshot, call: Too
 
   if (call.name === 'click' || call.name === 'type' || call.name === 'press') {
     const dom = await runContentAction(tabId, call);
-    if (dom.ok) return dom;
+    // A failed edit may already have changed the field. Replaying it can
+    // append twice or bypass cancellation, validation, or truncation.
+    if (dom.ok || call.name === 'type' || isFormSave(snapshot, call.name, call.arguments)) return dom;
     const cdp = await runCdpAction(tabId, snapshot, call);
     if (cdp.ok) return cdp;
     return {
@@ -2433,7 +2503,7 @@ function isOrchestratorControlTool(name: ToolCall['name']): boolean {
     name === 'define_sheet_contract' ||
     name === 'fill_login_credentials' ||
     name === 'solve_captcha' ||
-    name === 'read_downloaded_file'
+    name === 'inspect_csv' || name === 'transform_csv' || name === 'confirm_submission' || name === 'read_downloaded_file'
   );
 }
 

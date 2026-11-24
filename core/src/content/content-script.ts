@@ -1,7 +1,7 @@
 import './overlay.js';
 import { pageRequest } from '@/lib/bridge-page';
 import { buildSnapshot } from '@/lib/a11y';
-import { runAction } from '@/lib/actions';
+import { captureSaveContext, prepareNativeEdit, runAction, verifyNativeEdit } from '@/lib/actions';
 import { clearSetOfMark, renderSetOfMark } from '@/lib/som';
 import { readImage } from '@/lib/image-read';
 import type { CSMessage, CSResponse } from '@/lib/types';
@@ -39,6 +39,12 @@ async function handle(msg: CSMessage): Promise<CSResponse> {
       });
       return { kind: 'snapshot', snapshot };
     }
+    case 'save:context': return captureSaveContext(msg.action);
+    case 'text:prepare':
+      return { kind: 'text:prepared', ...prepareNativeEdit(msg.ref, msg.text, msg.append) };
+    case 'text:verify':
+      await verifyNativeEdit(msg.token, msg.submit, msg.retainFocus);
+      return { kind: 'ok' };
     case 'action:run': {
       const result = await runAction(msg.action, msg.action.name === 'wait' ? Math.min(Number(msg.action.arguments.ms ?? 1000), 120_000) + 1000 : 10_000);
       return { kind: 'action:result', result };

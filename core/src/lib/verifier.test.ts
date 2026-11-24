@@ -230,3 +230,25 @@ describe('verifier', () => {
     expect(result.errorDetected).toContain('503');
   });
 });
+
+describe('form postconditions', () => {
+  const save = node({ ref: '@e2', role: 'button', name: 'Save changes', formRef: '@form' });
+  const field = node({ role: 'textbox', value: 'old', formRef: '@form' });
+  it('requires the complete append despite an unrelated DOM change', () => {
+    const before = snapshot({ nodes: [field] });
+    const after = snapshot({ nodes: [{ ...field, value: 'tail' }], domHash: 'changed' });
+    expect(verify(before, after, okAction, 'type', { ref: field.ref, mode: 'append', text: 'tail' }).status).toBe('partial');
+  });
+  it('ignores stale success and a success message from a different form', () => {
+    const before = snapshot({ nodes: [save], textSnippets: ['Saved'] });
+    const after = snapshot({ nodes: [save, node({ role: 'heading', name: 'Changes saved', formRef: '@other' })], textSnippets: ['Saved'], domHash: 'changed' });
+    expect(verify(before, after, okAction, 'click', { ref: save.ref }).status).toBe('partial');
+  });
+  it('distinguishes fresh confirmation, inline rejection and missing confirmation', () => {
+    const before = snapshot({ nodes: [field, save] });
+    const check = (nodes: A11yNode[]) => verify(before, snapshot({ nodes, domHash: 'changed' }), okAction, 'type', { ref: field.ref, text: 'new', submit: true }).status;
+    expect(check([save, { ...field, value: 'new' }])).toBe('partial');
+    expect(check([save, { ...field, field: { error: 'Maximum 2 characters' } }])).toBe('failed');
+    expect(check([node({ role: 'heading', name: 'Changes saved' })])).toBe('success');
+  });
+});

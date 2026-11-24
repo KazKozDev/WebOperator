@@ -157,7 +157,7 @@ export type A11yRole =
   | 'button' | 'link' | 'textbox' | 'searchbox' | 'combobox'
   | 'checkbox' | 'radio' | 'switch' | 'slider' | 'tab'
   | 'menuitem' | 'option' | 'listbox' | 'heading' | 'image'
-  | 'generic' | 'unknown';
+  | 'status' | 'alert' | 'generic' | 'unknown';
 
 export interface A11yNode {
   ref: string;
@@ -166,6 +166,8 @@ export interface A11yNode {
   value?: string;
   text?: string;
   src?: string;
+  formRef?: string;
+  field?: { maxLength?: number; minLength?: number; hint?: string; error?: string };
   naturalWidth?: number;
   naturalHeight?: number;
   href?: string;
@@ -191,6 +193,7 @@ export interface SnapshotRequestOptions {
 }
 
 export interface A11ySnapshot {
+  documentStart?: number;
   truncated?: boolean;
   total?: number;
   frameCount?: number;
@@ -215,6 +218,9 @@ export type AgentActionName =
   | 'fill_login_credentials'
   | 'solve_captcha'
   | 'upload_attachment'
+  | 'inspect_csv'
+  | 'transform_csv'
+  | 'confirm_submission'
   | 'read_downloaded_file'
   | 'start_subtask' | 'finish_subtask' | 'fail_subtask' | 'update_task_memory';
 
@@ -227,13 +233,18 @@ export interface ToolCall {
 }
 
 export interface TaskAttachment {
+  sha256?: string;
   id: string;
   name: string;
   path: string;
   mimeType?: string;
 }
 
+export type SaveOutcome = { status: 'saved' | 'unconfirmed' } | { status: 'rejected'; message: string };
+
 export interface ActionResult {
+  save?: SaveOutcome;
+  delivery?: 'not-sent';
   ok: boolean;
   error?: string;
   extracted?: unknown;
@@ -330,6 +341,8 @@ export interface TaskPauseReason {
 }
 
 export interface AgentTask {
+  saveJournal?: import('./save-journal').SaveEntry[];
+  attachments?: TaskAttachment[];
   collection?: import('./collection').Collection;
   /** Previous turn in this explicit chat, including across tabs and restarts. */
   parentTaskId?: string;
@@ -422,6 +435,9 @@ export type CSMessage =
   | { kind: 'bridge:page'; type: string; payload: Record<string, unknown> }
   | { kind: 'snapshot:take'; options?: SnapshotRequestOptions }
   | { kind: 'action:run'; action: ToolCall }
+  | { kind: 'save:context'; action: ToolCall }
+  | { kind: 'text:prepare'; ref: string; text: string; append: boolean }
+  | { kind: 'text:verify'; token: string; submit: boolean; retainFocus?: boolean }
   | { kind: 'overlay:show'; refs: string[] }
   | { kind: 'overlay:hide' }
   | { kind: 'agent-glow:set'; active: boolean }
@@ -434,6 +450,8 @@ export type CSResponse =
   | { kind: 'bridge:page'; result: unknown }
   | { kind: 'snapshot'; snapshot: A11ySnapshot }
   | { kind: 'action:result'; result: ActionResult }
+  | { kind: 'save:context'; snapshot: A11ySnapshot; ref: string; refPrefix: string }
+  | { kind: 'text:prepared'; token: string; needsInput: boolean }
   | { kind: 'image'; result: import('./image-read').ImageReadResult }
   | { kind: 'ok' }
   | { kind: 'error'; error: string };

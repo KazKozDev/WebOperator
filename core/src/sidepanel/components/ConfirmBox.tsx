@@ -64,6 +64,8 @@ export function describeToolCall(call: AgentStep['toolCall'] | undefined): strin
       return `Extract data from the page${reason ? ` — ${reason}` : ''}.`;
     case 'done':
       return 'Finish the task and return the final answer.';
+    case 'confirm_submission':
+      return `The last form submission could not be confirmed and the agent did not find the record${reason ? ` (${reason})` : ''}. Allow it to submit again? Decline if the record may already exist.`;
     case 'open_tab': {
       const url = typeof args.url === 'string' ? args.url : 'new tab';
       return `Open a new tab at ${url}${reason ? ` — ${reason}` : ''}.`;

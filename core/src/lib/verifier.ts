@@ -1,6 +1,7 @@
 import type { A11ySnapshot, ActionResult, RetryStrategy, VerificationResult } from './types';
 import { parseBatchActions } from './batch-actions';
 import { summarizeExtraction } from './extraction';
+import { isFormSave, saveOutcome } from './form-save';
 import { assessPageHealth } from './page-state';
 
 const ERROR_PATTERNS = [
@@ -53,6 +54,17 @@ export function verify(
 
   const domChanged = snapshotBefore.domHash !== snapshotAfter.domHash;
   const urlChanged = snapshotBefore.url !== snapshotAfter.url;
+
+  if (action.save || isFormSave(snapshotBefore, toolName, toolArguments)) {
+    const observed = saveOutcome(snapshotBefore, snapshotAfter, toolArguments.ref);
+    const outcome = observed.status === 'unconfirmed' ? action.save ?? observed : observed;
+    if (outcome.status === 'rejected') return { status: 'failed', domChanged, urlChanged, errorDetected: outcome.message,
+      suggestions: [`Form rejected the save: ${outcome.message}. Correct the field before submitting again.`], recommendedStrategy: 'try_alternative' };
+    if (outcome.status === 'saved') return { status: 'success', domChanged, urlChanged,
+      suggestions: ['Page confirmed this save'], recommendedStrategy: 'none' };
+    return { status: 'partial', domChanged, urlChanged,
+      suggestions: ['Save unconfirmed. Wait for feedback, or find the stored record and call confirm_submission. Never repeat the submission before that.'], recommendedStrategy: 'wait_and_retry' };
+  }
 
   const errorDetected = detectErrors(snapshotAfter, snapshotBefore);
   const popup = detectPopup(snapshotBefore, snapshotAfter);
@@ -168,6 +180,11 @@ export function verify(
     };
   }
 
+  if (toolName === 'type' && String(toolArguments.submit) !== 'true') {
+    return { status: 'partial', domChanged, urlChanged,
+      suggestions: ['The full field value could not be verified. Inspect it before further edits or submission.'], recommendedStrategy: 'try_alternative' };
+  }
+
   if (domChanged || urlChanged) {
     const elementAppeared = findNewElement(snapshotBefore, snapshotAfter);
     return {
@@ -216,8 +233,8 @@ function verifyToolPostcondition(
     const expected = String(args.text ?? '');
     const actual = afterNode.value ?? '';
     const mode = String(args.mode ?? 'replace');
-    const matches = mode === 'append' ? actual.endsWith(expected) : actual === expected;
-    if (matches) return `Input value matches the requested ${mode} operation`;
+    const matches = mode === 'append' ? Boolean(beforeNode) && actual === (beforeNode?.value ?? '') + expected : actual === expected;
+    if (matches && !afterNode.field?.error) return `Input value matches the requested ${mode} operation`;
   }
 
   if (toolName === 'select' && afterNode) {
@@ -406,7 +423,7 @@ export function verificationToPrompt(v: VerificationResult): string {
     return lines.join('\n');
   }
   if (v.status === 'partial') {
-    const lines = ['Action reported success, but NO observable state or DOM change was detected on the page.'];
+    const lines = [v.domChanged || v.urlChanged ? 'The page changed, but the requested outcome is unconfirmed.' : 'Action reported success, but NO observable state or DOM change was detected on the page.'];
     lines.push(...v.suggestions.map((s) => `- ${s}`));
     return lines.join('\n');
   }

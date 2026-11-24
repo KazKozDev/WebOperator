@@ -1,6 +1,6 @@
 import { clickAt } from './cursor';
 import { acquireCdp } from './cdp-session';
-import type { A11ySnapshot, ActionResult, ToolCall } from '@/lib/types';
+import type { A11ySnapshot, ActionResult, CSMessage, CSResponse, ToolCall } from '@/lib/types';
 
 type Debuggee = { tabId: number };
 
@@ -48,6 +48,7 @@ export async function runCdpAction(tabId: number, snapshot: A11ySnapshot, call: 
         String(call.arguments.ref ?? ''),
         String(call.arguments.text ?? ''),
         String(call.arguments.submit ?? 'false') === 'true',
+        call.arguments.mode === 'append',
       );
     } else if (call.name === 'press') {
       if (call.arguments.ref) await cdpClick(target, snapshot, String(call.arguments.ref));
@@ -141,13 +142,18 @@ async function cdpClick(target: Debuggee, snapshot: A11ySnapshot, ref: string): 
   await sleep(80);
 }
 
-async function cdpType(target: Debuggee, snapshot: A11ySnapshot, ref: string, text: string, submit: boolean): Promise<void> {
-  await cdpClick(target, snapshot, ref);
-  await selectAll(target);
-  await key(target, 'Backspace');
-  await dispatchText(target, text);
+async function cdpType(target: Debuggee, snapshot: A11ySnapshot | undefined, ref: string, text: string, submit: boolean, append: boolean, retainFocus = false): Promise<void> {
+  const frameId = snapshot?.nodes.find(node => node.ref === ref)?.frameId ?? 0;
+  const message = (msg: CSMessage) => chrome.tabs.sendMessage(target.tabId, msg, { frameId }) as Promise<CSResponse>;
+  const prepared = await message({ kind: 'text:prepare', ref, text, append });
+  if (prepared.kind !== 'text:prepared') throw new Error(prepared.kind === 'error' ? prepared.error : 'Could not prepare field');
+  if (prepared.needsInput) {
+    if (text) await send(target, 'Input.insertText', { text });
+    else await key(target, 'Backspace');
+  }
+  const verified = await message({ kind: 'text:verify', token: prepared.token, submit, retainFocus });
+  if (verified.kind !== 'ok') throw new Error(verified.kind === 'error' ? verified.error : 'Could not verify field');
   if (submit) await key(target, 'Enter');
-  await sleep(80);
 }
 
 async function cdpPress(target: Debuggee, keyName: string, modifiersText: string): Promise<void> {
@@ -155,19 +161,6 @@ async function cdpPress(target: Debuggee, keyName: string, modifiersText: string
   const normalizedKey = normalizeKey(keyName);
   await key(target, normalizedKey, modifiers);
   await sleep(80);
-}
-
-async function dispatchText(target: Debuggee, text: string): Promise<void> {
-  for (const ch of text) {
-    await send(target, 'Input.dispatchKeyEvent', {
-      type: 'char',
-      text: ch,
-      unmodifiedText: ch,
-      key: ch,
-      windowsVirtualKeyCode: ch.length === 1 ? ch.toUpperCase().charCodeAt(0) : undefined,
-    });
-    await sleep(2);
-  }
 }
 
 async function cdpPasteTable(target: Debuggee, snapshot: A11ySnapshot, ref: string | undefined, tsv: string): Promise<void> {
@@ -300,10 +293,7 @@ async function cdpReadCells(target: Debuggee, snapshot: A11ySnapshot, range: str
   if (!rangeSelected) {
     // Fallback: select via name box + Enter
     await clickGoogleSheetsNameBox(target, snapshot);
-    await selectAll(target);
-    await dispatchText(target, range);
-    await sleep(60);
-    await key(target, 'Enter');
+    await cdpType(target, snapshot, ':focus', range, true, false, true);
     await sleep(300);
   }
 
@@ -447,9 +437,7 @@ async function selectGoogleSheetsCell(target: Debuggee, cell: string, snapshot?:
 
   if (snapshot) {
     await clickGoogleSheetsNameBox(target, snapshot);
-    await selectAll(target);
-    await dispatchText(target, normalized);
-    await key(target, 'Enter');
+    await cdpType(target, snapshot, ':focus', normalized, true, false, true);
     await sleep(180);
     return;
   }
@@ -539,26 +527,15 @@ function fallbackGridMetrics(snapshot: A11ySnapshot): GoogleSheetsGridMetrics {
 }
 
 async function trySelectGoogleSheetsNameBox(target: Debuggee, cell: string): Promise<boolean> {
-  await typeIntoGoogleSheetsNameBox(target, undefined, cell);
-  await key(target, 'Enter');
+  const focused = await focusGoogleSheetsNameBox(target);
+  if (!focused) return false;
+  await cdpType(target, undefined, ':focus', cell, true, false, true);
   return true;
 }
 
 async function trySelectSheetsRange(target: Debuggee, snapshot: A11ySnapshot, range: string): Promise<boolean> {
-  // Click name box area
-  const x = Math.max(55, Math.round(snapshot.viewport.w * 0.055));
-  const y = Math.max(115, Math.round(snapshot.viewport.h * 0.145));
-  await send(target, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
-  await send(target, 'Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
-  await send(target, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
-  await sleep(80);
-
-  // Select all in name box, type range
-  await selectAll(target);
-  await sleep(40);
-  await dispatchText(target, range);
-  await sleep(60);
-  await key(target, 'Enter');
+  await clickGoogleSheetsNameBox(target, snapshot);
+  await cdpType(target, snapshot, ':focus', range, true, false, true);
   await sleep(300);
 
   // Verify: copy to check if range selected
@@ -572,8 +549,7 @@ async function trySelectSheetsRange(target: Debuggee, snapshot: A11ySnapshot, ra
   }
 }
 
-async function typeIntoGoogleSheetsNameBox(target: Debuggee, snapshot: A11ySnapshot | undefined, text: string): Promise<void> {
-  // Try via page JS first (finds input by ID/heuristic, sets value)
+async function focusGoogleSheetsNameBox(target: Debuggee): Promise<boolean> {
   const injected = await send<{ result?: { value?: boolean } }>(target, 'Runtime.evaluate', {
     expression: `
       (() => {
@@ -599,34 +575,14 @@ async function typeIntoGoogleSheetsNameBox(target: Debuggee, snapshot: A11ySnaps
           .sort((a, b) => b.score - a.score)[0]?.el;
         if (!target) return false;
         target.focus();
-        if ('value' in target) {
-          target.value = ${JSON.stringify(text)};
-          target.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${JSON.stringify(text)} }));
-          target.dispatchEvent(new Event('change', { bubbles: true }));
-        } else {
-          document.execCommand('selectAll', false);
-          document.execCommand('insertText', false, ${JSON.stringify(text)});
-        }
-        return true;
+        return target === document.activeElement;
       })()
     `,
     awaitPromise: true,
     returnByValue: true,
   }).catch(() => undefined);
 
-  if (injected?.result?.value) return;
-
-  // Fallback: click name box area and type via CDP
-  if (snapshot) {
-    const x = Math.max(55, Math.round(snapshot.viewport.w * 0.055));
-    const y = Math.max(115, Math.round(snapshot.viewport.h * 0.145));
-    await send(target, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
-    await send(target, 'Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
-    await send(target, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
-    await sleep(80);
-    await selectAll(target);
-    await dispatchText(target, text);
-  }
+  return injected?.result?.value === true;
 }
 
 async function clickGoogleSheetsNameBox(target: Debuggee, snapshot: A11ySnapshot): Promise<void> {
@@ -719,10 +675,7 @@ function centerOf(snapshot: A11ySnapshot, ref: string): { x: number; y: number }
   };
 }
 
-async function selectAll(target: Debuggee): Promise<void> {
-  await shortcut(target, 'A', 2);
-  await shortcut(target, 'A', 4);
-}
+
 
 async function shortcut(target: Debuggee, keyName: string, modifiers: number): Promise<void> {
   await send(target, 'Input.dispatchKeyEvent', {
