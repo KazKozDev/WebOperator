@@ -1616,7 +1616,7 @@ export async function runTask(task: AgentTask, deps: AgentDeps): Promise<AgentTa
             ? { ...toolCall, arguments: { ...toolCall.arguments, target: asked } } : toolCall;
           const before = c.rows.length;
           const priorKeys = new Set(c.rows.map(row => row.key));
-          collectionQueue = applyBatch(c, batch, read, moved).queue;
+          collectionQueue = applyBatch(c, batch, read, moved);
           if (batch.kind === 'rows') {
             // Full rows are saved and shown to the user; the model gets a compact view so a
             // page of long cards does not crowd the history and vanish on compaction.

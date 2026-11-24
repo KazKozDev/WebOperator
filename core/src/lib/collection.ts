@@ -246,7 +246,7 @@ export function collectionFollowUp(c: Collection, batch: PageRows | TextChunk, r
 }
 
 /** Merges one capture into the collection and returns the steps that continue it. */
-export function applyBatch(c: Collection, batch: PageRows | TextChunk, read: ToolCall, moved = true): { queue: ToolCall[]; advanced: boolean } {
+export function applyBatch(c: Collection, batch: PageRows | TextChunk, read: ToolCall, moved = true): ToolCall[] {
   // A later, larger target wins: the first read may have passed the page size by mistake.
   const requested = Number(read.arguments.target);
   if (batch.kind === 'rows' && Number.isSafeInteger(requested) && requested > (c.target ?? 0)) c.target = requested;
@@ -255,27 +255,28 @@ export function applyBatch(c: Collection, batch: PageRows | TextChunk, read: Too
   const advanced = batch.kind === 'rows'
     ? c.rows.length > previous
     : batch.text.length > 0 && (batch.offset === 0 || batch.offset + batch.text.length > previous);
-  return { queue: collectionFollowUp(c, batch, read, advanced, moved), advanced };
+  return collectionFollowUp(c, batch, read, advanced, moved);
 }
 
 /** What the model sees for a rows capture: the new rows, each cut to one short line. */
-export function compactRows(batch: PageRows, added: CollectedRow[], priorKeys: ReadonlySet<string>, width = 200): Record<string, unknown> {
+export function compactRows(batch: PageRows, added: CollectedRow[], priorKeys: ReadonlySet<string>): Record<string, unknown> {
   const duplicates = batch.rows.filter(row => priorKeys.has(row.key)).length;
   return {
     kind: 'rows',
     source: batch.source,
     ...(batch.range ? { range: batch.range } : {}),
     ...(batch.claimed ? { claimed: batch.claimed } : {}),
-    newRows: added.map(row => row.text.replace(/\s+/g, ' ').trim().slice(0, width)),
+    newRows: added.map(row => row.text.replace(/\s+/g, ' ').trim().slice(0, 200)),
     alreadySaved: duplicates,
     beyondTarget: batch.rows.length - added.length - duplicates,
-    note: 'Full rows are saved and shown to the user under Collected data.',
   };
 }
 
 const isRead = (call: ToolCall) => call.name === 'extract' && (call.arguments.refs === 'rows' || call.arguments.refs === 'chunk');
 
-export interface FollowOutcome { steps: number; timedOut: boolean; error?: string }
+interface FollowOutcome { steps: number; timedOut: boolean; error?: string }
+/** A runaway guard; the caller's deadline is what normally ends a call. */
+const MAX_FOLLOW_STEPS = 200;
 
 /**
  * Runs a collection to its end (target met, no more pages, stall, or chunk total reached)
@@ -286,15 +287,14 @@ export async function followCollection(
   c: Collection,
   read: ToolCall,
   run: (call: ToolCall) => Promise<{ ok: boolean; extracted?: unknown; error?: string }>,
-  opts: { deadline: number; now?: () => number; maxSteps?: number },
+  opts: { deadline: number; now?: () => number },
 ): Promise<FollowOutcome> {
   const now = opts.now ?? Date.now;
-  const maxSteps = opts.maxSteps ?? 200;
   let queue: ToolCall[] = [read];
   let steps = 0;
   let moved = false;
   while (queue.length) {
-    if (now() >= opts.deadline || steps >= maxSteps) return { steps, timedOut: true };
+    if (now() >= opts.deadline || steps >= MAX_FOLLOW_STEPS) return { steps, timedOut: true };
     let call = queue.shift()!;
     if (call.arguments.refs === 'chunk') {
       const prior = c.documents.at(-1);
@@ -305,7 +305,7 @@ export async function followCollection(
     if (!result.ok) return { steps, timedOut: false, error: result.error ?? `${call.name} failed` };
     if (!isRead(call)) { moved = true; continue; }
     try {
-      queue = applyBatch(c, result.extracted as PageRows | TextChunk, read, moved).queue;
+      queue = applyBatch(c, result.extracted as PageRows | TextChunk, read, moved);
       moved = false;
     } catch (err) {
       return { steps, timedOut: false, error: err instanceof Error ? err.message : String(err) };

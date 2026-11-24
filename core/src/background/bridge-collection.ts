@@ -11,7 +11,7 @@ import type { ToolCall } from '@/lib/types';
 const STORE_KEY = 'bridgeCollections';
 const MAX_STORED = 20;
 /** Well inside the 30 s every bridge path allows, leaving room for one slow last step. */
-export const FOLLOW_BUDGET_MS = 12_000;
+const FOLLOW_BUDGET_MS = 12_000;
 
 type Mode = 'rows' | 'chunk';
 interface Stored { collection: Collection; mode: Mode; tabId: number; selector?: string; updatedAt: number }
